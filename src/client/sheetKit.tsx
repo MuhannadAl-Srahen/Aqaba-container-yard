@@ -18,7 +18,8 @@ export const dateFormat = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'short',
   timeZone: 'Asia/Amman',
 });
-export const timeFormat = new Intl.DateTimeFormat('en-GB', {
+/** 12-hour clock with the Arabic م/ص marker, Western digits. */
+export const timeFormat = new Intl.DateTimeFormat('ar-JO-u-nu-latn', {
   timeStyle: 'short',
   timeZone: 'Asia/Amman',
 });
@@ -44,10 +45,14 @@ export function rangeInstants(from: string, to: string): { fromIso: string; toIs
   return { fromIso, toIso };
 }
 
-/** One cell: its text and whether it reads left-to-right (numbers, plates). */
+/** One cell: its text, direction, wrapping policy, and an optional action. */
 export interface TableCell {
   readonly text: string;
   readonly ltr?: boolean;
+  /** Free-form text that may need to break anywhere (names, notes). */
+  readonly wrap?: boolean;
+  /** Screen only: the cell is a link (e.g. a truck opening its register). */
+  readonly onClick?: () => void;
 }
 
 export interface TableModel {
@@ -58,6 +63,7 @@ export interface TableModel {
 
 export const cellText = (text: string): TableCell => ({ text });
 export const cellLtr = (text: string): TableCell => ({ text, ltr: true });
+export const cellWrap = (text: string): TableCell => ({ text, wrap: true });
 export const dash = '—';
 
 export const stampCells = (at: Date): TableCell[] => [
@@ -125,7 +131,7 @@ export function downloadBlob(blob: Blob, filename: string): void {
 }
 
 const cellBase = 'border border-slate-300 px-2.5 py-1.5 text-sm';
-const PAGE_SIZE = 15;
+const PAGE_SIZES = [20, 50, 80] as const;
 
 /**
  * A whole register screen: title row with the caller's tabs, a filter row
@@ -143,17 +149,20 @@ export function SheetScreen(props: {
   tabs?: ReactNode;
   extraFilters?: ReactNode;
   emptyText?: string | undefined;
+  /** Screen-only per-row actions (undo buttons and the like); never printed. */
+  actions?: { header: string; render: (rowIndex: number) => ReactNode } | undefined;
   onBack: () => void;
 }): ReactElement {
   const { model } = props;
   const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const pages = Math.max(1, Math.ceil(model.body.length / PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(model.body.length / pageSize));
   useEffect(() => {
     setPage(0);
-  }, [props.sheetTitle, model.body.length]);
+  }, [props.sheetTitle, model.body.length, pageSize]);
   const current = Math.min(page, pages - 1);
 
   const periodText = `${AR.rangeFrom} ${props.from.split('-').reverse().join('/')} ${AR.rangeTo} ${props.to
@@ -227,6 +236,22 @@ export function SheetScreen(props: {
             />
           </label>
           {props.extraFilters}
+          <label className="flex items-center gap-1.5 text-sm">
+            <span className="font-semibold text-slate-600">{AR.perPage}</span>
+            <select
+              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+              }}
+            >
+              {PAGE_SIZES.map((size) => (
+                <option key={size} value={size}>
+                  {size}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="ms-auto flex items-center gap-1.5">
             <Button
               onClick={() => {
@@ -274,6 +299,13 @@ export function SheetScreen(props: {
                         {heading}
                       </th>
                     ))}
+                    {props.actions !== undefined && (
+                      <th
+                        className={`${cellBase} print-hidden border-b-2 border-b-slate-700 bg-slate-100 font-bold`}
+                      >
+                        {props.actions.header}
+                      </th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -281,7 +313,7 @@ export function SheetScreen(props: {
                       printer un-hides the rest. */}
                   {model.body.map((row, rowIndex) => {
                     const onPage =
-                      rowIndex >= current * PAGE_SIZE && rowIndex < (current + 1) * PAGE_SIZE;
+                      rowIndex >= current * pageSize && rowIndex < (current + 1) * pageSize;
                     return (
                       <tr
                         key={rowIndex}
@@ -292,12 +324,25 @@ export function SheetScreen(props: {
                         {row.map((cell, cellIndex) => (
                           <td
                             key={cellIndex}
-                            className={`${cellBase}${cell.ltr === true ? ' whitespace-nowrap' : ' wrap-anywhere'}`}
+                            className={
+                              cellBase +
+                              (cell.ltr === true ? ' whitespace-nowrap' : '') +
+                              (cell.wrap === true ? ' wrap-anywhere' : '') +
+                              (cell.onClick !== undefined
+                                ? ' cursor-pointer font-semibold text-blue-700 underline decoration-dotted hover:text-blue-900'
+                                : '')
+                            }
                             dir={cell.ltr === true ? 'ltr' : undefined}
+                            onClick={cell.onClick}
                           >
                             {cell.text}
                           </td>
                         ))}
+                        {props.actions !== undefined && (
+                          <td className={`${cellBase} print-hidden`}>
+                            {props.actions.render(rowIndex)}
+                          </td>
+                        )}
                       </tr>
                     );
                   })}

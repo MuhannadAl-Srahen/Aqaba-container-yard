@@ -27,6 +27,8 @@ function movementLine(movement: MovementDto, label: (p: Position) => string): st
       return movement.note === '' ? AR.movementEdit : AR.editedFields(movement.note);
     case 'DELETE':
       return AR.movementDelete;
+    case 'RESTORE':
+      return AR.movementRestore;
   }
 }
 
@@ -57,6 +59,8 @@ export function ContainerCard(props: {
   onStackOnTop: (position: Position) => void;
   /** Open the printable gate card. */
   onPrint: (kind: 'in' | 'out', container: ContainerDto) => void;
+  /** The container just left: refresh AND hand over its exit card to print. */
+  onExited: (container: ContainerDto, message: string) => void;
   onChanged: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
@@ -319,13 +323,22 @@ export function ContainerCard(props: {
               <Button
                 disabled={busy || truckOut.trim() === ''}
                 onClick={() => {
-                  run(
-                    api.exit(container.id, {
+                  setBusy(true);
+                  setError(null);
+                  api
+                    .exit(container.id, {
                       truck: truckOut.trim(),
                       driver: driverOut.trim(),
-                    }),
-                    AR.exitDone(container.number),
-                  );
+                    })
+                    .then((departed) => {
+                      // Straight to its exit card — the paper the driver takes.
+                      props.onExited(departed, AR.exitDone(departed.number));
+                    })
+                    .catch((failure: unknown) => {
+                      setError(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+                      setBusy(false);
+                      setConfirming(null);
+                    });
                 }}
               >
                 {AR.actionExit}

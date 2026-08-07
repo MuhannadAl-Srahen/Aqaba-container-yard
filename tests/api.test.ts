@@ -348,7 +348,50 @@ describe('edit and delete', () => {
     expect(body.container.customer).toBe('عميل ثاني');
     expect(body.container.cargo).toBe('EMPTY');
     const edit = body.movements.find((m) => m.type === 'EDIT');
-    expect(edit?.note).toBe('customer,cargo');
+    const note = JSON.parse(edit?.note ?? '{}') as {
+      k: string[];
+      b: Record<string, string | number>;
+    };
+    expect(note.k).toEqual(['customer', 'cargo']);
+    // The old values ride along so the log can undo the edit later.
+    expect(note.b).toMatchObject({ customer: 'شركة النقل الأردنية', cargo: 'LADEN' });
+  });
+
+  it('a deleted record can be restored to its old slot — unless taken', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 2, 2, 1));
+    await call({ method: 'DELETE', url: `/api/containers/${String(created.body.id)}` });
+
+    const restored = await call({
+      method: 'POST',
+      url: `/api/containers/${String(created.body.id)}/restore`,
+      payload: {},
+    });
+    expect(restored.status).toBe(200);
+    expect((restored.body as { position: Position | null }).position).toMatchObject({
+      block: B20,
+      row: 2,
+      col: 2,
+    });
+
+    // Restoring a live record is refused.
+    const again = await call({
+      method: 'POST',
+      url: `/api/containers/${String(created.body.id)}/restore`,
+      payload: {},
+    });
+    expect(again.status).toBe(409);
+    expect((again.body as { code: string }).code).toBe('NOT_DELETED');
+
+    // Delete once more, let someone take the slot: the restore must refuse.
+    await call({ method: 'DELETE', url: `/api/containers/${String(created.body.id)}` });
+    await gateIn('CSQU3054383', 20, at(B20, 2, 2, 1));
+    const blocked = await call({
+      method: 'POST',
+      url: `/api/containers/${String(created.body.id)}/restore`,
+      payload: {},
+    });
+    expect(blocked.status).toBe(409);
+    expect((blocked.body as { code: string }).code).toBe('SLOT_TAKEN');
   });
 
   it('renaming onto a number standing elsewhere is refused', async () => {

@@ -477,11 +477,27 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       }
 
       const changed: string[] = [];
-      if (check.normalized !== existing.number) changed.push('number');
-      if (body.customer !== existing.customer) changed.push('customer');
-      if (body.cargo !== existing.cargo) changed.push('cargo');
-      if (body.size !== existing.size) changed.push('size');
-      if (body.notes !== existing.notes) changed.push('notes');
+      const before: Record<string, string | number> = {};
+      if (check.normalized !== existing.number) {
+        changed.push('number');
+        before['number'] = existing.number;
+      }
+      if (body.customer !== existing.customer) {
+        changed.push('customer');
+        before['customer'] = existing.customer;
+      }
+      if (body.cargo !== existing.cargo) {
+        changed.push('cargo');
+        before['cargo'] = existing.cargo;
+      }
+      if (body.size !== existing.size) {
+        changed.push('size');
+        before['size'] = existing.size;
+      }
+      if (body.notes !== existing.notes) {
+        changed.push('notes');
+        before['notes'] = existing.notes;
+      }
 
       if (changed.length > 0) {
         store.updateContainer(db, id, {
@@ -492,9 +508,43 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           size: body.size,
           notes: body.notes,
         });
-        // The note carries machine keys; the client renders them in Arabic.
-        store.recordMovement(db, id, 'EDIT', now(), null, null, changed.join(','));
+        // The note carries machine keys AND the old values, so the log can
+        // both name the change in Arabic and undo it later.
+        store.recordMovement(
+          db,
+          id,
+          'EDIT',
+          now(),
+          null,
+          null,
+          JSON.stringify({ k: changed, b: before }),
+        );
       }
+      return store.getContainer(db, id);
+    });
+  });
+
+  /** Undo a deletion: the record returns, standing where it stood if it can. */
+  app.post('/api/containers/:id/restore', (request) => {
+    requireAuth(request);
+    const yard = requireYard();
+    const id = idParam(request);
+
+    return transaction(db, () => {
+      const existing = store.getContainerAny(db, id);
+      if (existing === null) refuse(404, 'NOT_FOUND');
+      if (existing === null) throw new Error('unreachable');
+      if (!existing.deleted) refuse(409, 'NOT_DELETED');
+
+      const wasAt = store.lastDeletePosition(db, id);
+      if (wasAt !== null) {
+        const refusal = canPlace(yard, store.listStanding(db), existing.size, wasAt);
+        if (refusal !== null) {
+          refuse(409, refusal.code, 'by' in refusal ? { by: refusal.by } : undefined);
+        }
+      }
+      store.restoreContainer(db, id, wasAt);
+      store.recordMovement(db, id, 'RESTORE', now(), null, wasAt, '');
       return store.getContainer(db, id);
     });
   });

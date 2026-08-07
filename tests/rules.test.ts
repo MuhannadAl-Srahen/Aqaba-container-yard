@@ -20,8 +20,9 @@ const at = (block: number, row: number, col: number, tier: 1 | 2): Position => (
   tier,
 });
 
-const standing = (...list: Array<[id: number, number: string, pos: Position]>): Standing[] =>
-  list.map(([id, number, position]) => ({ id, number, position }));
+const standing = (
+  ...list: Array<[id: number, number: string, pos: Position, size?: 20 | 40]>
+): Standing[] => list.map(([id, number, position, size]) => ({ id, number, size: size ?? 20, position }));
 
 describe('placement', () => {
   it('accepts an empty ground slot in the right block', () => {
@@ -50,6 +51,23 @@ describe('placement', () => {
     };
     expect(canPlace(withMixed, [], 20, at(9, 1, 1, 1))).toBeNull();
     expect(canPlace(withMixed, [], 40, at(9, 1, 2, 1))).toBeNull();
+  });
+
+  it('a 40 never stacks on a 20; the other way round is allowed', () => {
+    const withMixed: YardConfig = {
+      blocks: [
+        ...yard.blocks,
+        { id: 9, name: 'م', size: 0, rows: 2, cols: 2, x: 900, y: 0, angle: 0 },
+      ],
+    };
+    const s = standing(
+      [1, 'MSCU1234566', at(9, 1, 1, 1), 20],
+      [2, 'TGHU1234560', at(9, 2, 1, 1), 40],
+    );
+    const refused = canPlace(withMixed, s, 40, at(9, 1, 1, 2));
+    expect(refused?.code).toBe('BAD_STACK');
+    expect(canPlace(withMixed, s, 20, at(9, 2, 1, 2))).toBeNull();
+    expect(canPlace(withMixed, s, 40, at(9, 2, 1, 2))).toBeNull();
   });
 
   it('refuses a taken slot and names the occupant', () => {

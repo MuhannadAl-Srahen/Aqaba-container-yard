@@ -24,6 +24,14 @@ interface PointerState {
 
 export function usePanZoom(contentWidth: number, contentHeight: number) {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // The node also lives in state so effects re-bind when the container
+  // REMOUNTS (leaving for the editor/reports and back) — a plain ref kept
+  // the old wheel listener glued to a dead element.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const attachContainer = useCallback((el: HTMLDivElement | null) => {
+    containerRef.current = el;
+    setContainerEl(el);
+  }, []);
   const [view, setView] = useState<PanZoom>({ x: 0, y: 0, scale: 1 });
   const pointers = useRef(new Map<number, PointerState>());
   const pinchDistance = useRef<number | null>(null);
@@ -74,17 +82,16 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
   // passive, so preventDefault there cannot stop ctrl+wheel zooming the whole
   // page along with the map.
   useEffect(() => {
-    const el = containerRef.current;
-    if (el === null) return;
+    if (containerEl === null) return;
     const onWheel = (event: WheelEvent): void => {
       event.preventDefault();
       zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 1.15 : 1 / 1.15);
     };
-    el.addEventListener('wheel', onWheel, { passive: false });
+    containerEl.addEventListener('wheel', onWheel, { passive: false });
     return () => {
-      el.removeEventListener('wheel', onWheel);
+      containerEl.removeEventListener('wheel', onWheel);
     };
-  }, [zoomAt]);
+  }, [containerEl, zoomAt]);
 
   const onPointerDown = useCallback((event: React.PointerEvent) => {
     // No capture here: capturing at pointerdown retargets the coming click
@@ -204,6 +211,7 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
 
   return {
     containerRef,
+    attachContainer,
     view,
     wasDrag,
     zoomButtons,

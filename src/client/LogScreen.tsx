@@ -1,13 +1,15 @@
-import { useMemo, useState, type ReactElement } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { LogReportRow, Position } from '../shared/types';
 import { AR } from './ar';
-import { api } from './api';
+import { ApiFailure, api } from './api';
+import { Toast } from './ui';
 import {
   SheetScreen,
   ammanToday,
   cellLtr,
   cellText,
+  cellWrap,
   dash,
   monthStart,
   rangeInstants,
@@ -17,8 +19,26 @@ import {
 
 /**
  * سجل العمليات — its own place, not a report tab: the complete audit of
- * everything that ever happened, deletions and deleted records included.
+ * everything that ever happened, deletions and deleted records included —
+ * and the place where a mistake walks back: restore a deleted record,
+ * revert an edit to the values it overwrote.
  */
+
+interface EditNote {
+  readonly keys: readonly string[];
+  readonly before: Readonly<Record<string, string | number>>;
+}
+
+/** Newer EDIT notes are JSON {k, b}; the old CSV form has nothing to revert. */
+function parseEditNote(note: string): EditNote | null {
+  try {
+    const parsed = JSON.parse(note) as { k?: string[]; b?: Record<string, string | number> };
+    if (!Array.isArray(parsed.k) || parsed.b === undefined) return null;
+    return { keys: parsed.k, before: parsed.b };
+  } catch {
+    return null;
+  }
+}
 
 function logModel(rows: readonly LogReportRow[], label: (position: Position) => string): TableModel {
   const head = [
@@ -43,10 +63,10 @@ function logModel(rows: readonly LogReportRow[], label: (position: Position) => 
       cellText(AR.operationName[row.type] ?? row.type),
       ...stampCells(new Date(row.at)),
       cellLtr(row.number),
-      cellText(row.customer),
+      cellWrap(row.customer),
       cellLtr(row.from === null ? dash : label(row.from)),
       cellLtr(row.to === null ? dash : label(row.to)),
-      cellText(noteParts.length === 0 ? dash : noteParts.join(' — ')),
+      noteParts.length === 0 ? cellText(dash) : cellWrap(noteParts.join(' — ')),
     ];
   });
   const footer =
@@ -60,8 +80,21 @@ export function LogScreen(props: {
   label: (position: Position) => string;
   onBack: () => void;
 }): ReactElement {
+  const queryClient = useQueryClient();
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(ammanToday());
+  const [busyRow, setBusyRow] = useState<number | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 3500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [toast]);
 
   const { fromIso, toIso } = useMemo(() => rangeInstants(from, to), [from, to]);
   const valid = from !== '' && to !== '' && from <= to;
@@ -71,22 +104,111 @@ export function LogScreen(props: {
     queryFn: () => api.reportLog(fromIso, toIso),
     enabled: valid,
   });
+  const rows = useMemo(() => log.data?.rows ?? [], [log.data]);
 
-  const model = useMemo<TableModel>(
-    () => logModel(log.data?.rows ?? [], props.label),
-    [log.data, props.label],
-  );
+  const model = useMemo<TableModel>(() => logModel(rows, props.label), [rows, props.label]);
+
+  const finish = (message: string): void => {
+    void queryClient.invalidateQueries({ queryKey: ['report-log'] });
+    void queryClient.invalidateQueries({ queryKey: ['state'] });
+    void queryClient.invalidateQueries({ queryKey: ['container'] });
+    setToast(message);
+    setBusyRow(null);
+  };
+
+  const fail = (failure: unknown): void => {
+    setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+    setBusyRow(null);
+  };
+
+  const restore = (row: LogReportRow, index: number): void => {
+    setBusyRow(index);
+    api
+      .restore(row.containerId)
+      .then(() => {
+        finish(AR.restoredDone);
+      })
+      .catch(fail);
+  };
+
+  const revert = (row: LogReportRow, index: number): void => {
+    const parsed = parseEditNote(row.note);
+    if (parsed === null) return;
+    setBusyRow(index);
+    api
+      .detail(row.containerId)
+      .then(({ container }) => {
+        const before = parsed.before;
+        return api.edit(row.containerId, {
+          number: typeof before['number'] === 'string' ? before['number'] : container.number,
+          customer:
+            typeof before['customer'] === 'string' ? before['customer'] : container.customer,
+          cargo:
+            before['cargo'] === 'EMPTY' || before['cargo'] === 'LADEN'
+              ? before['cargo']
+              : container.cargo,
+          size: before['size'] === 20 || before['size'] === 40 ? before['size'] : container.size,
+          notes: typeof before['notes'] === 'string' ? before['notes'] : container.notes,
+        });
+      })
+      .then(() => {
+        finish(AR.revertedDone);
+      })
+      .catch(fail);
+  };
+
+  const actionButton = 'rounded-lg px-2.5 py-1 text-xs font-bold transition-colors';
 
   return (
-    <SheetScreen
-      screenTitle={AR.reportLog}
-      sheetTitle={AR.reportLog}
-      model={model}
-      from={from}
-      to={to}
-      onFrom={setFrom}
-      onTo={setTo}
-      onBack={props.onBack}
-    />
+    <>
+      <SheetScreen
+        screenTitle={AR.reportLog}
+        sheetTitle={AR.reportLog}
+        model={model}
+        from={from}
+        to={to}
+        onFrom={setFrom}
+        onTo={setTo}
+        onBack={props.onBack}
+        actions={{
+          header: AR.actionColumn,
+          render: (rowIndex) => {
+            const row = rows[rowIndex];
+            if (row === undefined) return null;
+            const busy = busyRow !== null;
+            if (row.type === 'DELETE' && row.deleted) {
+              return (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    restore(row, rowIndex);
+                  }}
+                  className={`${actionButton} bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-40`}
+                >
+                  {AR.restoreAction}
+                </button>
+              );
+            }
+            if (row.type === 'EDIT' && !row.deleted && parseEditNote(row.note) !== null) {
+              return (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    revert(row, rowIndex);
+                  }}
+                  className={`${actionButton} bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40`}
+                >
+                  {AR.revertAction}
+                </button>
+              );
+            }
+            return null;
+          },
+        }}
+      />
+      {toast !== null && <Toast message={toast} />}
+    </>
   );
 }

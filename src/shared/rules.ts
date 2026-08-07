@@ -14,6 +14,7 @@ import { blockTakes } from './geometry';
 export interface Standing {
   readonly id: number;
   readonly number: string;
+  readonly size: Size;
   readonly position: Position;
 }
 
@@ -22,6 +23,7 @@ export type RuleRefusal =
   | { readonly code: 'WRONG_ZONE' }
   | { readonly code: 'SLOT_TAKEN'; readonly by: string }
   | { readonly code: 'NO_SUPPORT' }
+  | { readonly code: 'BAD_STACK'; readonly by: string }
   | { readonly code: 'BURIED'; readonly by: string };
 
 export function blockOf(yard: YardConfig, blockId: number): BlockConfig | null {
@@ -85,6 +87,8 @@ export function canPlace(
   if (position.tier > GROUND_TIER) {
     const below = occupantAt(others, { ...position, tier: (position.tier - 1) as Position['tier'] });
     if (below === null) return { code: 'NO_SUPPORT' };
+    // Physics: a 40 overhangs a 20 and falls — it never stacks on one.
+    if (size === 40 && below.size === 20) return { code: 'BAD_STACK', by: below.number };
   }
 
   return null;

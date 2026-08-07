@@ -8,6 +8,7 @@ import {
   ammanToday,
   cellLtr,
   cellText,
+  cellWrap,
   dash,
   dayFormat,
   dateFormat,
@@ -28,6 +29,7 @@ function gateModel(
   rows: readonly GateReportRow[],
   out: boolean,
   label: (position: Position) => string,
+  onTruck: (truck: string) => void,
 ): TableModel {
   const head = [
     AR.colSeq,
@@ -48,13 +50,21 @@ function gateModel(
     cellText(String(index + 1)),
     cellText(out ? AR.statementOut : AR.statementIn),
     ...stampCells(new Date(row.at)),
-    cellLtr(row.truck === '' ? dash : row.truck),
+    // The plate is a doorway: tap it, get that truck's own register.
+    row.truck === ''
+      ? cellLtr(dash)
+      : {
+          ...cellLtr(row.truck),
+          onClick: () => {
+            onTruck(row.truck);
+          },
+        },
     cellLtr(row.card === null ? dash : String(row.card)),
     cellLtr(row.number),
     cellLtr(row.weight === '' ? dash : row.weight),
     cellText(String(row.size)),
     cellLtr(row.position === null ? dash : label(row.position)),
-    cellText(row.customer),
+    cellWrap(row.customer),
     ...(out ? [cellText(row.dwellDays === null ? dash : String(row.dwellDays))] : []),
   ]);
   const footer =
@@ -88,7 +98,7 @@ function truckModel(
     cellLtr(row.weight === '' ? dash : row.weight),
     cellText(String(row.size)),
     cellLtr(row.position === null ? dash : label(row.position)),
-    cellText(row.customer),
+    cellWrap(row.customer),
   ]);
   const footer =
     rows.length === 0
@@ -166,10 +176,14 @@ export function ReportsScreen(props: {
   const title = tab === 'truck' && truckReady ? `${baseTitle} ${truck.trim()}` : baseTitle;
 
   const model = useMemo<TableModel>(() => {
+    const openTruck = (plate: string): void => {
+      setTruck(plate);
+      setTab('truck');
+    };
     switch (tab) {
       case 'in':
       case 'out':
-        return gateModel(gate.data?.rows ?? [], tab === 'out', props.label);
+        return gateModel(gate.data?.rows ?? [], tab === 'out', props.label, openTruck);
       case 'daily':
         return dailyModel(daily.data?.rows ?? []);
       case 'truck':

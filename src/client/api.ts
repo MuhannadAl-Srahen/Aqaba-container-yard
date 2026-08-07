@@ -181,6 +181,13 @@ export const api = {
   remove: (id: number): Promise<{ ok: boolean }> =>
     request(`/api/containers/${String(id)}`, { method: 'DELETE' }),
 
+  /** Undo a soft delete: the record returns, standing back if its slot allows. */
+  restore: (id: number): Promise<ContainerDto> =>
+    request(`/api/containers/${String(id)}/restore`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
   search: (q: string): Promise<{ results: ContainerDto[] }> =>
     request(`/api/containers?q=${encodeURIComponent(q)}`),
 

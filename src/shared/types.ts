@@ -125,6 +125,7 @@ export interface DailyReportRow {
 
 /** One row of سجل العمليات — every operation on every container, ever. */
 export interface LogReportRow {
+  readonly containerId: number;
   readonly at: string;
   readonly type: MovementType;
   readonly number: string;
@@ -136,7 +137,7 @@ export interface LogReportRow {
   readonly deleted: boolean;
 }
 
-export type MovementType = 'IN' | 'MOVE' | 'OUT' | 'EDIT' | 'DELETE';
+export type MovementType = 'IN' | 'MOVE' | 'OUT' | 'EDIT' | 'DELETE' | 'RESTORE';
 
 export interface MovementDto {
   readonly id: number;
@@ -183,6 +184,8 @@ export const ERROR_CODES = [
   'BLOCK_OVERLAP',
   'BLOCK_NOT_EMPTY',
   'NAME_TAKEN',
+  'BAD_STACK',
+  'NOT_DELETED',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

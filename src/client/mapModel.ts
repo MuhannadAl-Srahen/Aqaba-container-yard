@@ -32,7 +32,12 @@ export function toStanding(containers: readonly ContainerDto[]): Standing[] {
   const standing: Standing[] = [];
   for (const container of containers) {
     if (container.position === null) continue;
-    standing.push({ id: container.id, number: container.number, position: container.position });
+    standing.push({
+      id: container.id,
+      number: container.number,
+      size: container.size,
+      position: container.position,
+    });
   }
   return standing;
 }

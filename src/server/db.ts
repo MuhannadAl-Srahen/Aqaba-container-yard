@@ -101,7 +101,7 @@ export function migrate(db: DatabaseSync): void {
       .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'movements'")
       .get() as { sql: string } | undefined
   )?.sql;
-  if (movementsSql !== undefined && !movementsSql.includes("'DELETE'")) {
+  if (movementsSql !== undefined && !movementsSql.includes("'RESTORE'")) {
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -109,7 +109,7 @@ export function migrate(db: DatabaseSync): void {
         CREATE TABLE movements_v4 (
           id           INTEGER PRIMARY KEY AUTOINCREMENT,
           container_id INTEGER NOT NULL REFERENCES containers (id),
-          type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'OUT', 'EDIT', 'DELETE')),
+          type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
           at           TEXT    NOT NULL,
           from_block   INTEGER, from_row INTEGER, from_col INTEGER, from_tier INTEGER,
           to_block     INTEGER, to_row   INTEGER, to_col   INTEGER, to_tier   INTEGER,
@@ -195,7 +195,7 @@ export function migrate(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS movements (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       container_id INTEGER NOT NULL REFERENCES containers (id),
-      type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'OUT', 'EDIT', 'DELETE')),
+      type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
       at           TEXT    NOT NULL,
       from_block   INTEGER, from_row INTEGER, from_col INTEGER, from_tier INTEGER,
       to_block     INTEGER, to_row   INTEGER, to_col   INTEGER, to_tier   INTEGER,

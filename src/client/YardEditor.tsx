@@ -365,7 +365,7 @@ export function YardEditor(props: {
 
       <main className="relative flex-1 overflow-hidden">
         <div
-          ref={pz.containerRef}
+          ref={pz.attachContainer}
           {...pz.handlers}
           className="absolute inset-0 touch-none overflow-hidden"
         >

@@ -122,7 +122,8 @@ export const AR = {
   movementOut: 'إخراج',
   movementEdit: 'تعديل بيانات',
   movementDelete: 'حذف السجل',
-  editedFields: (keys: string): string => {
+  movementRestore: 'استرجاع السجل',
+  editedFields: (note: string): string => {
     const names: Record<string, string> = {
       number: 'الرقم',
       customer: 'العميل',
@@ -130,10 +131,15 @@ export const AR = {
       size: 'المقاس',
       notes: 'الملاحظات',
     };
-    const list = keys
-      .split(',')
-      .map((key) => names[key] ?? key)
-      .join('، ');
+    // Newer notes are JSON {k: keys, b: before-values}; older ones plain CSV.
+    let keys: string[];
+    try {
+      const parsed = JSON.parse(note) as { k?: string[] };
+      keys = Array.isArray(parsed.k) ? parsed.k : note.split(',');
+    } catch {
+      keys = note.split(',');
+    }
+    const list = keys.map((key) => names[key] ?? key).join('، ');
     return `تعدّل: ${list}`;
   },
   close: 'إغلاق',
@@ -228,7 +234,14 @@ export const AR = {
     OUT: 'خروج',
     EDIT: 'تعديل',
     DELETE: 'حذف',
+    RESTORE: 'استرجاع',
   } as Record<string, string>,
+  actionColumn: 'إجراء',
+  restoreAction: 'استرجاع',
+  revertAction: 'تراجع',
+  restoredDone: 'رجع السجل.',
+  revertedDone: 'انرجع التعديل.',
+  perPage: 'بكل صفحة',
 
   // ---- delete ----
   confirmDeleteTitle: 'حذف سجل غلط',
@@ -259,6 +272,8 @@ export const AR = {
     BLOCK_OVERLAP: 'في مناطق راكبة على بعض — زحزحها شوي.',
     BLOCK_NOT_EMPTY: 'المنطقة مش فاضية — طلّع حاوياتها قبل ما تحذفها.',
     NAME_TAKEN: 'في منطقة بنفس الاسم — غيّر الاسم.',
+    BAD_STACK: 'ما بتنحط حاوية 40 فوق حاوية 20 — بتطيح.',
+    NOT_DELETED: 'هذا السجل مش محذوف أصلًا.',
   } satisfies Record<ErrorCode, string>,
   errorWithBy: (code: ErrorCode, by: string): string => {
     if (code === 'SLOT_TAKEN') return `الموقع مشغول — فيه ${by}.`;

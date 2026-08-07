@@ -355,3 +355,35 @@ typecheck/lint clean, and the full drive: gate flows, chooser, prints,
 reports with pagination + real PDF/Excel downloads, the log screen, free
 rotation, auth, phone. The drive now reads the live state to pick free
 slots, since the owner tests concurrently on the same yard.
+
+### جولة ملاحظات رابعة — 2026-08-08
+
+Nine more owner asks, all landed:
+
+- **The wheel died after visiting the editor** — the real bug behind "zoom
+  only works in edit mode": the native wheel listener stayed bound to the
+  unmounted map container. usePanZoom now exposes a callback ref that
+  re-binds on remount; probed live (editor round-trip, then wheel: zooms).
+- **BAD_STACK**: a 40 never lands on a 20 (Standing carries size; the rule
+  names the underneath container; mixed blocks were the only place it could
+  happen). 20-on-40 and 40-on-40 stay legal.
+- **The exit card opens itself** the moment an exit is confirmed — the
+  paper exists before the container leaves the screen. It also remains
+  printable later from the departed record's card.
+- **Sheets**: 12-hour times (م/ص), day names never split mid-word (wrapping
+  is per-cell policy now), and a per-page selector (20/50/80 rows).
+- **Truck plates are doorways**: tap one in any register → that truck's own
+  sheet, plate prefilled.
+- **Undo from the log**: DELETE rows grow an استرجاع button (un-deletes and
+  re-stands the container in its old slot when rules allow — otherwise the
+  usual refusal), EDIT rows a تراجع button (EDIT notes now carry the old
+  values as JSON {k, b}; old CSV notes stay readable, just not revertible).
+  RESTORE is a first-class movement type — the movements CHECK widened
+  again via the SQL-keyed rebuild.
+- The log's action column is screen-only: prints and exports never see it.
+
+Verified: 95/95 tests (BAD_STACK, restore round-trip incl. slot-taken
+refusal, before-values in EDIT notes), typecheck/lint clean, full drive
+green — including the auto exit-card and a wheel probe for the editor
+round-trip. Mid-drive discovery: the owner had already turned areas A and J
+mixed on the live yard, so the drive's gate-in waits became policy-agnostic.

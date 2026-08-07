@@ -421,7 +421,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
       <main className="relative flex-1 overflow-hidden">
         <div
-          ref={pz.containerRef}
+          ref={pz.attachContainer}
           {...pz.handlers}
           className="absolute inset-0 touch-none overflow-hidden"
         >
@@ -495,6 +495,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
           onPrint={(kind, container) => {
             setPrintCard({ kind, container });
+          }}
+          onExited={(departed, message) => {
+            refresh(message);
+            setPrintCard({ kind: 'out', container: departed });
           }}
           onChanged={refresh}
           onClose={() => {

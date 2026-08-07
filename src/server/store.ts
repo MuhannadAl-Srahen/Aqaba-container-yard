@@ -160,7 +160,7 @@ export function listStanding(db: DatabaseSync): Standing[] {
   return rows.map((row) => {
     const position = positionOf(row);
     if (position === null) throw new Error(`container ${String(row.id)} standing without a position`);
-    return { id: row.id, number: row.number, position };
+    return { id: row.id, number: row.number, size: row.size as Size, position };
   });
 }
 
@@ -310,6 +310,41 @@ export function softDelete(db: DatabaseSync, id: number, at: string): void {
   db.prepare(
     'UPDATE containers SET deleted_at = ?, block_id = NULL, row = NULL, col = NULL, tier = NULL WHERE id = ?',
   ).run(at, id);
+}
+
+/** The record whether it is deleted or not — the restore path needs both. */
+export function getContainerAny(db: DatabaseSync, id: number): (ContainerDto & { deleted: boolean }) | null {
+  const row = db.prepare('SELECT * FROM containers WHERE id = ?').get(id) as
+    | ContainerRow
+    | undefined;
+  return row === undefined ? null : { ...toDto(row), deleted: row.deleted_at !== null };
+}
+
+/** Where the container stood at the moment it was deleted, if anywhere. */
+export function lastDeletePosition(db: DatabaseSync, id: number): Position | null {
+  const row = db
+    .prepare(
+      `SELECT from_block, from_row, from_col, from_tier FROM movements
+       WHERE container_id = ? AND type = 'DELETE' ORDER BY at DESC, id DESC LIMIT 1`,
+    )
+    .get(id) as
+    | { from_block: number | null; from_row: number | null; from_col: number | null; from_tier: number | null }
+    | undefined;
+  if (row === undefined) return null;
+  return movementPosition(row.from_block, row.from_row, row.from_col, row.from_tier);
+}
+
+/** Undo a soft delete, standing the container back where it was (or out). */
+export function restoreContainer(db: DatabaseSync, id: number, position: Position | null): void {
+  db.prepare(
+    'UPDATE containers SET deleted_at = NULL, block_id = ?, row = ?, col = ?, tier = ? WHERE id = ?',
+  ).run(
+    position?.block ?? null,
+    position?.row ?? null,
+    position?.col ?? null,
+    position?.tier ?? null,
+    id,
+  );
 }
 
 export function recordMovement(
@@ -482,7 +517,7 @@ export function listOperationsLog(
 ): LogReportRow[] {
   const rows = db
     .prepare(
-      `SELECT m.type, m.at, m.note,
+      `SELECT m.container_id, m.type, m.at, m.note,
               m.from_block, m.from_row, m.from_col, m.from_tier,
               m.to_block, m.to_row, m.to_col, m.to_tier,
               k.number, k.customer, k.deleted_at
@@ -492,9 +527,15 @@ export function listOperationsLog(
        ORDER BY m.at, m.id`,
     )
     .all(fromIso, toIso) as unknown as Array<
-    MovementRow & { number: string; customer: string; deleted_at: string | null }
+    MovementRow & {
+      container_id: number;
+      number: string;
+      customer: string;
+      deleted_at: string | null;
+    }
   >;
   return rows.map((row) => ({
+    containerId: row.container_id,
     at: row.at,
     type: row.type as MovementType,
     number: row.number,
