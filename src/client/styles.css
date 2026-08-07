@@ -1,0 +1,27 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Cairo Variable', 'Segoe UI', system-ui, sans-serif;
+}
+
+html {
+  font-family: var(--font-sans);
+  /* Lining figures keep Western digits aligned inside Arabic text. */
+  font-variant-numeric: lining-nums;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-slate-100);
+  color: var(--color-slate-900);
+}
+
+/* The map's cells brighten under the pointer so "clickable" needs no manual. */
+.map-cell {
+  cursor: pointer;
+}
+.map-cell:hover .cell-frame {
+  stroke: #0284c7;
+  stroke-width: 2.5;
+  stroke-dasharray: none;
+}
