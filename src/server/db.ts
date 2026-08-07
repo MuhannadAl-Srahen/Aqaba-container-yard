@@ -54,13 +54,15 @@ export function migrate(db: DatabaseSync): void {
   }
 
   // v5: mixed blocks (size 0) need room in the blocks CHECK — a rebuild,
-  // since SQLite cannot edit a CHECK in place.
-  const versionRow = db.prepare('PRAGMA user_version').get() as { user_version: number };
-  const hasBlocks =
+  // since SQLite cannot edit a CHECK in place. Detected from the table's own
+  // SQL, never a version stamp: a mid-edit dev restart once stamped ahead of
+  // the rebuild and stranded the live file.
+  const blocksSql = (
     db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'blocks'")
-      .get() !== undefined;
-  if (hasBlocks && versionRow.user_version < 5) {
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'blocks'")
+      .get() as { sql: string } | undefined
+  )?.sql;
+  if (blocksSql !== undefined && !blocksSql.includes('0, 20, 40')) {
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -92,13 +94,14 @@ export function migrate(db: DatabaseSync): void {
   }
 
   // v4: the operations log records deletions too, and the old movements
-  // CHECK would refuse the new type — a rebuild, since SQLite cannot edit a
-  // CHECK in place.
-  const hasMovements =
+  // CHECK would refuse the new type — a rebuild, detected from the table's
+  // own SQL for the same reason as above.
+  const movementsSql = (
     db
-      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'movements'")
-      .get() !== undefined;
-  if (hasMovements && versionRow.user_version < 4) {
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'movements'")
+      .get() as { sql: string } | undefined
+  )?.sql;
+  if (movementsSql !== undefined && !movementsSql.includes("'DELETE'")) {
     db.exec('PRAGMA foreign_keys = OFF');
     db.exec('BEGIN IMMEDIATE');
     try {
