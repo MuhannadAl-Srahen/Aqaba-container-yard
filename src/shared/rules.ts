@@ -1,6 +1,7 @@
-import type { Position, Size, YardConfig } from './types';
+import type { BlockConfig, Position, Size, YardConfig } from './types';
 import { GROUND_TIER, MAX_TIER } from './types';
-import { sameSlot, zoneForSize } from './address';
+import { sameSlot } from './address';
+import { blockTakes } from './geometry';
 
 /**
  * The yard's physical rules, pure and I/O-free. The server runs these inside
@@ -23,17 +24,23 @@ export type RuleRefusal =
   | { readonly code: 'NO_SUPPORT' }
   | { readonly code: 'BURIED'; readonly by: string };
 
-export function zoneOf(yard: YardConfig, zone: Size): { rows: number; cols: number } {
-  return zone === 20 ? yard.twenty : yard.forty;
+export function blockOf(yard: YardConfig, blockId: number): BlockConfig | null {
+  return yard.blocks.find((block) => block.id === blockId) ?? null;
+}
+
+/** All live blocks that receive this container size (mixed take both). */
+export function blocksForSize(yard: YardConfig, size: Size): readonly BlockConfig[] {
+  return yard.blocks.filter((block) => blockTakes(block.size, size));
 }
 
 export function isWithinYard(yard: YardConfig, position: Position): boolean {
-  const zone = zoneOf(yard, position.zone);
+  const block = blockOf(yard, position.block);
+  if (block === null) return false;
   return (
     position.row >= 1 &&
-    position.row <= zone.rows &&
+    position.row <= block.rows &&
     position.col >= 1 &&
-    position.col <= zone.cols &&
+    position.col <= block.cols &&
     position.tier >= GROUND_TIER &&
     position.tier <= MAX_TIER
   );
@@ -68,8 +75,9 @@ export function canPlace(
 ): RuleRefusal | null {
   const others = ignoreId === undefined ? standing : standing.filter((s) => s.id !== ignoreId);
 
-  if (!isWithinYard(yard, position)) return { code: 'OUT_OF_BOUNDS' };
-  if (zoneForSize(size) !== position.zone) return { code: 'WRONG_ZONE' };
+  const block = blockOf(yard, position.block);
+  if (block === null || !isWithinYard(yard, position)) return { code: 'OUT_OF_BOUNDS' };
+  if (!blockTakes(block.size, size)) return { code: 'WRONG_ZONE' };
 
   const occupant = occupantAt(others, position);
   if (occupant !== null) return { code: 'SLOT_TAKEN', by: occupant.number };
@@ -90,12 +98,20 @@ export function canLift(standing: readonly Standing[], of: Standing): RuleRefusa
 }
 
 /**
- * Positions a shrink would strand: standing containers whose slot falls
- * outside the proposed configuration. Growth is always safe.
+ * Containers a proposed layout would strand: whose block disappears, whose
+ * slot falls outside the block's new shape, or whose size no longer matches
+ * the block's. Growth and movement are always safe — a block carries its
+ * containers with it wherever it is dragged or turned.
  */
-export function strandedByResize(
+export function strandedByLayout(
   proposed: YardConfig,
   standing: readonly Standing[],
+  sizes: ReadonlyMap<number, Size>,
 ): readonly Standing[] {
-  return standing.filter((s) => !isWithinYard(proposed, s.position));
+  return standing.filter((s) => {
+    const block = blockOf(proposed, s.position.block);
+    if (block === null || !isWithinYard(proposed, s.position)) return true;
+    const size = sizes.get(s.id);
+    return size !== undefined && !blockTakes(block.size, size);
+  });
 }

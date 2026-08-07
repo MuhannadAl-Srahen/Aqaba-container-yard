@@ -1,7 +1,11 @@
 import type {
   ApiError,
+  BlockConfig,
   ContainerDto,
+  DailyReportRow,
   ErrorCode,
+  GateReportRow,
+  LogReportRow,
   MovementDto,
   Position,
   YardConfig,
@@ -27,9 +31,15 @@ export class ApiFailure extends Error {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
   try {
+    // Claim a JSON body only when one is sent (null is fetch's own "no
+    // body"): a bodyless POST with the JSON content-type makes the server
+    // refuse the empty body it promises.
     response = await fetch(path, {
       ...init,
-      headers: { 'content-type': 'application/json', ...init?.headers },
+      ...(init?.body !== undefined &&
+        init.body !== null && {
+          headers: { 'content-type': 'application/json', ...init.headers },
+        }),
     });
   } catch {
     throw new ApiFailure('NETWORK', AR.networkError);
@@ -62,11 +72,23 @@ export interface BootDto {
   yardConfigured: boolean;
 }
 
+/** The first-run shape: two halves the server lays out for the owner. */
+export interface SetupShape {
+  twenty: { rows: number; cols: number };
+  forty: { rows: number; cols: number };
+}
+
+/** A layout block on its way to the server: existing keep ids, new ones have none. */
+export type BlockDraft = Omit<BlockConfig, 'id'> & { readonly id?: number };
+
 export const api = {
   boot: (): Promise<BootDto> => request('/api/boot'),
 
-  setup: (password: string, yard: YardConfig): Promise<{ ok: boolean }> =>
+  setup: (password: string, yard: SetupShape): Promise<{ ok: boolean }> =>
     request('/api/setup', { method: 'POST', body: JSON.stringify({ password, yard }) }),
+
+  saveYard: (blocks: readonly BlockDraft[]): Promise<YardConfig> =>
+    request('/api/yard', { method: 'PUT', body: JSON.stringify({ blocks }) }),
 
   login: (password: string): Promise<{ ok: boolean }> =>
     request('/api/login', { method: 'POST', body: JSON.stringify({ password }) }),
@@ -82,6 +104,9 @@ export const api = {
     cargo: 'EMPTY' | 'LADEN';
     notes: string;
     position: Position;
+    truck: string;
+    driver: string;
+    weight: string;
   }): Promise<ContainerDto> =>
     request('/api/containers', { method: 'POST', body: JSON.stringify(input) }),
 
@@ -91,12 +116,65 @@ export const api = {
       body: JSON.stringify({ to }),
     }),
 
-  exit: (id: number): Promise<ContainerDto> =>
-    request(`/api/containers/${String(id)}/exit`, { method: 'POST' }),
+  exit: (id: number, gate: { truck: string; driver: string }): Promise<ContainerDto> =>
+    request(`/api/containers/${String(id)}/exit`, {
+      method: 'POST',
+      body: JSON.stringify(gate),
+    }),
+
+  reportGate: (type: 'IN' | 'OUT', fromIso: string, toIso: string): Promise<{ rows: GateReportRow[] }> =>
+    request(
+      `/api/reports/gate?type=${type}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  reportDaily: (fromIso: string, toIso: string): Promise<{ rows: DailyReportRow[] }> =>
+    request(
+      `/api/reports/daily?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  reportLog: (fromIso: string, toIso: string): Promise<{ rows: LogReportRow[] }> =>
+    request(
+      `/api/reports/log?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  reportTruck: (
+    truck: string,
+    fromIso: string,
+    toIso: string,
+  ): Promise<{ rows: Array<GateReportRow & { statement: 'IN' | 'OUT' }> }> =>
+    request(
+      `/api/reports/truck?truck=${encodeURIComponent(truck)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  /** DEVELOPMENT ONLY: wipe containers, movements and card counters. */
+  devReset: (): Promise<{ ok: boolean }> =>
+    request('/api/dev/reset', { method: 'POST', body: JSON.stringify({}) }),
+
+  /** The sheet as a server-printed PDF file. */
+  reportPdf: async (title: string, html: string, landscape: boolean): Promise<Blob> => {
+    let response: Response;
+    try {
+      response = await fetch('/api/reports/pdf', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title, html, landscape }),
+      });
+    } catch {
+      throw new ApiFailure('NETWORK', AR.networkError);
+    }
+    if (!response.ok) throw new ApiFailure('NETWORK', AR.networkError);
+    return response.blob();
+  },
 
   edit: (
     id: number,
-    input: { number: string; customer: string; cargo: 'EMPTY' | 'LADEN'; notes: string },
+    input: {
+      number: string;
+      customer: string;
+      cargo: 'EMPTY' | 'LADEN';
+      size: 20 | 40;
+      notes: string;
+    },
   ): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
 

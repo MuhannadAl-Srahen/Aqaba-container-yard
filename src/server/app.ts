@@ -3,11 +3,23 @@ import cookie from '@fastify/cookie';
 import type { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 
-import type { ApiError, ContainerDto, ErrorCode, Position, YardStateDto } from '../shared/types';
-import { MAX_ZONE_COLS, MAX_ZONE_ROWS } from '../shared/types';
+import type { Browser, BrowserType } from 'playwright-core';
+import type {
+  ApiError,
+  ContainerDto,
+  DailyReportRow,
+  ErrorCode,
+  GateReportRow,
+  LogReportRow,
+  Position,
+  YardConfig,
+  YardStateDto,
+} from '../shared/types';
+import { MAX_BLOCKS, MAX_BLOCK_NAME, MAX_ZONE_COLS, MAX_ZONE_ROWS } from '../shared/types';
 import { checkNumber } from '../shared/iso6346';
-import { canLift, canPlace, strandedByResize } from '../shared/rules';
+import { canLift, canPlace, strandedByLayout } from '../shared/rules';
 import { sameSlot, slotLabel } from '../shared/address';
+import { blockTakes, defaultLayout, overlappingPairs } from '../shared/geometry';
 import {
   SESSION_COOKIE,
   hasPassword,
@@ -39,7 +51,7 @@ const refuse = (status: number, code: ErrorCode, details?: ApiError['details']):
 };
 
 const positionSchema = z.object({
-  zone: z.union([z.literal(20), z.literal(40)]),
+  block: z.number().int().min(1),
   row: z.number().int().min(1),
   col: z.number().int().min(1),
   tier: z.union([z.literal(1), z.literal(2)]),
@@ -50,9 +62,28 @@ const zoneConfigSchema = z.object({
   cols: z.number().int().min(1).max(MAX_ZONE_COLS),
 });
 
-const yardConfigSchema = z.object({
+/** The simple first-run shape: two halves, laid out by defaultLayout. */
+const setupYardSchema = z.object({
   twenty: zoneConfigSchema,
   forty: zoneConfigSchema,
+});
+
+const blockSchema = z.object({
+  /** Present for an existing block; absent for one the editor just added. */
+  id: z.number().int().min(1).optional(),
+  name: z.string().trim().min(1).max(MAX_BLOCK_NAME),
+  /** 0 = مختلط: the block takes either container size. */
+  size: z.union([z.literal(20), z.literal(40), z.literal(0)]),
+  rows: z.number().int().min(1).max(MAX_ZONE_ROWS),
+  cols: z.number().int().min(1).max(MAX_ZONE_COLS),
+  x: z.number().finite().min(-50000).max(50000),
+  y: z.number().finite().min(-50000).max(50000),
+  // Any whole degree: the owner turns blocks freely with the mouse.
+  angle: z.number().int().min(0).max(359),
+});
+
+const layoutSchema = z.object({
+  blocks: z.array(blockSchema).min(1).max(MAX_BLOCKS),
 });
 
 const gateInSchema = z.object({
@@ -62,24 +93,46 @@ const gateInSchema = z.object({
   cargo: z.enum(['EMPTY', 'LADEN']),
   notes: z.string().trim().max(2000),
   position: positionSchema,
+  /** The truck at the gate — the owner made it mandatory paperwork. */
+  truck: z.string().trim().min(1).max(30),
+  driver: z.string().trim().max(60).default(''),
+  weight: z.string().trim().max(20).default(''),
+});
+
+const gateOutSchema = z.object({
+  truck: z.string().trim().min(1).max(30),
+  driver: z.string().trim().max(60).default(''),
 });
 
 const editSchema = z.object({
   number: z.string().trim().min(1).max(20),
   customer: z.string().trim().min(1).max(120),
   cargo: z.enum(['EMPTY', 'LADEN']),
+  size: z.union([z.literal(20), z.literal(40)]),
   notes: z.string().trim().max(2000),
 });
 
-function parseOrRefuse<T>(schema: z.ZodType<T>, value: unknown): T {
+function parseOrRefuse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);
   if (!result.success) throw new Refusal(400, { code: 'VALIDATION' });
-  return result.data;
+  return result.data as z.output<S>;
 }
 
 /** In-memory login throttle: enough to blunt a guessing loop on a public URL. */
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const ATTEMPT_LIMIT = 20;
+
+/** The machine's own browser engine, for printing PDFs server-side. */
+async function launchSystemBrowser(chromium: BrowserType): Promise<Browser> {
+  for (const channel of ['msedge', 'chrome'] as const) {
+    try {
+      return await chromium.launch({ channel, headless: true });
+    } catch {
+      // Not installed here; try the next engine.
+    }
+  }
+  return chromium.launch({ headless: true });
+}
 
 export function buildApp(db: DatabaseSync): FastifyInstance {
   const app = Fastify({ logger: false });
@@ -124,10 +177,25 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     // A constraint violation surfacing here means a rule check missed a race —
     // the database held the line; report it as the conflict it is.
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-      void reply.status(409).send({ code: 'SLOT_TAKEN' } satisfies ApiError);
+      const code: ErrorCode = error.message.includes('blocks.name') ? 'NAME_TAKEN' : 'SLOT_TAKEN';
+      void reply.status(409).send({ code } satisfies ApiError);
       return;
     }
     void reply.status(500).send({ code: 'VALIDATION' } satisfies ApiError);
+  });
+
+  /**
+   * DEVELOPMENT ONLY: wipe containers, movements and card counters so the
+   * owner can test from zero. Disabled in production builds; slated for an
+   * admin-only life later.
+   */
+  app.post('/api/dev/reset', (request) => {
+    if (process.env['NODE_ENV'] === 'production') refuse(404, 'NOT_FOUND');
+    requireAuth(request);
+    transaction(db, () => {
+      store.devReset(db);
+    });
+    return { ok: true };
   });
 
   /** What the client needs before it can draw anything. */
@@ -143,13 +211,15 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   app.post('/api/setup', (request, reply) => {
     if (hasPassword(db)) refuse(409, 'ALREADY_SETUP');
     const body = parseOrRefuse(
-      z.object({ password: z.string().min(6).max(200), yard: yardConfigSchema }),
+      z.object({ password: z.string().min(6).max(200), yard: setupYardSchema }),
       request.body,
     );
 
     transaction(db, () => {
       setPassword(db, body.password);
-      store.saveYard(db, body.yard);
+      for (const block of defaultLayout(body.yard.twenty, body.yard.forty)) {
+        store.insertBlock(db, block);
+      }
     });
     sendSession(reply);
     return { ok: true };
@@ -190,24 +260,79 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       yard,
       containers: store.listInYard(db),
       customers: store.listCustomers(db),
+      blockNames: store.listBlockNames(db),
     };
   });
 
-  /** Resize, guarded: growth is free, a shrink must strand nobody. */
+  /**
+   * The whole layout in one atomic save: blocks move, turn, grow, get
+   * renamed, appear or disappear together. Growth and movement are free; a
+   * change may never strand a standing container nor stack two areas on the
+   * same ground.
+   */
   app.put('/api/yard', (request) => {
     requireAuth(request);
-    requireYard();
-    const proposed = parseOrRefuse(yardConfigSchema, request.body);
+    const current = requireYard();
+    const body = parseOrRefuse(layoutSchema, request.body);
 
     return transaction(db, () => {
-      const stranded = strandedByResize(proposed, store.listStanding(db));
-      if (stranded.length > 0) {
-        refuse(409, 'SHRINK_OCCUPIED', {
-          containers: stranded.map((s) => `${s.number} @ ${slotLabel(s.position)}`).join('، '),
+      const liveIds = new Set(current.blocks.map((block) => block.id));
+      const seenIds = new Set<number>();
+      const seenNames = new Set<string>();
+      for (const block of body.blocks) {
+        if (block.id !== undefined) {
+          if (!liveIds.has(block.id) || seenIds.has(block.id)) refuse(404, 'NOT_FOUND');
+          seenIds.add(block.id);
+        }
+        if (seenNames.has(block.name)) refuse(409, 'NAME_TAKEN', { name: block.name });
+        seenNames.add(block.name);
+      }
+
+      // New blocks get placeholder ids for the checks; nothing stands in them.
+      const proposed: YardConfig = {
+        blocks: body.blocks.map((block, index) => ({ ...block, id: block.id ?? -(index + 1) })),
+      };
+
+      const overlaps = overlappingPairs(proposed.blocks);
+      const firstOverlap = overlaps[0];
+      if (firstOverlap !== undefined) {
+        refuse(409, 'BLOCK_OVERLAP', {
+          names: `${firstOverlap[0].name} × ${firstOverlap[1].name}`,
         });
       }
-      store.saveYard(db, proposed);
-      return { ok: true };
+
+      const standing = store.listStanding(db);
+      const names = store.listBlockNames(db);
+      const nameOf = (id: number): string => names[String(id)] ?? '؟';
+
+      // A block that disappears must be empty.
+      const keptIds = new Set(proposed.blocks.map((block) => block.id));
+      const emptied = standing.find((s) => !keptIds.has(s.position.block));
+      if (emptied !== undefined) {
+        refuse(409, 'BLOCK_NOT_EMPTY', { name: nameOf(emptied.position.block) });
+      }
+
+      const stranded = strandedByLayout(proposed, standing, store.standingSizes(db));
+      if (stranded.length > 0) {
+        refuse(409, 'SHRINK_OCCUPIED', {
+          containers: stranded
+            .map((s) => `${s.number} @ ${slotLabel(nameOf, s.position)}`)
+            .join('، '),
+        });
+      }
+
+      const at = now();
+      for (const id of liveIds) {
+        if (!keptIds.has(id)) store.softDeleteBlock(db, id, at);
+      }
+      for (const block of body.blocks) {
+        if (block.id !== undefined) {
+          store.updateBlock(db, { ...block, id: block.id });
+        } else {
+          store.insertBlock(db, block);
+        }
+      }
+      return store.getYard(db);
     });
   });
 
@@ -238,6 +363,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         notes: body.notes,
         position: body.position,
         at,
+        weight: body.weight,
+        truckIn: body.truck,
+        driverIn: body.driver,
+        cardIn: store.nextCardNumber(db, 'in'),
       });
       store.recordMovement(db, id, 'IN', at, null, body.position, '');
       void reply.status(201);
@@ -295,6 +424,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     requireAuth(request);
     requireYard();
     const id = idParam(request);
+    const gate = parseOrRefuse(gateOutSchema, request.body);
 
     return transaction(db, () => {
       const { position } = standingContainer(id);
@@ -307,7 +437,11 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (lift !== null) refuse(409, lift.code, 'by' in lift ? { by: lift.by } : undefined);
 
       const at = now();
-      store.markExited(db, id, at);
+      store.markExited(db, id, at, {
+        truck: gate.truck,
+        driver: gate.driver,
+        cardOut: store.nextCardNumber(db, 'out'),
+      });
       store.recordMovement(db, id, 'OUT', at, position, null, '');
       return store.getContainer(db, id);
     });
@@ -334,10 +468,19 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         }
       }
 
+      // A size flip while standing must fit the block the container is
+      // standing in — a 40 cannot claim a 20 slot by paperwork alone.
+      if (body.size !== existing.size && existing.position !== null) {
+        const yard = requireYard();
+        const block = yard.blocks.find((b) => b.id === existing.position?.block);
+        if (block === undefined || !blockTakes(block.size, body.size)) refuse(409, 'WRONG_ZONE');
+      }
+
       const changed: string[] = [];
       if (check.normalized !== existing.number) changed.push('number');
       if (body.customer !== existing.customer) changed.push('customer');
       if (body.cargo !== existing.cargo) changed.push('cargo');
+      if (body.size !== existing.size) changed.push('size');
       if (body.notes !== existing.notes) changed.push('notes');
 
       if (changed.length > 0) {
@@ -346,6 +489,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           numberValid: check.valid,
           customer: body.customer,
           cargo: body.cargo,
+          size: body.size,
           notes: body.notes,
         });
         // The note carries machine keys; the client renders them in Arabic.
@@ -374,9 +518,175 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         }
       }
 
-      store.softDelete(db, id, now());
+      const at = now();
+      store.softDelete(db, id, at);
+      // The mistake itself goes on the record — audits hide nothing.
+      store.recordMovement(db, id, 'DELETE', at, existing.position, null, '');
       return { ok: true };
     });
+  });
+
+  const rangeSchema = z.object({
+    from: z.string().datetime({ offset: true }).or(z.string().datetime()),
+    to: z.string().datetime({ offset: true }).or(z.string().datetime()),
+  });
+
+  /** Amman-calendar date of an instant, for grouping the registers by day. */
+  const ammanDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Amman',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+
+  /** كشف حركة الدخول أو الخروج: every gate movement in the range. */
+  app.get('/api/reports/gate', (request): { rows: GateReportRow[] } => {
+    requireAuth(request);
+    const query = request.query as { type?: string; from?: string; to?: string };
+    if (query.type !== 'IN' && query.type !== 'OUT') refuse(400, 'VALIDATION');
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+    const type = query.type === 'IN' ? 'IN' : 'OUT';
+
+    const rows = store.listGateMovements(db, type, range.from, range.to).map(
+      (row): GateReportRow => ({
+        containerId: row.containerId,
+        at: row.at,
+        card: row.card,
+        truck: row.truck,
+        driver: row.driver,
+        number: row.number,
+        weight: row.weight,
+        size: row.size,
+        customer: row.customer,
+        position: row.position,
+        dwellDays:
+          type === 'OUT'
+            ? Math.max(
+                0,
+                Math.floor(
+                  (new Date(row.at).getTime() - new Date(row.enteredAt).getTime()) / 86_400_000,
+                ),
+              )
+            : null,
+      }),
+    );
+    return { rows };
+  });
+
+  /** سجل العمليات: كل شي صار، بما فيه الحذف والسجلات المحذوفة. */
+  app.get('/api/reports/log', (request): { rows: LogReportRow[] } => {
+    requireAuth(request);
+    const query = request.query as { from?: string; to?: string };
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+    return { rows: store.listOperationsLog(db, range.from, range.to) };
+  });
+
+  /** كشف سيارة: كل اللي حملته سيارة وحدة، دخول وخروج. */
+  app.get(
+    '/api/reports/truck',
+    (request): { rows: Array<GateReportRow & { statement: 'IN' | 'OUT' }> } => {
+      requireAuth(request);
+      const query = request.query as { truck?: string; from?: string; to?: string };
+      const truck = (query.truck ?? '').trim();
+      if (truck === '' || truck.length > 30) refuse(400, 'VALIDATION');
+      const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+
+      const rows = store.listTruckMovements(db, truck, range.from, range.to).map((row) => ({
+        statement: row.type,
+        containerId: row.containerId,
+        at: row.at,
+        card: row.card,
+        truck: row.truck,
+        driver: row.driver,
+        number: row.number,
+        weight: row.weight,
+        size: row.size,
+        customer: row.customer,
+        position: row.position,
+        dwellDays: null,
+      }));
+      return { rows };
+    },
+  );
+
+  /**
+   * The report as a real PDF: the client sends the same sheet it shows, the
+   * server prints it through the system's own browser engine. Needs
+   * Edge/Chrome installed where the server runs.
+   */
+  app.post('/api/reports/pdf', async (request, reply) => {
+    requireAuth(request);
+    const body = parseOrRefuse(
+      z.object({
+        title: z.string().trim().min(1).max(100),
+        html: z.string().min(1).max(2_000_000),
+        landscape: z.boolean().default(true),
+      }),
+      request.body,
+    );
+
+    const { chromium } = await import('playwright-core');
+    const browser = await launchSystemBrowser(chromium);
+    try {
+      const page = await browser.newPage();
+      await page.setContent(body.html, { waitUntil: 'load' });
+      const pdf = await page.pdf({
+        format: 'A4',
+        landscape: body.landscape,
+        printBackground: true,
+        margin: { top: '9mm', bottom: '9mm', left: '9mm', right: '9mm' },
+      });
+      void reply
+        .type('application/pdf')
+        .header(
+          'content-disposition',
+          `attachment; filename*=UTF-8''${encodeURIComponent(body.title)}.pdf`,
+        );
+      return pdf;
+    } finally {
+      await browser.close();
+    }
+  });
+
+  /** كشف التقرير اليومي: دخول وخروج وواقف، يوم بيوم. */
+  app.get('/api/reports/daily', (request): { rows: DailyReportRow[] } => {
+    requireAuth(request);
+    const query = request.query as { from?: string; to?: string };
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+
+    // The running total needs history from the beginning of time; the range
+    // only decides which days get a row.
+    const instants = store.listMovementInstants(db, range.to);
+    const fromMs = new Date(range.from).getTime();
+    const byDay = new Map<string, { inCount: number; outCount: number }>();
+    let standingBefore = 0;
+    const standingByDay = new Map<string, number>();
+    let running = 0;
+    for (const instant of instants) {
+      const day = ammanDate.format(new Date(instant.at));
+      running += instant.type === 'IN' ? 1 : -1;
+      standingByDay.set(day, running);
+      if (new Date(instant.at).getTime() < fromMs) {
+        standingBefore = running;
+        continue;
+      }
+      const entry = byDay.get(day) ?? { inCount: 0, outCount: 0 };
+      if (instant.type === 'IN') entry.inCount += 1;
+      else entry.outCount += 1;
+      byDay.set(day, entry);
+    }
+
+    // Every day of the range appears, movement or none, like the paper sheet.
+    const rows: DailyReportRow[] = [];
+    let standing = standingBefore;
+    for (let t = fromMs; t < new Date(range.to).getTime(); t += 86_400_000) {
+      const day = ammanDate.format(new Date(t));
+      if (rows.some((r) => r.date === day)) continue;
+      const entry = byDay.get(day) ?? { inCount: 0, outCount: 0 };
+      standing = standingByDay.get(day) ?? standing;
+      rows.push({ date: day, inCount: entry.inCount, outCount: entry.outCount, standing });
+    }
+    return { rows };
   });
 
   app.get('/api/containers', (request) => {

@@ -1,5 +1,0 @@
-# Roots this folder as its own pnpm workspace so no parent can claim it.
-# esbuild is the only dependency allowed to run an install script — it fetches
-# its platform binary. Everything else stays blocked, the safe default.
-allowBuilds:
-  esbuild: true

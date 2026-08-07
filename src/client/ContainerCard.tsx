@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto, MovementDto } from '../shared/types';
-import { positionLabel } from '../shared/address';
+import type { ContainerDto, MovementDto, Position } from '../shared/types';
+import { GROUND_TIER } from '../shared/types';
 import { AR } from './ar';
 import { ApiFailure, api, dwellDays, formatDate } from './api';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
@@ -11,22 +11,22 @@ import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
  * opened by tapping it on the map or in a search result.
  */
 
-function movementLine(movement: MovementDto): string {
+function movementLine(movement: MovementDto, label: (p: Position) => string): string {
   switch (movement.type) {
     case 'IN':
-      return movement.to === null
-        ? AR.movementIn
-        : `${AR.movementIn} → ${positionLabel(movement.to)}`;
+      return movement.to === null ? AR.movementIn : `${AR.movementIn} → ${label(movement.to)}`;
     case 'MOVE':
       return movement.from !== null && movement.to !== null
-        ? `${AR.movementMove}: ${positionLabel(movement.from)} → ${positionLabel(movement.to)}`
+        ? `${AR.movementMove}: ${label(movement.from)} → ${label(movement.to)}`
         : AR.movementMove;
     case 'OUT':
       return movement.from === null
         ? AR.movementOut
-        : `${AR.movementOut} من ${positionLabel(movement.from)}`;
+        : `${AR.movementOut} من ${label(movement.from)}`;
     case 'EDIT':
       return movement.note === '' ? AR.movementEdit : AR.editedFields(movement.note);
+    case 'DELETE':
+      return AR.movementDelete;
   }
 }
 
@@ -50,13 +50,21 @@ export function ContainerCard(props: {
   above: ContainerDto | null;
   /** The container this one stands on, when on the upper tier. */
   below: ContainerDto | null;
+  /** Position → spoken address, with the block's name resolved. */
+  label: (position: Position) => string;
   onStartMove: (container: ContainerDto) => void;
+  /** Start a gate-in on the empty slot directly above this container. */
+  onStackOnTop: (position: Position) => void;
+  /** Open the printable gate card. */
+  onPrint: (kind: 'in' | 'out', container: ContainerDto) => void;
   onChanged: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
   const { container } = props;
   const [confirming, setConfirming] = useState<'exit' | 'delete' | null>(null);
   const [editing, setEditing] = useState(false);
+  const [truckOut, setTruckOut] = useState('');
+  const [driverOut, setDriverOut] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -97,14 +105,16 @@ export function ContainerCard(props: {
 
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between gap-3">
-            <dt className="text-slate-500">{AR.customer}</dt>
-            <dd className="font-semibold text-slate-900">{container.customer}</dd>
+            <dt className="shrink-0 text-slate-500">{AR.customer}</dt>
+            <dd className="min-w-0 font-semibold text-slate-900 wrap-anywhere">
+              {container.customer}
+            </dd>
           </div>
           {container.position !== null && (
             <div className="flex justify-between gap-3">
               <dt className="text-slate-500">{AR.slot}</dt>
               <dd className="font-semibold text-slate-900" dir="ltr">
-                {positionLabel(container.position)}
+                {props.label(container.position)}
               </dd>
             </div>
           )}
@@ -125,13 +135,58 @@ export function ContainerCard(props: {
               </dd>
             </div>
           )}
-          {container.notes !== '' && (
+          {container.truckIn !== '' && (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">{AR.notes}</dt>
-              <dd className="text-slate-700">{container.notes}</dd>
+              <dt className="text-slate-500">{AR.cardTruck}</dt>
+              <dd className="font-semibold text-slate-900" dir="ltr">
+                {container.truckIn}
+              </dd>
+            </div>
+          )}
+          {container.driverIn !== '' && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">{AR.cardDriver}</dt>
+              <dd className="text-slate-700">{container.driverIn}</dd>
+            </div>
+          )}
+          {container.weight !== '' && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-slate-500">{AR.cardWeight}</dt>
+              <dd className="text-slate-700" dir="ltr">
+                {container.weight}
+              </dd>
+            </div>
+          )}
+          {container.notes !== '' && (
+            <div>
+              <dt className="mb-1 text-slate-500">{AR.notes}</dt>
+              <dd className="whitespace-pre-wrap rounded-lg bg-slate-50 px-2.5 py-1.5 leading-6 text-slate-700 wrap-anywhere">
+                {container.notes}
+              </dd>
             </div>
           )}
         </dl>
+
+        <div className="flex flex-wrap gap-2">
+          <Button
+            kind="quiet"
+            onClick={() => {
+              props.onPrint('in', container);
+            }}
+          >
+            {AR.printCardIn}
+          </Button>
+          {container.exitedAt !== null && (
+            <Button
+              kind="quiet"
+              onClick={() => {
+                props.onPrint('out', container);
+              }}
+            >
+              {AR.printCardOut}
+            </Button>
+          )}
+        </div>
 
         {buried && props.above !== null && (
           <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-800">
@@ -143,6 +198,25 @@ export function ContainerCard(props: {
         )}
 
         <ErrorLine message={error} />
+
+        {inYard &&
+          !editing &&
+          container.position !== null &&
+          container.position.tier === GROUND_TIER &&
+          props.above === null && (
+            <Button
+              full
+              kind="quiet"
+              disabled={busy}
+              onClick={() => {
+                if (container.position !== null) {
+                  props.onStackOnTop({ ...container.position, tier: 2 });
+                }
+              }}
+            >
+              {AR.stackOnTop}
+            </Button>
+          )}
 
         {inYard && !editing && (
           <div className="grid grid-cols-2 gap-2">
@@ -202,7 +276,9 @@ export function ContainerCard(props: {
           <ol className="space-y-1.5 border-s-2 border-slate-100 ps-3">
             {(detail.data?.movements ?? []).map((movement) => (
               <li key={movement.id} className="text-xs leading-5">
-                <span className="font-semibold text-slate-700">{movementLine(movement)}</span>
+                <span className="font-semibold text-slate-700">
+                  {movementLine(movement, props.label)}
+                </span>
                 <span className="ms-2 text-slate-400">{formatDate(movement.at)}</span>
               </li>
             ))}
@@ -211,18 +287,60 @@ export function ContainerCard(props: {
       </div>
 
       {confirming === 'exit' && (
-        <Confirm
-          title={AR.confirmExitTitle}
-          body={AR.confirmExitBody(container.number)}
-          confirmLabel={AR.actionExit}
-          busy={busy}
-          onConfirm={() => {
-            run(api.exit(container.id), AR.exitDone(container.number));
-          }}
-          onCancel={() => {
-            setConfirming(null);
-          }}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="text-base font-bold text-slate-900">{AR.confirmExitTitle}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              {AR.confirmExitBody(container.number)}
+            </p>
+            <div className="mt-4 space-y-3">
+              <Field label={AR.truck}>
+                <input
+                  dir="ltr"
+                  className={`${inputClass} text-start`}
+                  value={truckOut}
+                  onChange={(event) => {
+                    setTruckOut(event.target.value);
+                  }}
+                  autoFocus
+                />
+              </Field>
+              <Field label={AR.driver}>
+                <input
+                  className={inputClass}
+                  value={driverOut}
+                  onChange={(event) => {
+                    setDriverOut(event.target.value);
+                  }}
+                />
+              </Field>
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button
+                disabled={busy || truckOut.trim() === ''}
+                onClick={() => {
+                  run(
+                    api.exit(container.id, {
+                      truck: truckOut.trim(),
+                      driver: driverOut.trim(),
+                    }),
+                    AR.exitDone(container.number),
+                  );
+                }}
+              >
+                {AR.actionExit}
+              </Button>
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setConfirming(null);
+                }}
+              >
+                {AR.cancel}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
       {confirming === 'delete' && (
         <Confirm
@@ -250,6 +368,7 @@ function EditForm(props: {
     number: string;
     customer: string;
     cargo: 'EMPTY' | 'LADEN';
+    size: 20 | 40;
     notes: string;
   }) => void;
   onCancel: () => void;
@@ -257,6 +376,7 @@ function EditForm(props: {
   const [number, setNumber] = useState(props.container.number);
   const [customer, setCustomer] = useState(props.container.customer);
   const [cargo, setCargo] = useState<'EMPTY' | 'LADEN'>(props.container.cargo);
+  const [size, setSize] = useState<20 | 40>(props.container.size);
   const [notes, setNotes] = useState(props.container.notes);
 
   const ready = number.trim() !== '' && customer.trim() !== '' && !props.busy;
@@ -303,9 +423,31 @@ function EditForm(props: {
           ))}
         </div>
       </Field>
+      <Field label={AR.cardSize}>
+        <div className="grid grid-cols-2 gap-2">
+          {([20, 40] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                setSize(option);
+              }}
+              className={
+                'rounded-xl border px-3 py-2 text-sm font-semibold ' +
+                (size === option
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-slate-300 bg-white text-slate-600')
+              }
+            >
+              {option} قدم
+            </button>
+          ))}
+        </div>
+      </Field>
       <Field label={AR.notes}>
-        <input
-          className={inputClass}
+        <textarea
+          className={`${inputClass} min-h-16 resize-y`}
+          rows={2}
           value={notes}
           onChange={(event) => {
             setNotes(event.target.value);
@@ -320,6 +462,7 @@ function EditForm(props: {
               number: number.trim(),
               customer: customer.trim(),
               cargo,
+              size,
               notes: notes.trim(),
             });
           }}

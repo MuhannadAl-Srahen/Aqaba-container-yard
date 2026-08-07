@@ -25,3 +25,56 @@ body {
   stroke-width: 2.5;
   stroke-dasharray: none;
 }
+
+/*
+ * Printing: only the marked area reaches paper — a gate card or a report
+ * sheet — everything else on screen disappears.
+ */
+@media print {
+  body {
+    background: white;
+  }
+  body *:not(.print-area):not(.print-area *) {
+    visibility: hidden;
+  }
+  .print-area,
+  .print-area * {
+    visibility: visible;
+  }
+  .print-area {
+    position: absolute !important;
+    inset-inline-start: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    box-shadow: none;
+  }
+  .print-hidden {
+    display: none !important;
+  }
+
+  /* Report sheets: compact type that fits the page, headers repeating on
+     every page, rows never sawn in half. */
+  .report-sheet {
+    max-width: none !important;
+    border-radius: 0;
+    padding: 0 !important;
+  }
+  .report-sheet .overflow-x-auto {
+    overflow: visible !important;
+  }
+  .report-sheet table {
+    width: 100%;
+    font-size: 9.5px;
+  }
+  .report-sheet th,
+  .report-sheet td {
+    padding: 2px 4px !important;
+  }
+  .report-sheet thead {
+    display: table-header-group;
+  }
+  .report-sheet tr {
+    break-inside: avoid;
+  }
+}

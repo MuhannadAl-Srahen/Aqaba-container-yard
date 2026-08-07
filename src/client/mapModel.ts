@@ -1,9 +1,9 @@
 import type { ContainerDto, Position, Size, Tier, YardConfig } from '../shared/types';
 import { GROUND_TIER, MAX_TIER } from '../shared/types';
-import { slotKey } from '../shared/address';
+import { positionLabel, slotKey, type BlockNamer } from '../shared/address';
 import { canPlace, type Standing } from '../shared/rules';
+import { blockTakes } from '../shared/geometry';
 import { normalizeNumber } from '../shared/iso6346';
-import { zoneOf } from '../shared/rules';
 
 /**
  * Pure map arithmetic, kept out of the components so it can be tested without
@@ -39,7 +39,7 @@ export function toStanding(containers: readonly ContainerDto[]): Standing[] {
 
 /**
  * Every position a container of this size may land on right now, keyed
- * `zone|row|col|tier`. Used to paint the green targets in moving mode — the
+ * `block|row|col|tier`. Used to paint the green targets in moving mode — the
  * SAME rule functions the server runs, so the paint cannot lie.
  */
 export function legalTargets(
@@ -50,14 +50,16 @@ export function legalTargets(
 ): Set<string> {
   const standing = toStanding(containers);
   const targets = new Set<string>();
-  const zone = zoneOf(yard, size);
 
-  for (let row = 1; row <= zone.rows; row += 1) {
-    for (let col = 1; col <= zone.cols; col += 1) {
-      for (let tier = GROUND_TIER; tier <= MAX_TIER; tier += 1) {
-        const position: Position = { zone: size, row, col, tier: tier as Tier };
-        if (canPlace(yard, standing, size, position, ignoreId) === null) {
-          targets.add(`${slotKey(position)}|${String(tier)}`);
+  for (const block of yard.blocks) {
+    if (!blockTakes(block.size, size)) continue;
+    for (let row = 1; row <= block.rows; row += 1) {
+      for (let col = 1; col <= block.cols; col += 1) {
+        for (let tier = GROUND_TIER; tier <= MAX_TIER; tier += 1) {
+          const position: Position = { block: block.id, row, col, tier: tier as Tier };
+          if (canPlace(yard, standing, size, position, ignoreId) === null) {
+            targets.add(`${slotKey(position)}|${String(tier)}`);
+          }
         }
       }
     }
@@ -88,21 +90,25 @@ export function searchMatches(
   return matches;
 }
 
-export interface ZoneSummary {
+export interface BlockSummary {
   freeGround: number;
   totalGround: number;
 }
 
-export function summarizeZone(
-  yard: YardConfig,
+export function summarizeBlock(
+  block: { id: number; rows: number; cols: number },
   stacks: ReadonlyMap<string, SlotStack>,
-  zone: Size,
-): ZoneSummary {
-  const shape = zoneOf(yard, zone);
-  const totalGround = shape.rows * shape.cols;
+): BlockSummary {
+  const totalGround = block.rows * block.cols;
   let occupied = 0;
   for (const [key, stack] of stacks) {
-    if (key.startsWith(`${String(zone)}|`) && stack.ground !== undefined) occupied += 1;
+    if (key.startsWith(`${String(block.id)}|`) && stack.ground !== undefined) occupied += 1;
   }
   return { freeGround: totalGround - occupied, totalGround };
+}
+
+/** A position labeler bound to the state's block names, `؟` for the unknown. */
+export function labelerFrom(blockNames: Readonly<Record<string, string>>): (p: Position) => string {
+  const nameOf: BlockNamer = (id) => blockNames[String(id)] ?? '؟';
+  return (position) => positionLabel(nameOf, position);
 }

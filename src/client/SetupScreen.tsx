@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import type { YardConfig } from '../shared/types';
 import { MAX_ZONE_COLS, MAX_ZONE_ROWS } from '../shared/types';
+import { defaultLayout } from '../shared/geometry';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Button, ErrorLine, Field, inputClass } from './ui';
@@ -20,10 +21,13 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // The preview builds the exact two blocks the server will create.
   const yard: YardConfig = useMemo(
     () => ({
-      twenty: { rows: twentyRows, cols: twentyCols },
-      forty: { rows: fortyRows, cols: fortyCols },
+      blocks: defaultLayout(
+        { rows: twentyRows, cols: twentyCols },
+        { rows: fortyRows, cols: fortyCols },
+      ),
     }),
     [twentyRows, twentyCols, fortyRows, fortyCols],
   );
@@ -40,7 +44,10 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
     setBusy(true);
     setError(null);
     api
-      .setup(password, yard)
+      .setup(password, {
+        twenty: { rows: twentyRows, cols: twentyCols },
+        forty: { rows: fortyRows, cols: fortyCols },
+      })
       .then(props.onDone)
       .catch((failure: unknown) => {
         setError(failure instanceof ApiFailure ? failure.arabic : AR.networkError);

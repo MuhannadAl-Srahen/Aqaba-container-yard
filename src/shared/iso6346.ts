@@ -33,16 +33,28 @@ export function normalizeNumber(raw: string): string {
 
 export interface NumberCheck {
   readonly valid: boolean;
+  /** True when the number is the yard's own short form, not ISO. */
+  readonly local: boolean;
   readonly normalized: string;
   /** What the last digit should have been; null when too malformed to compute. */
   readonly expectedDigit: number | null;
 }
 
+/**
+ * The yard's own working designation: 4 letters and 4 digits, the way the
+ * paper register writes containers. Accepted as correct alongside full ISO.
+ */
+const LOCAL_FORM = /^[A-Z]{4}\d{4}$/;
+
 export function checkNumber(raw: string): NumberCheck {
   const normalized = normalizeNumber(raw);
 
+  if (LOCAL_FORM.test(normalized)) {
+    return { valid: true, local: true, normalized, expectedDigit: null };
+  }
+
   if (!/^[A-Z]{4}\d{7}$/.test(normalized)) {
-    return { valid: false, normalized, expectedDigit: null };
+    return { valid: false, local: false, normalized, expectedDigit: null };
   }
 
   let sum = 0;
@@ -58,5 +70,5 @@ export function checkNumber(raw: string): NumberCheck {
   const category = normalized[3] ?? '';
   const valid = 'UJZ'.includes(category) && Number(normalized[10]) === expectedDigit;
 
-  return { valid, normalized, expectedDigit };
+  return { valid, local: false, normalized, expectedDigit };
 }

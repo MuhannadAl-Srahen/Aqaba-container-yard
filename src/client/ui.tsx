@@ -1,5 +1,18 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
 import { AR } from './ar';
+
+/** Escape closes whatever is open — the keyboard's back button. */
+export function useEscape(onClose: () => void): void {
+  useEffect(() => {
+    const handler = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+    };
+  }, [onClose]);
+}
 
 /**
  * The few shared visual atoms. One look, defined once — every panel, button
@@ -62,6 +75,7 @@ export function Sheet(props: {
   onClose: () => void;
   children: ReactNode;
 }): ReactElement {
+  useEscape(props.onClose);
   return (
     <div className="pointer-events-none fixed inset-0 z-40 flex items-end justify-center lg:items-stretch lg:justify-end">
       <div
@@ -96,6 +110,7 @@ export function Confirm(props: {
   onConfirm: () => void;
   onCancel: () => void;
 }): ReactElement {
+  useEscape(props.onCancel);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
       <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">

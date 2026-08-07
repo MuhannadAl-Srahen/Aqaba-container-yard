@@ -7,14 +7,14 @@ stands alone — it imports nothing from any other project.
 ## Run it
 
 ```bash
-pnpm install
+bun install
 
 # development — Vite on :5180, API on :8787, /api proxied
-pnpm dev
+bun run dev
 
 # production — one process serves the API and the built client
-pnpm build
-pnpm start          # http://localhost:8787
+bun run build
+bun run start        # http://localhost:8787
 ```
 
 The database is one SQLite file, `data/yard.db` by default (`YARD_DB`
@@ -28,7 +28,7 @@ containers are untouched).
 ## Checks
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm test
+bun run typecheck
+bun run lint
+bun run test
 ```

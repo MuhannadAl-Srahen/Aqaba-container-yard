@@ -28,6 +28,8 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
   const pointers = useRef(new Map<number, PointerState>());
   const pinchDistance = useRef<number | null>(null);
   const dragged = useRef(false);
+  /** Where the gesture started, for the tap-vs-drag distance. */
+  const downAt = useRef<PointerState | null>(null);
 
   const clampScale = (scale: number): number => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 
@@ -68,16 +70,26 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
     });
   }, []);
 
-  const onWheel = useCallback(
-    (event: React.WheelEvent) => {
+  // Wheel is attached natively with passive:false — React root listeners are
+  // passive, so preventDefault there cannot stop ctrl+wheel zooming the whole
+  // page along with the map.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (el === null) return;
+    const onWheel = (event: WheelEvent): void => {
       event.preventDefault();
       zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? 1.15 : 1 / 1.15);
-    },
-    [zoomAt],
-  );
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [zoomAt]);
 
   const onPointerDown = useCallback((event: React.PointerEvent) => {
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    // No capture here: capturing at pointerdown retargets the coming click
+    // to this container, so a tapped cell would never hear it. Capture waits
+    // until the movement says "drag" (below).
     pointers.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.current.size === 1) dragged.current = false;
     pinchDistance.current = null;
@@ -87,8 +99,29 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
     const previous = pointers.current.get(event.pointerId);
     if (previous === undefined) return;
 
+    // A tracked non-touch pointer moving with no button held means its
+    // pointerup happened somewhere we never heard it (released outside,
+    // uncaptured). Forget it, or plain hovering would pan the map.
+    if (event.pointerType !== 'touch' && event.buttons === 0) {
+      pointers.current.delete(event.pointerId);
+      if (pointers.current.size < 2) pinchDistance.current = null;
+      return;
+    }
+
     const current = { x: event.clientX, y: event.clientY };
     pointers.current.set(event.pointerId, current);
+
+    // Once the gesture is a real drag or pinch, capture the pointer so the
+    // pan survives leaving the container. A tap (within the slop) never
+    // captures, keeping its click intact for the cell underneath.
+    const start = downAt.current;
+    const isDrag =
+      pointers.current.size === 2 ||
+      (start !== null && Math.hypot(current.x - start.x, current.y - start.y) > TAP_SLOP_PX);
+    const target = event.currentTarget as HTMLElement;
+    if (isDrag && !target.hasPointerCapture(event.pointerId)) {
+      target.setPointerCapture(event.pointerId);
+    }
 
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
@@ -104,20 +137,32 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
       return;
     }
 
+    // Pan only once the slop says drag: a shaky tap must stay a tap, and
+    // it must not nudge the view either. The dropped ≤8px is imperceptible
+    // at the start of a real drag.
+    if (!isDrag) return;
+    dragged.current = true;
     const dx = current.x - previous.x;
     const dy = current.y - previous.y;
     if (Math.abs(dx) + Math.abs(dy) > 0) {
       setView((v) => ({ ...v, x: v.x + dx, y: v.y + dy }));
-    }
-    if (Math.hypot(dx, dy) > 1) {
-      // Accumulate: a slow careful drag is still a drag.
-      dragged.current = dragged.current || Math.hypot(dx, dy) > 0;
     }
   }, [zoomAt]);
 
   const onPointerUp = useCallback((event: React.PointerEvent) => {
     pointers.current.delete(event.pointerId);
     if (pointers.current.size < 2) pinchDistance.current = null;
+  }, []);
+
+  // An uncaptured pointer that leaves will deliver its pointerup elsewhere —
+  // forget it now, or its ghost would pan under the next hover and swallow
+  // the next tap. A captured pointer (a real drag) is cleaned by pointerup.
+  const onPointerLeave = useCallback((event: React.PointerEvent) => {
+    const target = event.currentTarget as HTMLElement;
+    if (!target.hasPointerCapture(event.pointerId)) {
+      pointers.current.delete(event.pointerId);
+      if (pointers.current.size < 2) pinchDistance.current = null;
+    }
   }, []);
 
   /**
@@ -127,7 +172,6 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
   const wasDrag = useCallback((): boolean => dragged.current, []);
 
   // Track total movement from pointerdown so wasDrag is meaningful.
-  const downAt = useRef<PointerState | null>(null);
   const onPointerDownCapture = useCallback((event: React.PointerEvent) => {
     if (pointers.current.size === 0) {
       downAt.current = { x: event.clientX, y: event.clientY };
@@ -164,11 +208,11 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
     wasDrag,
     zoomButtons,
     handlers: {
-      onWheel,
       onPointerDown,
       onPointerMove,
       onPointerUp,
       onPointerCancel: onPointerUp,
+      onPointerLeave,
       onPointerDownCapture,
       onPointerUpCapture,
     },

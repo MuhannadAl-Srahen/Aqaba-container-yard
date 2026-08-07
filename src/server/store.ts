@@ -1,6 +1,9 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  BlockConfig,
+  BlockSize,
   ContainerDto,
+  LogReportRow,
   MovementDto,
   MovementType,
   Position,
@@ -25,17 +28,26 @@ interface ContainerRow {
   notes: string;
   entered_at: string;
   exited_at: string | null;
-  zone: number | null;
+  block_id: number | null;
   row: number | null;
   col: number | null;
   tier: number | null;
+  weight: string;
+  truck_in: string;
+  driver_in: string;
+  card_in: number | null;
+  truck_out: string;
+  driver_out: string;
+  card_out: number | null;
   deleted_at: string | null;
 }
 
 function positionOf(row: ContainerRow): Position | null {
-  if (row.zone === null || row.row === null || row.col === null || row.tier === null) return null;
+  if (row.block_id === null || row.row === null || row.col === null || row.tier === null) {
+    return null;
+  }
   return {
-    zone: row.zone as Size,
+    block: row.block_id,
     row: row.row,
     col: row.col,
     tier: row.tier as Tier,
@@ -54,34 +66,96 @@ function toDto(row: ContainerRow): ContainerDto {
     exitedAt: row.exited_at,
     position: positionOf(row),
     notes: row.notes,
+    weight: row.weight,
+    truckIn: row.truck_in,
+    driverIn: row.driver_in,
+    cardIn: row.card_in,
+    truckOut: row.truck_out,
+    driverOut: row.driver_out,
+    cardOut: row.card_out,
   };
 }
 
-export function getYard(db: DatabaseSync): YardConfig | null {
-  const row = db.prepare('SELECT * FROM yard WHERE id = 1').get() as
-    | { twenty_rows: number; twenty_cols: number; forty_rows: number; forty_cols: number }
-    | undefined;
-  if (row === undefined) return null;
+interface BlockRow {
+  id: number;
+  name: string;
+  size: number;
+  rows: number;
+  cols: number;
+  x: number;
+  y: number;
+  angle: number;
+  deleted_at: string | null;
+}
+
+function toBlock(row: BlockRow): BlockConfig {
   return {
-    twenty: { rows: row.twenty_rows, cols: row.twenty_cols },
-    forty: { rows: row.forty_rows, cols: row.forty_cols },
+    id: row.id,
+    name: row.name,
+    size: row.size as BlockSize,
+    rows: row.rows,
+    cols: row.cols,
+    x: row.x,
+    y: row.y,
+    angle: row.angle,
   };
 }
 
-export function saveYard(db: DatabaseSync, yard: YardConfig): void {
+/**
+ * The development wipe: every container and movement gone FOR REAL, card
+ * counters back to 1, the yard's blocks and the password untouched. Guarded
+ * by the route — this is the one deliberate exception to soft-delete-only.
+ */
+export function devReset(db: DatabaseSync): void {
+  db.exec(`
+    DELETE FROM movements;
+    DELETE FROM containers;
+    DELETE FROM sqlite_sequence WHERE name IN ('movements', 'containers');
+    DELETE FROM settings WHERE key IN ('card_in_next', 'card_out_next');
+  `);
+}
+
+/** The live yard: every block that has not been deleted. Null before setup. */
+export function getYard(db: DatabaseSync): YardConfig | null {
+  const rows = db
+    .prepare('SELECT * FROM blocks WHERE deleted_at IS NULL ORDER BY id')
+    .all() as unknown as BlockRow[];
+  if (rows.length === 0) return null;
+  return { blocks: rows.map(toBlock) };
+}
+
+/** Names of every block EVER — old history keeps naming deleted areas. */
+export function listBlockNames(db: DatabaseSync): Record<string, string> {
+  const rows = db.prepare('SELECT id, name FROM blocks').all() as unknown as Array<{
+    id: number;
+    name: string;
+  }>;
+  const names: Record<string, string> = {};
+  for (const row of rows) names[String(row.id)] = row.name;
+  return names;
+}
+
+export function insertBlock(db: DatabaseSync, block: Omit<BlockConfig, 'id'>): number {
+  const result = db
+    .prepare('INSERT INTO blocks (name, size, rows, cols, x, y, angle) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(block.name, block.size, block.rows, block.cols, block.x, block.y, block.angle);
+  return Number(result.lastInsertRowid);
+}
+
+export function updateBlock(db: DatabaseSync, block: BlockConfig): void {
   db.prepare(
-    `INSERT INTO yard (id, twenty_rows, twenty_cols, forty_rows, forty_cols)
-     VALUES (1, ?, ?, ?, ?)
-     ON CONFLICT (id) DO UPDATE SET
-       twenty_rows = excluded.twenty_rows, twenty_cols = excluded.twenty_cols,
-       forty_rows = excluded.forty_rows, forty_cols = excluded.forty_cols`,
-  ).run(yard.twenty.rows, yard.twenty.cols, yard.forty.rows, yard.forty.cols);
+    'UPDATE blocks SET name = ?, size = ?, rows = ?, cols = ?, x = ?, y = ?, angle = ? WHERE id = ?',
+  ).run(block.name, block.size, block.rows, block.cols, block.x, block.y, block.angle, block.id);
+}
+
+export function softDeleteBlock(db: DatabaseSync, id: number, at: string): void {
+  db.prepare('UPDATE blocks SET deleted_at = ? WHERE id = ?').run(at, id);
 }
 
 /** Everyone currently standing in the yard, as the rules see them. */
 export function listStanding(db: DatabaseSync): Standing[] {
   const rows = db
-    .prepare('SELECT * FROM containers WHERE zone IS NOT NULL AND deleted_at IS NULL')
+    .prepare('SELECT * FROM containers WHERE block_id IS NOT NULL AND deleted_at IS NULL')
     .all() as unknown as ContainerRow[];
   return rows.map((row) => {
     const position = positionOf(row);
@@ -90,10 +164,18 @@ export function listStanding(db: DatabaseSync): Standing[] {
   });
 }
 
+/** Sizes of the standing containers, for layout-change stranding checks. */
+export function standingSizes(db: DatabaseSync): Map<number, Size> {
+  const rows = db
+    .prepare('SELECT id, size FROM containers WHERE block_id IS NOT NULL AND deleted_at IS NULL')
+    .all() as unknown as Array<{ id: number; size: number }>;
+  return new Map(rows.map((row) => [row.id, row.size as Size]));
+}
+
 export function listInYard(db: DatabaseSync): ContainerDto[] {
   const rows = db
     .prepare(
-      'SELECT * FROM containers WHERE zone IS NOT NULL AND deleted_at IS NULL ORDER BY entered_at',
+      'SELECT * FROM containers WHERE block_id IS NOT NULL AND deleted_at IS NULL ORDER BY entered_at',
     )
     .all() as unknown as ContainerRow[];
   return rows.map(toDto);
@@ -120,7 +202,7 @@ export function getContainer(db: DatabaseSync, id: number): ContainerDto | null 
 export function findStandingByNumber(db: DatabaseSync, number: string): ContainerDto | null {
   const row = db
     .prepare(
-      'SELECT * FROM containers WHERE number = ? AND zone IS NOT NULL AND deleted_at IS NULL',
+      'SELECT * FROM containers WHERE number = ? AND block_id IS NOT NULL AND deleted_at IS NULL',
     )
     .get(number) as ContainerRow | undefined;
   return row === undefined ? null : toDto(row);
@@ -135,7 +217,7 @@ export function searchContainers(db: DatabaseSync, query: string): ContainerDto[
     .prepare(
       `SELECT * FROM containers
        WHERE deleted_at IS NULL AND (number LIKE ? ESCAPE '\\' OR customer LIKE ? ESCAPE '\\')
-       ORDER BY (zone IS NULL), entered_at DESC
+       ORDER BY (block_id IS NULL), entered_at DESC
        LIMIT 50`,
     )
     .all(like, like) as unknown as ContainerRow[];
@@ -151,14 +233,19 @@ export interface NewContainer {
   notes: string;
   position: Position;
   at: string;
+  weight: string;
+  truckIn: string;
+  driverIn: string;
+  cardIn: number;
 }
 
 export function insertContainer(db: DatabaseSync, container: NewContainer): number {
   const result = db
     .prepare(
       `INSERT INTO containers
-         (number, number_valid, size, customer, cargo, notes, entered_at, zone, row, col, tier)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (number, number_valid, size, customer, cargo, notes, entered_at, block_id, row, col, tier,
+          weight, truck_in, driver_in, card_in)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       container.number,
@@ -168,17 +255,21 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
       container.cargo,
       container.notes,
       container.at,
-      container.position.zone,
+      container.position.block,
       container.position.row,
       container.position.col,
       container.position.tier,
+      container.weight,
+      container.truckIn,
+      container.driverIn,
+      container.cardIn,
     );
   return Number(result.lastInsertRowid);
 }
 
 export function setPosition(db: DatabaseSync, id: number, position: Position | null): void {
-  db.prepare('UPDATE containers SET zone = ?, row = ?, col = ?, tier = ? WHERE id = ?').run(
-    position?.zone ?? null,
+  db.prepare('UPDATE containers SET block_id = ?, row = ?, col = ?, tier = ? WHERE id = ?').run(
+    position?.block ?? null,
     position?.row ?? null,
     position?.col ?? null,
     position?.tier ?? null,
@@ -186,10 +277,17 @@ export function setPosition(db: DatabaseSync, id: number, position: Position | n
   );
 }
 
-export function markExited(db: DatabaseSync, id: number, at: string): void {
+export interface GateOut {
+  truck: string;
+  driver: string;
+  cardOut: number;
+}
+
+export function markExited(db: DatabaseSync, id: number, at: string, gate: GateOut): void {
   db.prepare(
-    'UPDATE containers SET exited_at = ?, zone = NULL, row = NULL, col = NULL, tier = NULL WHERE id = ?',
-  ).run(at, id);
+    `UPDATE containers SET exited_at = ?, block_id = NULL, row = NULL, col = NULL, tier = NULL,
+       truck_out = ?, driver_out = ?, card_out = ? WHERE id = ?`,
+  ).run(at, gate.truck, gate.driver, gate.cardOut, id);
 }
 
 export interface ContainerEdit {
@@ -197,19 +295,20 @@ export interface ContainerEdit {
   numberValid: boolean;
   customer: string;
   cargo: 'EMPTY' | 'LADEN';
+  size: Size;
   notes: string;
 }
 
 export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdit): void {
   db.prepare(
-    'UPDATE containers SET number = ?, number_valid = ?, customer = ?, cargo = ?, notes = ? WHERE id = ?',
-  ).run(edit.number, edit.numberValid ? 1 : 0, edit.customer, edit.cargo, edit.notes, id);
+    'UPDATE containers SET number = ?, number_valid = ?, customer = ?, cargo = ?, size = ?, notes = ? WHERE id = ?',
+  ).run(edit.number, edit.numberValid ? 1 : 0, edit.customer, edit.cargo, edit.size, edit.notes, id);
 }
 
 export function softDelete(db: DatabaseSync, id: number, at: string): void {
   // Deleting also vacates the slot; a deleted record must not keep ground.
   db.prepare(
-    'UPDATE containers SET deleted_at = ?, zone = NULL, row = NULL, col = NULL, tier = NULL WHERE id = ?',
+    'UPDATE containers SET deleted_at = ?, block_id = NULL, row = NULL, col = NULL, tier = NULL WHERE id = ?',
   ).run(at, id);
 }
 
@@ -224,18 +323,18 @@ export function recordMovement(
 ): void {
   db.prepare(
     `INSERT INTO movements
-       (container_id, type, at, from_zone, from_row, from_col, from_tier,
-        to_zone, to_row, to_col, to_tier, note)
+       (container_id, type, at, from_block, from_row, from_col, from_tier,
+        to_block, to_row, to_col, to_tier, note)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     containerId,
     type,
     at,
-    from?.zone ?? null,
+    from?.block ?? null,
     from?.row ?? null,
     from?.col ?? null,
     from?.tier ?? null,
-    to?.zone ?? null,
+    to?.block ?? null,
     to?.row ?? null,
     to?.col ?? null,
     to?.tier ?? null,
@@ -247,11 +346,11 @@ interface MovementRow {
   id: number;
   type: string;
   at: string;
-  from_zone: number | null;
+  from_block: number | null;
   from_row: number | null;
   from_col: number | null;
   from_tier: number | null;
-  to_zone: number | null;
+  to_block: number | null;
   to_row: number | null;
   to_col: number | null;
   to_tier: number | null;
@@ -259,13 +358,13 @@ interface MovementRow {
 }
 
 function movementPosition(
-  zone: number | null,
+  block: number | null,
   row: number | null,
   col: number | null,
   tier: number | null,
 ): Position | null {
-  if (zone === null || row === null || col === null || tier === null) return null;
-  return { zone: zone as Size, row, col, tier: tier as Tier };
+  if (block === null || row === null || col === null || tier === null) return null;
+  return { block, row, col, tier: tier as Tier };
 }
 
 export function listMovements(db: DatabaseSync, containerId: number): MovementDto[] {
@@ -276,8 +375,208 @@ export function listMovements(db: DatabaseSync, containerId: number): MovementDt
     id: row.id,
     type: row.type as MovementType,
     at: row.at,
-    from: movementPosition(row.from_zone, row.from_row, row.from_col, row.from_tier),
-    to: movementPosition(row.to_zone, row.to_row, row.to_col, row.to_tier),
+    from: movementPosition(row.from_block, row.from_row, row.from_col, row.from_tier),
+    to: movementPosition(row.to_block, row.to_row, row.to_col, row.to_tier),
     note: row.note,
   }));
+}
+
+/**
+ * The next serial for a printed gate card. One counter per direction, held in
+ * settings and bumped inside the caller's transaction.
+ */
+export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out'): number {
+  const key = kind === 'in' ? 'card_in_next' : 'card_out_next';
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
+  const current = row === undefined ? 1 : Number(row.value);
+  db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+  ).run(key, String(current + 1));
+  return current;
+}
+
+interface GateRow {
+  container_id: number;
+  at: string;
+  b: number | null;
+  r: number | null;
+  c: number | null;
+  t: number | null;
+  number: string;
+  size: number;
+  customer: string;
+  weight: string;
+  truck_in: string;
+  driver_in: string;
+  card_in: number | null;
+  truck_out: string;
+  driver_out: string;
+  card_out: number | null;
+  entered_at: string;
+}
+
+/** Every IN or OUT movement in [from, to), joined with its container's paperwork. */
+export function listGateMovements(
+  db: DatabaseSync,
+  type: 'IN' | 'OUT',
+  fromIso: string,
+  toIso: string,
+): GateReportRowInternal[] {
+  const positionColumns =
+    type === 'IN'
+      ? 'm.to_block AS b, m.to_row AS r, m.to_col AS c, m.to_tier AS t'
+      : 'm.from_block AS b, m.from_row AS r, m.from_col AS c, m.from_tier AS t';
+  const rows = db
+    .prepare(
+      `SELECT m.container_id, m.at, ${positionColumns},
+              k.number, k.size, k.customer, k.weight,
+              k.truck_in, k.driver_in, k.card_in, k.truck_out, k.driver_out, k.card_out,
+              k.entered_at
+       FROM movements m
+       JOIN containers k ON k.id = m.container_id
+       WHERE m.type = ? AND m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
+       ORDER BY m.at, m.id`,
+    )
+    .all(type, fromIso, toIso) as unknown as GateRow[];
+
+  return rows.map((row) => ({
+    containerId: row.container_id,
+    at: row.at,
+    card: type === 'IN' ? row.card_in : row.card_out,
+    truck: type === 'IN' ? row.truck_in : row.truck_out,
+    driver: type === 'IN' ? row.driver_in : row.driver_out,
+    number: row.number,
+    weight: row.weight,
+    size: row.size as Size,
+    customer: row.customer,
+    position: movementPosition(row.b, row.r, row.c, row.t),
+    enteredAt: row.entered_at,
+  }));
+}
+
+export interface GateReportRowInternal {
+  containerId: number;
+  at: string;
+  card: number | null;
+  truck: string;
+  driver: string;
+  number: string;
+  weight: string;
+  size: Size;
+  customer: string;
+  position: Position | null;
+  enteredAt: string;
+}
+
+/**
+ * سجل العمليات: every operation on every container in the range — deletions
+ * and deleted records included, because an audit that hides mistakes is not
+ * an audit.
+ */
+export function listOperationsLog(
+  db: DatabaseSync,
+  fromIso: string,
+  toIso: string,
+): LogReportRow[] {
+  const rows = db
+    .prepare(
+      `SELECT m.type, m.at, m.note,
+              m.from_block, m.from_row, m.from_col, m.from_tier,
+              m.to_block, m.to_row, m.to_col, m.to_tier,
+              k.number, k.customer, k.deleted_at
+       FROM movements m
+       JOIN containers k ON k.id = m.container_id
+       WHERE m.at >= ? AND m.at < ?
+       ORDER BY m.at, m.id`,
+    )
+    .all(fromIso, toIso) as unknown as Array<
+    MovementRow & { number: string; customer: string; deleted_at: string | null }
+  >;
+  return rows.map((row) => ({
+    at: row.at,
+    type: row.type as MovementType,
+    number: row.number,
+    customer: row.customer,
+    from: movementPosition(row.from_block, row.from_row, row.from_col, row.from_tier),
+    to: movementPosition(row.to_block, row.to_row, row.to_col, row.to_tier),
+    note: row.note,
+    deleted: row.deleted_at !== null,
+  }));
+}
+
+/** كشف سيارة: the gate movements one truck carried, both directions. */
+export function listTruckMovements(
+  db: DatabaseSync,
+  truck: string,
+  fromIso: string,
+  toIso: string,
+): Array<GateReportRowInternal & { type: 'IN' | 'OUT' }> {
+  const rows = db
+    .prepare(
+      `SELECT m.type, m.container_id, m.at,
+              m.from_block, m.from_row, m.from_col, m.from_tier,
+              m.to_block, m.to_row, m.to_col, m.to_tier,
+              k.number, k.size, k.customer, k.weight,
+              k.truck_in, k.driver_in, k.card_in, k.truck_out, k.driver_out, k.card_out,
+              k.entered_at
+       FROM movements m
+       JOIN containers k ON k.id = m.container_id
+       WHERE m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
+         AND ((m.type = 'IN' AND k.truck_in = ?) OR (m.type = 'OUT' AND k.truck_out = ?))
+       ORDER BY m.at, m.id`,
+    )
+    .all(fromIso, toIso, truck, truck) as unknown as Array<
+    MovementRow & {
+      container_id: number;
+      number: string;
+      size: number;
+      customer: string;
+      weight: string;
+      truck_in: string;
+      driver_in: string;
+      card_in: number | null;
+      truck_out: string;
+      driver_out: string;
+      card_out: number | null;
+      entered_at: string;
+    }
+  >;
+  return rows.map((row) => {
+    const type = row.type === 'IN' ? ('IN' as const) : ('OUT' as const);
+    return {
+      type,
+      containerId: row.container_id,
+      at: row.at,
+      card: type === 'IN' ? row.card_in : row.card_out,
+      truck: type === 'IN' ? row.truck_in : row.truck_out,
+      driver: type === 'IN' ? row.driver_in : row.driver_out,
+      number: row.number,
+      weight: row.weight,
+      size: row.size as Size,
+      customer: row.customer,
+      position:
+        type === 'IN'
+          ? movementPosition(row.to_block, row.to_row, row.to_col, row.to_tier)
+          : movementPosition(row.from_block, row.from_row, row.from_col, row.from_tier),
+      enteredAt: row.entered_at,
+    };
+  });
+}
+
+/** Every IN/OUT instant up to `toIso`, for the daily counts and running total. */
+export function listMovementInstants(
+  db: DatabaseSync,
+  toIso: string,
+): Array<{ type: 'IN' | 'OUT'; at: string }> {
+  const rows = db
+    .prepare(
+      `SELECT m.type, m.at FROM movements m
+       JOIN containers k ON k.id = m.container_id
+       WHERE m.type IN ('IN', 'OUT') AND m.at < ? AND k.deleted_at IS NULL
+       ORDER BY m.at`,
+    )
+    .all(toIso) as unknown as Array<{ type: 'IN' | 'OUT'; at: string }>;
+  return rows;
 }
