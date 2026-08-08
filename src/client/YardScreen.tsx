@@ -431,6 +431,19 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           <LegendChip color="#475569" label={AR.legendStacked} layered />
           <LegendChip color="#f8fafc" label={AR.legendFree} dashed />
           {moving !== null && <LegendChip color="#dcfce7" label={AR.legendTarget} border="#16a34a" />}
+          {/* Condition chips appear only when the condition exists somewhere. */}
+          {containers.some((c) => c.status === 'DAMAGED') && (
+            <LegendChip color="#dc2626" label={AR.containerStatusName.DAMAGED} />
+          )}
+          {containers.some((c) => c.status === 'HOLD') && (
+            <LegendChip color="#0f172a" label={AR.containerStatusName.HOLD} />
+          )}
+          {containers.some((c) => c.status === 'REPAIR') && (
+            <LegendChip color="#7c3aed" label={AR.containerStatusName.REPAIR} />
+          )}
+          {containers.some((c) => c.status === 'INSPECT') && (
+            <LegendChip color="#f59e0b" label={AR.containerStatusName.INSPECT} />
+          )}
         </div>
       </header>
 

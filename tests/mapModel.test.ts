@@ -39,6 +39,7 @@ function box(
     truckOut: '',
     driverOut: '',
     cardOut: null,
+    status: 'NORMAL',
   };
 }
 

@@ -29,7 +29,14 @@ const at = (block: number, row: number, col: number, tier: 1 | 2): Position => (
 
 const standing = (
   ...list: Array<[id: number, number: string, pos: Position, size?: 20 | 40]>
-): Standing[] => list.map(([id, number, position, size]) => ({ id, number, size: size ?? 20, position }));
+): Standing[] =>
+  list.map(([id, number, position, size]) => ({
+    id,
+    number,
+    size: size ?? 20,
+    status: 'NORMAL',
+    position,
+  }));
 
 describe('placement', () => {
   it('accepts an empty ground slot in the right block', () => {
@@ -164,6 +171,29 @@ describe('lifting', () => {
     if (top === undefined) throw new Error('fixture');
     expect(canLift(s, top)).toBeNull();
     expect(containerAbove(s, top)).toBeNull();
+  });
+
+  it('a held container never lifts, even a free-standing one', () => {
+    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
+    const held: Standing = { ...(s[0] as Standing), status: 'HOLD' };
+    expect(canLift([held], held)?.code).toBe('CONTAINER_HOLD');
+  });
+
+  it('the hold outranks the stack: a buried held container names the hold', () => {
+    const s = standing(
+      [1, 'MSCU1234566', at(B20, 1, 1, 1)],
+      [2, 'CSQU3054383', at(B20, 1, 1, 2)],
+    );
+    const bottomHeld: Standing = { ...(s[0] as Standing), status: 'HOLD' };
+    expect(canLift([bottomHeld, s[1] as Standing], bottomHeld)?.code).toBe('CONTAINER_HOLD');
+  });
+
+  it('the other conditions leave lifting alone', () => {
+    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
+    for (const status of ['DAMAGED', 'REPAIR', 'INSPECT'] as const) {
+      const flagged: Standing = { ...(s[0] as Standing), status };
+      expect(canLift([flagged], flagged)).toBeNull();
+    }
   });
 });
 

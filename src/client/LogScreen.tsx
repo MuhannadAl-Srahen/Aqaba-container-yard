@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { LogReportRow, Position } from '../shared/types';
+import { CONTAINER_STATUSES } from '../shared/types';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Toast } from './ui';
@@ -135,6 +136,20 @@ export function LogScreen(props: {
     const parsed = parseEditNote(row.note);
     if (parsed === null) return;
     setBusyRow(index);
+
+    // A status change travels its own route, so its revert does too — the
+    // before-value is validated by hand against the closed vocabulary.
+    if (parsed.keys.length === 1 && parsed.keys[0] === 'status') {
+      const wasStatus = CONTAINER_STATUSES.find((s) => s === parsed.before['status']);
+      api
+        .setStatus(row.containerId, wasStatus ?? 'NORMAL')
+        .then(() => {
+          finish(AR.revertedDone);
+        })
+        .catch(fail);
+      return;
+    }
+
     api
       .detail(row.containerId)
       .then(({ container }) => {

@@ -1,4 +1,4 @@
-import type { ErrorCode } from '../shared/types';
+import type { ContainerStatus, ErrorCode } from '../shared/types';
 
 /**
  * Every sentence the user reads, in one file, in the yard's own Jordanian
@@ -118,6 +118,16 @@ export const AR = {
   actionEdit: 'تعديل',
   actionDelete: 'سجل غلط؟ احذفه',
   movementsTitle: 'الحركات',
+  statusLabel: 'الحالة',
+  statusSaved: 'انحفظت الحالة.',
+  holdTag: 'حجز',
+  containerStatusName: {
+    NORMAL: 'عادية',
+    DAMAGED: 'معطوبة',
+    HOLD: 'محجوزة',
+    REPAIR: 'قيد التصليح',
+    INSPECT: 'بحاجة معاينة',
+  } satisfies Record<ContainerStatus, string>,
   movementIn: 'إدخال',
   movementMove: 'نقل',
   movementOut: 'إخراج',
@@ -131,6 +141,7 @@ export const AR = {
       cargo: 'الحمولة',
       size: 'المقاس',
       notes: 'الملاحظات',
+      status: 'الحالة',
     };
     // Newer notes are JSON {k: keys, b: before-values}; older ones plain CSV.
     let keys: string[];
@@ -275,6 +286,7 @@ export const AR = {
     NAME_TAKEN: 'في منطقة بنفس الاسم — غيّر الاسم.',
     BAD_STACK: 'ما بتنحط حاوية 40 فوق حاوية 20 — بتطيح.',
     NOT_DELETED: 'هذا السجل مش محذوف أصلًا.',
+    CONTAINER_HOLD: 'الحاوية محجوزة — ما بتتحرك ولا بتطلع لحد ما ينفك الحجز.',
   } satisfies Record<ErrorCode, string>,
   errorWithBy: (code: ErrorCode, by: string): string => {
     if (code === 'SLOT_TAKEN') return `الموقع مشغول — فيه ${by}.`;

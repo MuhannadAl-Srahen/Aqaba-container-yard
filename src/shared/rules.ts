@@ -1,4 +1,4 @@
-import type { BlockConfig, Position, Size, YardConfig } from './types';
+import type { BlockConfig, ContainerStatus, Position, Size, YardConfig } from './types';
 import { GROUND_TIER, MAX_TIER } from './types';
 import { positionKey, sameSlot } from './address';
 import { blockTakes } from './geometry';
@@ -15,6 +15,7 @@ export interface Standing {
   readonly id: number;
   readonly number: string;
   readonly size: Size;
+  readonly status: ContainerStatus;
   readonly position: Position;
 }
 
@@ -24,7 +25,8 @@ export type RuleRefusal =
   | { readonly code: 'SLOT_TAKEN'; readonly by: string }
   | { readonly code: 'NO_SUPPORT' }
   | { readonly code: 'BAD_STACK'; readonly by: string }
-  | { readonly code: 'BURIED'; readonly by: string };
+  | { readonly code: 'BURIED'; readonly by: string }
+  | { readonly code: 'CONTAINER_HOLD' };
 
 export function blockOf(yard: YardConfig, blockId: number): BlockConfig | null {
   return yard.blocks.find((block) => block.id === blockId) ?? null;
@@ -114,8 +116,11 @@ export function canPlace(
   return null;
 }
 
-/** May this container be lifted (for a move or a gate-out)? */
+/** May this container be lifted (for a move, a gate-out or a delete)? */
 export function canLift(standing: readonly Standing[], of: Standing): RuleRefusal | null {
+  // The administrative hold outranks the physical stack: even a top box
+  // stays exactly where it is until the hold is lifted.
+  if (of.status === 'HOLD') return { code: 'CONTAINER_HOLD' };
   const above = containerAbove(standing, of);
   if (above !== null) return { code: 'BURIED', by: above.number };
   return null;

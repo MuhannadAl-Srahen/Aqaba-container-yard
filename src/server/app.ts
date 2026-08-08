@@ -112,6 +112,10 @@ const editSchema = z.object({
   notes: z.string().trim().max(2000),
 });
 
+const statusSchema = z.object({
+  status: z.enum(['NORMAL', 'DAMAGED', 'HOLD', 'REPAIR', 'INSPECT']),
+});
+
 function parseOrRefuse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);
   if (!result.success) throw new Refusal(400, { code: 'VALIDATION' });
@@ -518,6 +522,36 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           null,
           null,
           JSON.stringify({ k: changed, b: before }),
+        );
+      }
+      return store.getContainer(db, id);
+    });
+  });
+
+  /**
+   * The container's condition, set from its card. A change is an EDIT
+   * movement carrying the old value, so the log names it and can revert it.
+   */
+  app.post('/api/containers/:id/status', (request) => {
+    requireAuth(request);
+    const id = idParam(request);
+    const body = parseOrRefuse(statusSchema, request.body);
+
+    return transaction(db, () => {
+      const existing = store.getContainer(db, id);
+      if (existing === null) refuse(404, 'NOT_FOUND');
+      if (existing === null) throw new Error('unreachable');
+
+      if (body.status !== existing.status) {
+        store.setContainerStatus(db, id, body.status);
+        store.recordMovement(
+          db,
+          id,
+          'EDIT',
+          now(),
+          null,
+          null,
+          JSON.stringify({ k: ['status'], b: { status: existing.status } }),
         );
       }
       return store.getContainer(db, id);

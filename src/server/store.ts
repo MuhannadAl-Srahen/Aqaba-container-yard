@@ -3,6 +3,7 @@ import type {
   BlockConfig,
   BlockSize,
   ContainerDto,
+  ContainerStatus,
   LogReportRow,
   MovementDto,
   MovementType,
@@ -39,6 +40,7 @@ interface ContainerRow {
   truck_out: string;
   driver_out: string;
   card_out: number | null;
+  status: string;
   deleted_at: string | null;
 }
 
@@ -73,6 +75,7 @@ function toDto(row: ContainerRow): ContainerDto {
     truckOut: row.truck_out,
     driverOut: row.driver_out,
     cardOut: row.card_out,
+    status: row.status as ContainerStatus,
   };
 }
 
@@ -160,7 +163,13 @@ export function listStanding(db: DatabaseSync): Standing[] {
   return rows.map((row) => {
     const position = positionOf(row);
     if (position === null) throw new Error(`container ${String(row.id)} standing without a position`);
-    return { id: row.id, number: row.number, size: row.size as Size, position };
+    return {
+      id: row.id,
+      number: row.number,
+      size: row.size as Size,
+      status: row.status as ContainerStatus,
+      position,
+    };
   });
 }
 
@@ -303,6 +312,10 @@ export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdi
   db.prepare(
     'UPDATE containers SET number = ?, number_valid = ?, customer = ?, cargo = ?, size = ?, notes = ? WHERE id = ?',
   ).run(edit.number, edit.numberValid ? 1 : 0, edit.customer, edit.cargo, edit.size, edit.notes, id);
+}
+
+export function setContainerStatus(db: DatabaseSync, id: number, status: ContainerStatus): void {
+  db.prepare('UPDATE containers SET status = ? WHERE id = ?').run(status, id);
 }
 
 export function softDelete(db: DatabaseSync, id: number, at: string): void {

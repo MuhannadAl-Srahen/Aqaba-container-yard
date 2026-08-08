@@ -2,6 +2,7 @@ import type {
   ApiError,
   BlockConfig,
   ContainerDto,
+  ContainerStatus,
   DailyReportRow,
   ErrorCode,
   GateReportRow,
@@ -177,6 +178,12 @@ export const api = {
     },
   ): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
+
+  setStatus: (id: number, status: ContainerStatus): Promise<ContainerDto> =>
+    request(`/api/containers/${String(id)}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ status }),
+    }),
 
   remove: (id: number): Promise<{ ok: boolean }> =>
     request(`/api/containers/${String(id)}`, { method: 'DELETE' }),

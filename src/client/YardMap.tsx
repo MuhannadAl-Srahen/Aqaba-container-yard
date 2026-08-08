@@ -11,6 +11,7 @@ import {
   cellSize,
   yardBounds,
 } from '../shared/geometry';
+import { AR } from './ar';
 import type { SlotStack } from './mapModel';
 
 /**
@@ -41,6 +42,14 @@ const C = {
   label: '#94a3b8',
   title: '#0f172a',
   subtitle: '#64748b',
+  // Container conditions: the exception paints over the cargo color.
+  damaged: '#dc2626',
+  damagedText: '#ffffff',
+  repair: '#7c3aed',
+  repairText: '#ffffff',
+  inspect: '#f59e0b',
+  inspectText: '#451a03',
+  hold: '#0f172a',
 } as const;
 
 export interface BlockLayout {
@@ -105,9 +114,18 @@ export interface MapProps {
 type PanelView = Omit<MapProps, 'yard'>;
 
 function containerFill(container: ContainerDto): { fill: string; text: string } {
-  return container.cargo === 'LADEN'
-    ? { fill: C.laden, text: C.ladenText }
-    : { fill: C.empty, text: C.emptyText };
+  switch (container.status) {
+    case 'DAMAGED':
+      return { fill: C.damaged, text: C.damagedText };
+    case 'REPAIR':
+      return { fill: C.repair, text: C.repairText };
+    case 'INSPECT':
+      return { fill: C.inspect, text: C.inspectText };
+    default:
+      return container.cargo === 'LADEN'
+        ? { fill: C.laden, text: C.ladenText }
+        : { fill: C.empty, text: C.emptyText };
+  }
 }
 
 function numberLines(
@@ -173,7 +191,15 @@ function HalfCell(props: {
 
   const palette = occupant === undefined ? null : containerFill(occupant);
   const stroke =
-    isSelected || isMovingSource ? C.selected : isMatch ? C.match : isTarget ? C.targetBorder : null;
+    isSelected || isMovingSource
+      ? C.selected
+      : isMatch
+        ? C.match
+        : isTarget
+          ? C.targetBorder
+          : occupant !== undefined && occupant.status === 'HOLD'
+            ? C.hold
+            : null;
 
   return (
     <g
@@ -390,6 +416,25 @@ function Cell(props: {
           direction="ltr"
         >
           {sizeTagFor.size}
+        </text>
+      </g>,
+    );
+  }
+
+  // A held container keeps its cargo color but wears the hold tag.
+  if (occupant !== undefined && occupant.status === 'HOLD') {
+    elements.push(
+      <g key="hold-tag">
+        <rect x={x + cell.w - 24} y={y + 2} width={22} height={11} rx={3} fill={C.hold} />
+        <text
+          x={x + cell.w - 13}
+          y={y + 10.5}
+          textAnchor="middle"
+          fontSize={7}
+          fontWeight={700}
+          fill="#ffffff"
+        >
+          {AR.holdTag}
         </text>
       </g>,
     );

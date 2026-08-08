@@ -71,6 +71,14 @@ export interface Position {
 
 export type CargoState = 'EMPTY' | 'LADEN';
 
+/**
+ * The container's own condition. NORMAL is the everyday box; HOLD freezes it
+ * where it stands (no move, no exit, no delete) until the hold is lifted;
+ * the rest are visible flags that change its color, not its rules.
+ */
+export const CONTAINER_STATUSES = ['NORMAL', 'DAMAGED', 'HOLD', 'REPAIR', 'INSPECT'] as const;
+export type ContainerStatus = (typeof CONTAINER_STATUSES)[number];
+
 export interface ContainerDto {
   readonly id: number;
   readonly number: string;
@@ -95,6 +103,7 @@ export interface ContainerDto {
   readonly driverOut: string;
   /** Serial of the exit card; null until the container leaves. */
   readonly cardOut: number | null;
+  readonly status: ContainerStatus;
 }
 
 /** One row of كشف حركة الدخول/الخروج. */
@@ -186,6 +195,7 @@ export const ERROR_CODES = [
   'NAME_TAKEN',
   'BAD_STACK',
   'NOT_DELETED',
+  'CONTAINER_HOLD',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

@@ -786,3 +786,114 @@ describe('search', () => {
     expect((result.body as { results: unknown[] }).results).toHaveLength(0);
   });
 });
+
+describe('container status', () => {
+  it('sets a status, logs it as a revertible EDIT, and clears it back', async () => {
+    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    const set = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/status`,
+      payload: { status: 'DAMAGED' },
+    });
+    expect(set.status).toBe(200);
+    expect((set.body as { status: string }).status).toBe('DAMAGED');
+
+    const detail = await call({
+      method: 'GET',
+      url: `/api/containers/${String(box.body.id)}`,
+    });
+    const movements = (detail.body as { movements: Array<{ type: string; note: string }> })
+      .movements;
+    const edit = movements.find((m) => m.type === 'EDIT');
+    expect(edit).toBeDefined();
+    expect(JSON.parse(edit?.note ?? '{}')).toEqual({ k: ['status'], b: { status: 'NORMAL' } });
+
+    // Same status again: no new movement.
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/status`,
+      payload: { status: 'DAMAGED' },
+    });
+    const again = await call({ method: 'GET', url: `/api/containers/${String(box.body.id)}` });
+    expect(
+      (again.body as { movements: Array<{ type: string }> }).movements.filter(
+        (m) => m.type === 'EDIT',
+      ),
+    ).toHaveLength(1);
+
+    const back = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/status`,
+      payload: { status: 'NORMAL' },
+    });
+    expect((back.body as { status: string }).status).toBe('NORMAL');
+  });
+
+  it('a nonsense status is refused', async () => {
+    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    const bad = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/status`,
+      payload: { status: 'BROKEN' },
+    });
+    expect(bad.status).toBe(400);
+  });
+
+  it('HOLD freezes the container: no move, no exit, no delete — until lifted', async () => {
+    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/status`,
+      payload: { status: 'HOLD' },
+    });
+
+    const move = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/move`,
+      payload: { to: at(B20, 2, 2, 1) },
+    });
+    expect(move.status).toBe(409);
+    expect((move.body as { code: string }).code).toBe('CONTAINER_HOLD');
+
+    const exit = await gateOut(box.body.id);
+    expect(exit.status).toBe(409);
+    expect((exit.body as { code: string }).code).toBe('CONTAINER_HOLD');
+
+    const remove = await call({
+      method: 'DELETE',
+      url: `/api/containers/${String(box.body.id)}`,
+    });
+    expect(remove.status).toBe(409);
+    expect((remove.body as { code: string }).code).toBe('CONTAINER_HOLD');
+
+    // Lift the hold: everything works again.
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/status`,
+      payload: { status: 'NORMAL' },
+    });
+    const moved = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/move`,
+      payload: { to: at(B20, 2, 2, 1) },
+    });
+    expect(moved.status).toBe(200);
+    const out = await gateOut(box.body.id);
+    expect(out.status).toBe(200);
+  });
+
+  it('the other conditions leave operations alone', async () => {
+    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/status`,
+      payload: { status: 'REPAIR' },
+    });
+    const move = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/move`,
+      payload: { to: at(B20, 2, 2, 1) },
+    });
+    expect(move.status).toBe(200);
+  });
+});

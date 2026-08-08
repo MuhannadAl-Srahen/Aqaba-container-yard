@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, MovementDto, Position } from '../shared/types';
-import { GROUND_TIER } from '../shared/types';
+import { CONTAINER_STATUSES, GROUND_TIER } from '../shared/types';
 import { AR } from './ar';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
@@ -13,7 +13,7 @@ import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
 
 function Badge(props: {
   text: string;
-  tone: 'blue' | 'sky' | 'amber' | 'slate' | 'red' | 'emerald';
+  tone: 'blue' | 'sky' | 'amber' | 'slate' | 'red' | 'emerald' | 'violet' | 'dark';
 }): ReactElement {
   const tones = {
     blue: 'bg-blue-100 text-blue-800',
@@ -22,6 +22,8 @@ function Badge(props: {
     slate: 'bg-slate-100 text-slate-600',
     red: 'bg-red-100 text-red-800',
     emerald: 'bg-emerald-100 text-emerald-800',
+    violet: 'bg-violet-100 text-violet-800',
+    dark: 'bg-slate-800 text-white',
   } as const;
   return (
     <span className={`rounded-lg px-2 py-0.5 text-xs font-bold ${tones[props.tone]}`}>
@@ -130,6 +132,7 @@ export function ContainerCard(props: {
   });
 
   const buried = props.above !== null;
+  const held = container.status === 'HOLD';
   const inYard = container.position !== null;
 
   const run = (work: Promise<unknown>, message: string): void => {
@@ -157,6 +160,20 @@ export function ContainerCard(props: {
           />
           {!container.numberValid && <Badge text={AR.numberNotVerified} tone="amber" />}
           {!inYard && <Badge text={AR.outOfYard} tone="slate" />}
+          {container.status !== 'NORMAL' && (
+            <Badge
+              text={AR.containerStatusName[container.status]}
+              tone={
+                container.status === 'DAMAGED'
+                  ? 'red'
+                  : container.status === 'HOLD'
+                    ? 'dark'
+                    : container.status === 'REPAIR'
+                      ? 'violet'
+                      : 'amber'
+              }
+            />
+          )}
         </div>
 
         <dl className="space-y-2 text-sm">
@@ -227,6 +244,32 @@ export function ContainerCard(props: {
           )}
         </dl>
 
+        {inYard && !editing && (
+          <div>
+            <p className="mb-1.5 text-sm text-slate-500">{AR.statusLabel}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {CONTAINER_STATUSES.map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  disabled={busy || option === container.status}
+                  onClick={() => {
+                    run(api.setStatus(container.id, option), AR.statusSaved);
+                  }}
+                  className={
+                    'rounded-xl border px-2.5 py-1.5 text-xs font-semibold ' +
+                    (option === container.status
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-slate-300 bg-white text-slate-600')
+                  }
+                >
+                  {AR.containerStatusName[option]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex flex-wrap gap-2">
           <Button
             kind="quiet"
@@ -251,6 +294,11 @@ export function ContainerCard(props: {
         {buried && props.above !== null && (
           <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-800">
             {AR.stackedUnder(props.above.number)}
+          </p>
+        )}
+        {inYard && container.status === 'HOLD' && (
+          <p className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-800">
+            {AR.errors.CONTAINER_HOLD}
           </p>
         )}
         {props.below !== null && (
@@ -284,7 +332,7 @@ export function ContainerCard(props: {
               onClick={() => {
                 props.onStartMove(container);
               }}
-              disabled={buried || busy}
+              disabled={buried || held || busy}
             >
               {AR.actionMove}
             </Button>
@@ -293,7 +341,7 @@ export function ContainerCard(props: {
               onClick={() => {
                 setConfirming('exit');
               }}
-              disabled={buried || busy}
+              disabled={buried || held || busy}
             >
               {AR.actionExit}
             </Button>
@@ -311,7 +359,7 @@ export function ContainerCard(props: {
               onClick={() => {
                 setConfirming('delete');
               }}
-              disabled={buried || busy}
+              disabled={buried || held || busy}
             >
               {AR.actionDelete}
             </Button>

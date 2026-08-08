@@ -36,6 +36,7 @@ export function toStanding(containers: readonly ContainerDto[]): Standing[] {
       id: container.id,
       number: container.number,
       size: container.size,
+      status: container.status,
       position: container.position,
     });
   }
