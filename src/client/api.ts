@@ -156,6 +156,10 @@ export const api = {
   devReset: (): Promise<{ ok: boolean }> =>
     request('/api/dev/reset', { method: 'POST', body: JSON.stringify({}) }),
 
+  /** DEVELOPMENT ONLY: wipe, then fill the current yard with demo data. */
+  devSeed: (): Promise<{ ok: boolean; containers: number }> =>
+    request('/api/dev/seed', { method: 'POST', body: JSON.stringify({}) }),
+
   /** The sheet as a server-printed PDF file. */
   reportPdf: async (title: string, html: string, landscape: boolean): Promise<Blob> => {
     let response: Response;

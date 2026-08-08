@@ -51,6 +51,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [reporting, setReporting] = useState(false);
   const [logView, setLogView] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [confirmSeed, setConfirmSeed] = useState(false);
   const [printCard, setPrintCard] = useState<{ kind: 'in' | 'out'; container: ContainerDto } | null>(
     null,
   );
@@ -443,6 +444,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               {AR.devReset}
             </Button>
             <Button
+              kind="danger"
+              onClick={() => {
+                setConfirmSeed(true);
+              }}
+            >
+              {AR.devSeed}
+            </Button>
+            <Button
               kind="quiet"
               onClick={() => {
                 void api.logout().then(props.onUnauthorized);
@@ -679,6 +688,33 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
           onCancel={() => {
             setConfirmReset(false);
+          }}
+        />
+      )}
+
+      {confirmSeed && (
+        <Confirm
+          title={AR.devSeedTitle}
+          body={AR.devSeedBody}
+          confirmLabel={AR.devSeed}
+          danger
+          busy={busy}
+          onConfirm={() => {
+            setBusy(true);
+            api
+              .devSeed()
+              .then(() => {
+                setConfirmSeed(false);
+                refresh(AR.devSeedDone);
+              })
+              .catch((failure: unknown) => {
+                setBusy(false);
+                setConfirmSeed(false);
+                setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+              });
+          }}
+          onCancel={() => {
+            setConfirmSeed(false);
           }}
         />
       )}

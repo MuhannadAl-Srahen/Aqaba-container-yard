@@ -30,6 +30,7 @@ import {
 } from './auth';
 import { transaction } from './db';
 import * as store from './store';
+import { buildSeedPlan } from './seedData';
 
 /**
  * The whole API. Every write runs inside a transaction and re-checks the yard
@@ -202,6 +203,26 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       store.devReset(db);
     });
     return { ok: true };
+  });
+
+  /**
+   * DEVELOPMENT ONLY: wipe like the reset, then fill the CURRENT yard with a
+   * realistic month of demo work — for showing the app, never for records.
+   * The layout, slot states and password stay exactly as they are.
+   */
+  app.post('/api/dev/seed', (request) => {
+    if (process.env['NODE_ENV'] === 'production') refuse(404, 'NOT_FOUND');
+    requireAuth(request);
+    const yard = requireYard();
+    const body = parseOrRefuse(
+      z.object({ seed: z.number().int().min(0).optional() }),
+      request.body ?? {},
+    );
+    const plan = buildSeedPlan(body.seed ?? Date.now() % 2_147_483_647, new Date(), yard);
+    transaction(db, () => {
+      store.devSeed(db, plan);
+    });
+    return { ok: true, containers: plan.containers.length };
   });
 
   /** What the client needs before it can draw anything. */

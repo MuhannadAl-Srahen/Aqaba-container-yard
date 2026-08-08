@@ -15,6 +15,7 @@ import type {
 } from '../shared/types';
 import type { Standing } from '../shared/rules';
 import { slotKey } from '../shared/address';
+import type { SeedPlan } from './seedData';
 
 /**
  * Row ↔ DTO mapping and every SQL statement, in one file. The services above
@@ -120,6 +121,56 @@ export function devReset(db: DatabaseSync): void {
     DELETE FROM sqlite_sequence WHERE name IN ('movements', 'containers');
     DELETE FROM settings WHERE key IN ('card_in_next', 'card_out_next');
   `);
+}
+
+/**
+ * The development demo fill: wipe like devReset, then write the whole plan —
+ * back-dated visits, movements and card counters — with raw SQL, because no
+ * public route accepts a timestamp (and none should). Blocks, slot states
+ * and the password stay untouched.
+ */
+export function devSeed(db: DatabaseSync, plan: SeedPlan): void {
+  devReset(db);
+  const insert = db.prepare(
+    `INSERT INTO containers
+       (number, number_valid, size, customer, cargo, notes, entered_at, exited_at,
+        block_id, row, col, tier, weight, truck_in, driver_in, card_in,
+        truck_out, driver_out, card_out, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const container of plan.containers) {
+    const result = insert.run(
+      container.number,
+      container.numberValid ? 1 : 0,
+      container.size,
+      container.customer,
+      container.cargo,
+      container.notes,
+      container.enteredAt,
+      container.exitedAt,
+      container.position?.block ?? null,
+      container.position?.row ?? null,
+      container.position?.col ?? null,
+      container.position?.tier ?? null,
+      container.weight,
+      container.truckIn,
+      container.driverIn,
+      container.cardIn,
+      container.truckOut,
+      container.driverOut,
+      container.cardOut,
+      container.status,
+    );
+    const id = Number(result.lastInsertRowid);
+    for (const movement of container.movements) {
+      recordMovement(db, id, movement.type, movement.at, movement.from, movement.to, '');
+    }
+  }
+  const setCounter = db.prepare(
+    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
+  );
+  setCounter.run('card_in_next', String(plan.cardInNext));
+  setCounter.run('card_out_next', String(plan.cardOutNext));
 }
 
 /** The live yard: every block that has not been deleted. Null before setup. */

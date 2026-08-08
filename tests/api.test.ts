@@ -1037,3 +1037,82 @@ describe('location states', () => {
     );
   });
 });
+
+describe('dev seed', () => {
+  it('fills the current yard: state, reports and serials all speak', async () => {
+    const seeded = await call({
+      method: 'POST',
+      url: '/api/dev/seed',
+      payload: { seed: 42 },
+    });
+    expect(seeded.status).toBe(200);
+    const count = (seeded.body as { containers: number }).containers;
+    expect(count).toBeGreaterThan(10);
+
+    const state = await call({ method: 'GET', url: '/api/state' });
+    const body = state.body as {
+      containers: Array<{ position: { tier: number } | null; status: string }>;
+      yard: { blocks: unknown[] };
+    };
+    expect(body.yard.blocks).toHaveLength(2); // the layout is untouched
+    expect(body.containers.length).toBeGreaterThan(5);
+    expect(body.containers.some((c) => c.position?.tier === 2)).toBe(true);
+    expect(body.containers.some((c) => c.status !== 'NORMAL')).toBe(true);
+
+    // Reports over the last month see the back-dated work.
+    const to = new Date(Date.now() + 86_400_000).toISOString();
+    const from = new Date(Date.now() - 31 * 86_400_000).toISOString();
+    const gate = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=IN&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    expect((gate.body as { rows: unknown[] }).rows.length).toBeGreaterThan(5);
+    const outs = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=OUT&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    expect((outs.body as { rows: unknown[] }).rows.length).toBeGreaterThan(0);
+    const log = await call({
+      method: 'GET',
+      url: `/api/reports/log?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    expect((log.body as { rows: unknown[] }).rows.length).toBeGreaterThan(count - 1);
+
+    // The next real gate-in continues the serial line.
+    const freeRow = 3;
+    let next: Awaited<ReturnType<typeof gateIn>> | null = null;
+    for (let row = freeRow; row <= 3 + 20 && next === null; row += 1) {
+      const attempt = await gateIn(
+        'TCLU1234565',
+        20,
+        at(B20, ((row - 1) % 3) + 1, ((row - 1) % 5) + 1, 1),
+      );
+      if (attempt.status === 201) next = attempt;
+    }
+    expect(next).not.toBeNull();
+    const seededIns = count;
+    expect(next?.body.cardIn).toBeGreaterThan(seededIns - 15); // counter continued, not reset
+  });
+
+  it('same seed twice reproduces the same numbers; no auth refuses', async () => {
+    await call({ method: 'POST', url: '/api/dev/seed', payload: { seed: 7 } });
+    const first = await call({ method: 'GET', url: '/api/state' });
+    const numbersA = (first.body as { containers: Array<{ number: string }> }).containers
+      .map((c) => c.number)
+      .sort();
+    await call({ method: 'POST', url: '/api/dev/seed', payload: { seed: 7 } });
+    const second = await call({ method: 'GET', url: '/api/state' });
+    const numbersB = (second.body as { containers: Array<{ number: string }> }).containers
+      .map((c) => c.number)
+      .sort();
+    expect(numbersB).toEqual(numbersA);
+
+    const denied = await call({
+      method: 'POST',
+      url: '/api/dev/seed',
+      payload: {},
+      noAuth: true,
+    });
+    expect(denied.status).toBe(401);
+  });
+});
