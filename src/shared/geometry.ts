@@ -169,6 +169,7 @@ export function defaultLayout(
       x: width - frame20.width,
       y: 0,
       angle: 0,
+      state: 'NORMAL',
     },
     {
       id: 2,
@@ -179,6 +180,7 @@ export function defaultLayout(
       x: width - frame40.width,
       y: frame20.height + margin,
       angle: 0,
+      state: 'NORMAL',
     },
   ];
 }

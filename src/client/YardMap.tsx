@@ -1,7 +1,15 @@
 import { memo, type ReactElement } from 'react';
-import type { BlockConfig, ContainerDto, Position, Tier, YardConfig } from '../shared/types';
+import type {
+  BlockConfig,
+  ContainerDto,
+  LocationState,
+  Position,
+  Tier,
+  YardConfig,
+} from '../shared/types';
 import { GROUND_TIER, MIXED_SIZE } from '../shared/types';
-import { positionKey } from '../shared/address';
+import { isBlockingState, type SlotStates } from '../shared/rules';
+import { positionKey, slotKey } from '../shared/address';
 import {
   BLOCK_PAD,
   CELL_GAP,
@@ -50,6 +58,12 @@ const C = {
   inspect: '#f59e0b',
   inspectText: '#451a03',
   hold: '#0f172a',
+  // Location states, painted on empty ground.
+  maintBorder: '#94a3b8',
+  reservedFill: '#fef9c3',
+  reservedBorder: '#ca8a04',
+  closedFill: '#fecaca',
+  closedBorder: '#b91c1c',
 } as const;
 
 export interface BlockLayout {
@@ -107,6 +121,8 @@ export interface MapProps {
   /** When a move or gate-in is placing: positions that may be landed on. */
   targets: ReadonlySet<string> | null;
   movingId: number | null;
+  /** Per-slot location states, non-NORMAL only, keyed by slotKey. */
+  slotStates: SlotStates;
   onCellClick: (position: Position, stack: SlotStack) => void;
 }
 
@@ -125,6 +141,37 @@ function containerFill(container: ContainerDto): { fill: string; text: string } 
       return container.cargo === 'LADEN'
         ? { fill: C.laden, text: C.ladenText }
         : { fill: C.empty, text: C.emptyText };
+  }
+}
+
+/**
+ * The location state an empty slot paints: a blocking area state covers all
+ * of it; otherwise the slot's own entry, falling back to the area's
+ * non-blocking state (RESERVED tints its whole area).
+ */
+function effectiveLocationState(
+  block: BlockConfig,
+  slotStates: SlotStates,
+  row: number,
+  col: number,
+): LocationState {
+  if (isBlockingState(block.state)) return block.state;
+  return slotStates[slotKey({ block: block.id, row, col })] ?? block.state;
+}
+
+/** How an EMPTY slot draws under a location state; null = the everyday look. */
+function locationPaint(
+  state: LocationState,
+): { fill: string; stroke: string; solid: boolean } | null {
+  switch (state) {
+    case 'MAINTENANCE':
+      return { fill: 'url(#yard-hatch)', stroke: C.maintBorder, solid: true };
+    case 'CLOSED':
+      return { fill: C.closedFill, stroke: C.closedBorder, solid: true };
+    case 'RESERVED':
+      return { fill: C.reservedFill, stroke: C.reservedBorder, solid: false };
+    default:
+      return null;
   }
 }
 
@@ -176,11 +223,13 @@ function HalfCell(props: {
   position: Position;
   occupant: ContainerDto | undefined;
   supported: boolean;
+  locationState: LocationState;
   view: PanelView;
   stack: SlotStack;
 }): ReactElement {
   const { x, y, width, height, position, occupant, supported, view } = props;
   const isTarget = view.targets !== null && view.targets.has(positionKey(position));
+  const locPaint = occupant === undefined ? locationPaint(props.locationState) : null;
   const isMovingSource = occupant !== undefined && occupant.id === view.movingId;
   const isSelected = occupant !== undefined && occupant.id === view.selectedId;
   const isMatch = occupant !== undefined && view.matches.has(occupant.id);
@@ -216,10 +265,21 @@ function HalfCell(props: {
         width={width}
         height={height}
         rx={4}
-        fill={palette?.fill ?? (isTarget ? C.targetFill : C.free)}
-        stroke={stroke ?? (occupant !== undefined ? 'none' : supported ? C.freeBorder : C.ghost)}
+        fill={palette?.fill ?? (isTarget ? C.targetFill : (locPaint?.fill ?? C.free))}
+        stroke={
+          stroke ??
+          (occupant !== undefined
+            ? 'none'
+            : locPaint !== null
+              ? locPaint.stroke
+              : supported
+                ? C.freeBorder
+                : C.ghost)
+        }
         strokeWidth={stroke !== null ? 2 : 1}
-        strokeDasharray={occupant === undefined && stroke === null ? '3 2' : undefined}
+        strokeDasharray={
+          occupant === undefined && stroke === null && locPaint?.solid !== true ? '3 2' : undefined
+        }
       />
       {/* The tier letter only where a container carries it: an empty half's
           label was ~2px at fit zoom and cost the الكل view ~1800 text nodes.
@@ -266,6 +326,7 @@ function Cell(props: {
   const cell = cellSize(block.size);
   const x = BLOCK_PAD + (block.cols - col) * (cell.w + CELL_GAP);
   const y = TITLE_H + HEADER_H + (row - 1) * (cell.h + CELL_GAP);
+  const locationState = effectiveLocationState(block, view.slotStates, row, col);
 
   // The register view: both tiers of the slot side by side, L then H,
   // exactly like the paper's paired columns.
@@ -282,6 +343,7 @@ function Cell(props: {
           position={{ block: block.id, row, col, tier: GROUND_TIER }}
           occupant={stack.ground}
           supported
+          locationState={locationState}
           view={view}
           stack={stack}
         />
@@ -294,6 +356,7 @@ function Cell(props: {
           position={{ block: block.id, row, col, tier: 2 }}
           occupant={stack.upper}
           supported={stack.ground !== undefined}
+          locationState={locationState}
           view={view}
           stack={stack}
         />
@@ -327,8 +390,10 @@ function Cell(props: {
 
   if (occupant === undefined) {
     // Empty position. On the upper tier, ground support decides how it draws:
-    // landable slots look real, unsupported air is barely there.
+    // landable slots look real, unsupported air is barely there — unless the
+    // location itself carries a state, which paints the ground.
     const unsupportedAir = tier > GROUND_TIER && groundBelow === undefined;
+    const locPaint = locationPaint(locationState);
     elements.push(
       <rect
         key="frame"
@@ -338,10 +403,18 @@ function Cell(props: {
         width={cell.w}
         height={cell.h}
         rx={5}
-        fill={isTarget ? C.targetFill : C.free}
-        stroke={isTarget ? C.targetBorder : unsupportedAir ? C.ghost : C.freeBorder}
+        fill={isTarget ? C.targetFill : (locPaint?.fill ?? C.free)}
+        stroke={
+          isTarget
+            ? C.targetBorder
+            : locPaint !== null
+              ? locPaint.stroke
+              : unsupportedAir
+                ? C.ghost
+                : C.freeBorder
+        }
         strokeWidth={isTarget ? 2 : 1.2}
-        strokeDasharray={isTarget ? undefined : '4 3'}
+        strokeDasharray={isTarget || locPaint?.solid === true ? undefined : '4 3'}
       />,
     );
   } else if (tier === GROUND_TIER && stack.upper !== undefined) {
@@ -548,6 +621,8 @@ const BlockPanel = memo(
     );
   },
   // Editor drags patch one block per frame; every other panel must skip.
+  // EVERY field of PanelView must appear here — a forgotten one means panels
+  // silently stop repainting when that field changes.
   (prev, next) =>
     prev.layout.block === next.layout.block &&
     prev.layout.x === next.layout.x &&
@@ -560,6 +635,7 @@ const BlockPanel = memo(
     prev.view.searchActive === next.view.searchActive &&
     prev.view.targets === next.view.targets &&
     prev.view.movingId === next.view.movingId &&
+    prev.view.slotStates === next.view.slotStates &&
     prev.view.onCellClick === next.view.onCellClick,
 );
 
@@ -582,6 +658,7 @@ export const YardMap = memo(function YardMap(props: {
     searchActive: map.searchActive,
     targets: map.targets,
     movingId: map.movingId,
+    slotStates: map.slotStates,
     onCellClick: map.onCellClick,
   };
   return (
@@ -592,6 +669,19 @@ export const YardMap = memo(function YardMap(props: {
       viewBox={`0 0 ${String(layout.width)} ${String(layout.height)}`}
       style={{ display: 'block', userSelect: 'none', overflow: 'visible' }}
     >
+      <defs>
+        {/* The صيانة hatch: diagonal stripes an empty blocked slot wears. */}
+        <pattern
+          id="yard-hatch"
+          width={6}
+          height={6}
+          patternUnits="userSpaceOnUse"
+          patternTransform="rotate(45)"
+        >
+          <rect width={6} height={6} fill="#e2e8f0" />
+          <line x1={0} y1={0} x2={0} y2={6} stroke="#94a3b8" strokeWidth={2.5} />
+        </pattern>
+      </defs>
       {layout.blocks.map((blockLayout) => (
         <BlockPanel
           key={blockLayout.block.id}

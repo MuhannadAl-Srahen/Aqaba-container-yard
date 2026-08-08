@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ContainerDto, Position } from '../shared/types';
-import { GROUND_TIER, MIXED_SIZE } from '../shared/types';
+import type { ContainerDto, LocationState, Position } from '../shared/types';
+import { GROUND_TIER, LOCATION_STATES, MIXED_SIZE } from '../shared/types';
 import { positionKey, sameSlot, slotKey } from '../shared/address';
-import { blockOf, canPlace } from '../shared/rules';
+import { blockOf, canPlace, type SlotStates } from '../shared/rules';
 import { blockTakes } from '../shared/geometry';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
@@ -29,6 +29,9 @@ import { Button, Confirm, Toast, useEscape } from './ui';
 /** Below this zoom a cell is a few pixels — hover feedback means nothing. */
 const HOVER_MIN_SCALE = 0.5;
 
+/** Stable empty record so memo deps hold still while the state loads. */
+const NO_SLOT_STATES: SlotStates = {};
+
 /**
  * The one screen. The yard drawing is the interface: receiving, moving and
  * releasing all start with a tap on the ground itself.
@@ -51,6 +54,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [printCard, setPrintCard] = useState<{ kind: 'in' | 'out'; container: ContainerDto } | null>(
     null,
   );
+  const [slotStateAt, setSlotStateAt] = useState<Position | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -82,14 +86,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const stacks = useMemo(() => buildStacks(containers), [containers]);
   const layout = useMemo(() => (yard === null ? null : computeLayout(yard)), [yard]);
   const label = useMemo(() => labelerFrom(state.data?.blockNames ?? {}), [state.data]);
+  const slotStates = state.data?.slotStates ?? NO_SLOT_STATES;
 
   const matches = useMemo(() => searchMatches(containers, search), [containers, search]);
   const searchActive = search.trim() !== '';
 
   const targets = useMemo(() => {
     if (yard === null || moving === null) return null;
-    return legalTargets(yard, containers, moving.size, moving.id);
-  }, [yard, containers, moving]);
+    return legalTargets(yard, containers, slotStates, moving.size, moving.id);
+  }, [yard, containers, slotStates, moving]);
 
   // Out-of-yard hits come from the server: the map query only carries who is standing.
   const remote = useQuery({
@@ -115,6 +120,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setMoving(null);
     setConfirmMove(null);
     setStackChoice(null);
+    setSlotStateAt(null);
     setBusy(false);
   };
 
@@ -135,7 +141,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         setToast(AR.errors.SAME_SLOT);
         return;
       }
-      const refusal = canPlace(yard, toStanding(containers), moving.size, position, moving.id);
+      const refusal = canPlace(
+        yard,
+        toStanding(containers),
+        slotStates,
+        moving.size,
+        position,
+        moving.id,
+      );
       if (refusal !== null) {
         setToast(
           'by' in refusal ? AR.errorWithBy(refusal.code, refusal.by) : AR.errors[refusal.code],
@@ -155,6 +168,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setSelected(null);
     setGateInAt(null);
     setStackChoice(null);
+    setSlotStateAt(null);
 
     // Two containers on this ground: ask which one is meant. In the الكل
     // view both halves are visible separately, so the tap is unambiguous.
@@ -178,8 +192,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     const block = blockOf(yard, position.block);
     if (block === null) return;
     const probeSize = block.size === MIXED_SIZE ? 20 : block.size;
-    const refusal = canPlace(yard, toStanding(containers), probeSize, position);
+    const refusal = canPlace(yard, toStanding(containers), slotStates, probeSize, position);
     if (refusal !== null) {
+      // A blocked location opens its state sheet instead of a dead end —
+      // otherwise صيانة could be set and never cleared from the map.
+      if (refusal.code === 'LOCATION_MAINTENANCE' || refusal.code === 'LOCATION_CLOSED') {
+        setSlotStateAt(position);
+        return;
+      }
       setToast('by' in refusal ? AR.errorWithBy(refusal.code, refusal.by) : AR.errors[refusal.code]);
       return;
     }
@@ -218,12 +238,18 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         // While a move is placing, a block the container's size can never
         // enter says so where its free count usually stands — otherwise an
         // all-grey area reads as a mystery, not a size policy.
-        if (moving !== null && !blockTakes(block.size, moving.size)) {
-          labels.set(block.id, AR.blockNoSize(moving.size));
-          continue;
-        }
-        const summary = summarizeBlock(block, stacks);
-        labels.set(block.id, AR.freeOf(summary.freeGround, summary.totalGround));
+        const base =
+          moving !== null && !blockTakes(block.size, moving.size)
+            ? AR.blockNoSize(moving.size)
+            : ((): string => {
+                const summary = summarizeBlock(block, stacks);
+                return AR.freeOf(summary.freeGround, summary.totalGround);
+              })();
+        // An area under a state announces it beside the free count.
+        labels.set(
+          block.id,
+          block.state === 'NORMAL' ? base : `${AR.locationStateName[block.state]} — ${base}`,
+        );
       }
     }
     return labels;
@@ -256,9 +282,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             searchActive,
             targets,
             movingId: moving?.id ?? null,
+            slotStates,
             onCellClick,
           },
-    [yard, stacks, tier, selected, matches, searchActive, targets, moving, onCellClick],
+    [yard, stacks, tier, selected, matches, searchActive, targets, moving, slotStates, onCellClick],
   );
 
   if (editing && yard !== null) {
@@ -266,6 +293,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <YardEditor
         yard={yard}
         containers={containers}
+        slotStates={slotStates}
         onSaved={(message) => {
           setEditing(false);
           void queryClient.invalidateQueries({ queryKey: ['state'] });
@@ -444,6 +472,18 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           {containers.some((c) => c.status === 'INSPECT') && (
             <LegendChip color="#f59e0b" label={AR.containerStatusName.INSPECT} />
           )}
+          {(Object.values(slotStates).includes('MAINTENANCE') ||
+            (yard?.blocks.some((b) => b.state === 'MAINTENANCE') ?? false)) && (
+            <LegendChip color="#e2e8f0" label={AR.locationStateName.MAINTENANCE} border="#94a3b8" />
+          )}
+          {(Object.values(slotStates).includes('RESERVED') ||
+            (yard?.blocks.some((b) => b.state === 'RESERVED') ?? false)) && (
+            <LegendChip color="#fef9c3" label={AR.locationStateName.RESERVED} border="#ca8a04" />
+          )}
+          {(Object.values(slotStates).includes('CLOSED') ||
+            (yard?.blocks.some((b) => b.state === 'CLOSED') ?? false)) && (
+            <LegendChip color="#fecaca" label={AR.locationStateName.CLOSED} border="#b91c1c" />
+          )}
         </div>
       </header>
 
@@ -519,10 +559,47 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           position={gateInAt}
           blockSize={gateInBlock.size}
           positionText={label(gateInAt)}
+          slotState={
+            slotStates[slotKey(gateInAt)] ??
+            (gateInBlock.state === 'RESERVED' ? 'RESERVED' : 'NORMAL')
+          }
           customers={state.data.customers}
           onDone={refresh}
+          onEditSlotState={() => {
+            const position = gateInAt;
+            setGateInAt(null);
+            setSlotStateAt(position);
+          }}
           onClose={() => {
             setGateInAt(null);
+          }}
+        />
+      )}
+
+      {slotStateAt !== null && yard !== null && (
+        <SlotStateSheet
+          slotText={label(slotStateAt)}
+          slotState={slotStates[slotKey(slotStateAt)] ?? 'NORMAL'}
+          blockState={blockOf(yard, slotStateAt.block)?.state ?? 'NORMAL'}
+          busy={busy}
+          onSet={(nextState, scope) => {
+            setBusy(true);
+            const slot = slotStateAt;
+            const work =
+              scope === 'slot'
+                ? api.setSlotState({ block: slot.block, row: slot.row, col: slot.col }, nextState)
+                : api.setBlockState(slot.block, nextState);
+            work
+              .then(() => {
+                refresh(AR.slotStateSaved);
+              })
+              .catch((failure: unknown) => {
+                setBusy(false);
+                setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+              });
+          }}
+          onClose={() => {
+            setSlotStateAt(null);
           }}
         />
       )}
@@ -668,6 +745,82 @@ function StackChooser(props: {
         <h3 className="mb-3 text-base font-bold text-slate-900">{AR.stackChooserTitle}</h3>
         {choice(upper, AR.stackUpperChoice)}
         {choice(ground, AR.stackGroundChoice)}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The location-state sheet: opened from an empty slot (via the gate-in card
+ * or by tapping a blocked slot) — sets the slot's own state or, with the
+ * scope toggle, the whole area's.
+ */
+function SlotStateSheet(props: {
+  slotText: string;
+  slotState: LocationState;
+  blockState: LocationState;
+  busy: boolean;
+  onSet: (state: LocationState, scope: 'slot' | 'block') => void;
+  onClose: () => void;
+}): ReactElement {
+  const [scope, setScope] = useState<'slot' | 'block'>('slot');
+  useEscape(props.onClose);
+  const current = scope === 'slot' ? props.slotState : props.blockState;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={props.onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
+        onClick={(event) => {
+          event.stopPropagation();
+        }}
+      >
+        <h3 className="text-base font-bold text-slate-900">{AR.slotStateTitle}</h3>
+        <p className="mt-1 text-sm font-semibold text-slate-500" dir="ltr">
+          {props.slotText}
+        </p>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {(['slot', 'block'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                setScope(option);
+              }}
+              className={
+                'rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ' +
+                (scope === option
+                  ? 'border-slate-700 bg-slate-700 text-white'
+                  : 'border-slate-300 bg-white text-slate-600 hover:border-slate-500')
+              }
+            >
+              {option === 'slot' ? AR.slotStateScopeSlot : AR.slotStateScopeBlock}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {LOCATION_STATES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              disabled={props.busy || option === current}
+              onClick={() => {
+                props.onSet(option, scope);
+              }}
+              className={
+                'rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ' +
+                (option === current
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-slate-300 bg-white text-slate-600 hover:border-blue-400')
+              }
+            >
+              {AR.locationStateName[option]}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

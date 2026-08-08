@@ -116,6 +116,8 @@ const statusSchema = z.object({
   status: z.enum(['NORMAL', 'DAMAGED', 'HOLD', 'REPAIR', 'INSPECT']),
 });
 
+const locationStateSchema = z.enum(['NORMAL', 'MAINTENANCE', 'RESERVED', 'CLOSED']);
+
 function parseOrRefuse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);
   if (!result.success) throw new Refusal(400, { code: 'VALIDATION' });
@@ -265,7 +267,47 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       containers: store.listInYard(db),
       customers: store.listCustomers(db),
       blockNames: store.listBlockNames(db),
+      slotStates: store.listSlotStates(db),
     };
+  });
+
+  /** A whole area's operational state — set from the map's slot sheet. */
+  app.put('/api/blocks/:id/state', (request) => {
+    requireAuth(request);
+    const yard = requireYard();
+    const id = idParam(request);
+    const body = parseOrRefuse(z.object({ state: locationStateSchema }), request.body);
+
+    if (!yard.blocks.some((block) => block.id === id)) refuse(404, 'NOT_FOUND');
+    transaction(db, () => {
+      store.setBlockState(db, id, body.state);
+    });
+    return store.getYard(db);
+  });
+
+  /** One slot's state (both tiers). Occupied is fine: standing boxes drain. */
+  app.put('/api/slots/state', (request) => {
+    requireAuth(request);
+    const yard = requireYard();
+    const body = parseOrRefuse(
+      z.object({
+        block: z.number().int().min(1),
+        row: z.number().int().min(1),
+        col: z.number().int().min(1),
+        state: locationStateSchema,
+      }),
+      request.body,
+    );
+
+    const block = yard.blocks.find((candidate) => candidate.id === body.block);
+    if (block === undefined) refuse(404, 'NOT_FOUND');
+    if (block === undefined) throw new Error('unreachable');
+    if (body.row > block.rows || body.col > block.cols) refuse(409, 'OUT_OF_BOUNDS');
+
+    transaction(db, () => {
+      store.setSlotState(db, { block: body.block, row: body.row, col: body.col }, body.state);
+    });
+    return { slotStates: store.listSlotStates(db) };
   });
 
   /**
@@ -292,9 +334,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         seenNames.add(block.name);
       }
 
-      // New blocks get placeholder ids for the checks; nothing stands in them.
+      // New blocks get placeholder ids for the checks; nothing stands in
+      // them. The layout wire carries no `state` — each block keeps its
+      // stored one (new blocks start NORMAL).
+      const stateOf = new Map(current.blocks.map((block) => [block.id, block.state]));
       const proposed: YardConfig = {
-        blocks: body.blocks.map((block, index) => ({ ...block, id: block.id ?? -(index + 1) })),
+        blocks: body.blocks.map((block, index) => ({
+          ...block,
+          id: block.id ?? -(index + 1),
+          state: (block.id !== undefined ? stateOf.get(block.id) : undefined) ?? 'NORMAL',
+        })),
       };
 
       const overlaps = overlappingPairs(proposed.blocks);
@@ -333,7 +382,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         if (block.id !== undefined) {
           store.updateBlock(db, { ...block, id: block.id });
         } else {
-          store.insertBlock(db, block);
+          store.insertBlock(db, { ...block, state: 'NORMAL' });
         }
       }
       return store.getYard(db);
@@ -352,7 +401,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (duplicate !== null) refuse(409, 'NUMBER_IN_YARD', { number: check.normalized });
 
       const standing = store.listStanding(db);
-      const refusal = canPlace(yard, standing, body.size, body.position);
+      const refusal = canPlace(yard, standing, store.listSlotStates(db), body.size, body.position);
       if (refusal !== null) {
         refuse(409, refusal.code, 'by' in refusal ? { by: refusal.by } : undefined);
       }
@@ -414,7 +463,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const lift = canLift(standing, self);
       if (lift !== null) refuse(409, lift.code, 'by' in lift ? { by: lift.by } : undefined);
 
-      const place = canPlace(yard, standing, dto.size, body.to, id);
+      const place = canPlace(yard, standing, store.listSlotStates(db), dto.size, body.to, id);
       if (place !== null) refuse(409, place.code, 'by' in place ? { by: place.by } : undefined);
 
       const at = now();
@@ -572,7 +621,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       const wasAt = store.lastDeletePosition(db, id);
       if (wasAt !== null) {
-        const refusal = canPlace(yard, store.listStanding(db), existing.size, wasAt);
+        const refusal = canPlace(
+          yard,
+          store.listStanding(db),
+          store.listSlotStates(db),
+          existing.size,
+          wasAt,
+        );
         if (refusal !== null) {
           refuse(409, refusal.code, 'by' in refusal ? { by: refusal.by } : undefined);
         }

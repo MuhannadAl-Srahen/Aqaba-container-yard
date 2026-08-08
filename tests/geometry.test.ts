@@ -18,6 +18,7 @@ const block = (patch: Partial<BlockConfig>): BlockConfig => ({
   x: 0,
   y: 0,
   angle: 0,
+  state: 'NORMAL',
   ...patch,
 });
 

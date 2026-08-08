@@ -7,8 +7,8 @@ const B40 = 2;
 
 const yard: YardConfig = {
   blocks: [
-    { id: B20, name: 'منطقة 20', size: 20, rows: 2, cols: 3, x: 0, y: 0, angle: 0 },
-    { id: B40, name: 'منطقة 40', size: 40, rows: 1, cols: 2, x: 0, y: 300, angle: 0 },
+    { id: B20, name: 'منطقة 20', size: 20, rows: 2, cols: 3, x: 0, y: 0, angle: 0, state: 'NORMAL' },
+    { id: B40, name: 'منطقة 40', size: 40, rows: 1, cols: 2, x: 0, y: 300, angle: 0, state: 'NORMAL' },
   ],
 };
 
@@ -58,7 +58,7 @@ describe('stacks', () => {
 describe('legal targets', () => {
   it('offers empty ground and supported upper slots only', () => {
     const containers = [box(1, 'MSCU1234566', B20, 1, 1, 1)];
-    const targets = legalTargets(yard, containers, 20);
+    const targets = legalTargets(yard, containers, {}, 20);
     expect(targets.has('1|1|2|1')).toBe(true); // empty ground
     expect(targets.has('1|1|1|2')).toBe(true); // on top of the standing one
     expect(targets.has('1|1|2|2')).toBe(false); // air over empty ground
@@ -68,7 +68,7 @@ describe('legal targets', () => {
 
   it('a moving container is removed from its own picture', () => {
     const containers = [box(1, 'MSCU1234566', B20, 1, 1, 1)];
-    const targets = legalTargets(yard, containers, 20, 1);
+    const targets = legalTargets(yard, containers, {}, 20, 1);
     expect(targets.has('1|1|1|1')).toBe(true); // its own slot is free once it lifts
     expect(targets.has('1|1|1|2')).toBe(false); // and cannot support itself
   });
@@ -77,11 +77,26 @@ describe('legal targets', () => {
     const wide: YardConfig = {
       blocks: [
         ...yard.blocks,
-        { id: 3, name: 'ثالثة', size: 20, rows: 1, cols: 1, x: 900, y: 0, angle: 15 },
+        { id: 3, name: 'ثالثة', size: 20, rows: 1, cols: 1, x: 900, y: 0, angle: 15, state: 'NORMAL' },
       ],
     };
-    const targets = legalTargets(wide, [], 20);
+    const targets = legalTargets(wide, [], {}, 20);
     expect(targets.has('3|1|1|1')).toBe(true);
+  });
+
+  it('a blocked slot never paints green; a reserved one does', () => {
+    const targets = legalTargets(yard, [], { '1|1|1': 'MAINTENANCE', '1|1|2': 'RESERVED' }, 20);
+    expect(targets.has('1|1|1|1')).toBe(false); // تحت الصيانة
+    expect(targets.has('1|1|2|1')).toBe(true); // محجوز — بس تنبيه
+    expect(targets.has('1|1|3|1')).toBe(true); // عادي
+  });
+
+  it('a blocking block state darkens the whole area', () => {
+    const closed: YardConfig = {
+      blocks: yard.blocks.map((b) => (b.id === B20 ? { ...b, state: 'CLOSED' as const } : b)),
+    };
+    const targets = legalTargets(closed, [], {}, 20);
+    expect(targets.size).toBe(0);
   });
 });
 

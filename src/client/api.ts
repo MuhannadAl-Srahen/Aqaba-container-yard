@@ -6,6 +6,7 @@ import type {
   DailyReportRow,
   ErrorCode,
   GateReportRow,
+  LocationState,
   LogReportRow,
   MovementDto,
   Position,
@@ -79,8 +80,12 @@ export interface SetupShape {
   forty: { rows: number; cols: number };
 }
 
-/** A layout block on its way to the server: existing keep ids, new ones have none. */
-export type BlockDraft = Omit<BlockConfig, 'id'> & { readonly id?: number };
+/**
+ * A layout block on its way to the server: existing keep ids, new ones have
+ * none. The wire deliberately carries no `state` — the layout save must
+ * never overwrite operational states (the server strips strays regardless).
+ */
+export type BlockDraft = Omit<BlockConfig, 'id' | 'state'> & { readonly id?: number };
 
 export const api = {
   boot: (): Promise<BootDto> => request('/api/boot'),
@@ -183,6 +188,18 @@ export const api = {
     request(`/api/containers/${String(id)}/status`, {
       method: 'POST',
       body: JSON.stringify({ status }),
+    }),
+
+  setSlotState: (
+    slot: { block: number; row: number; col: number },
+    state: LocationState,
+  ): Promise<{ slotStates: Record<string, LocationState> }> =>
+    request('/api/slots/state', { method: 'PUT', body: JSON.stringify({ ...slot, state }) }),
+
+  setBlockState: (id: number, state: LocationState): Promise<YardConfig> =>
+    request(`/api/blocks/${String(id)}/state`, {
+      method: 'PUT',
+      body: JSON.stringify({ state }),
     }),
 
   remove: (id: number): Promise<{ ok: boolean }> =>

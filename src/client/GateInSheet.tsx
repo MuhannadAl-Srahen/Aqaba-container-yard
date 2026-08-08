@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { BlockSize, Position, Size } from '../shared/types';
+import type { BlockSize, LocationState, Position, Size } from '../shared/types';
 import { MIXED_SIZE } from '../shared/types';
 import { checkNumber } from '../shared/iso6346';
 import { AR } from './ar';
@@ -17,8 +17,12 @@ export function GateInSheet(props: {
   blockSize: BlockSize;
   /** The position spoken: `A1-5-L`. */
   positionText: string;
+  /** The slot's effective location state, for the reserved warning. */
+  slotState: LocationState;
   customers: readonly string[];
   onDone: (message: string) => void;
+  /** Open the slot's own state sheet (صيانة / محجوز / مغلق). */
+  onEditSlotState: () => void;
   onClose: () => void;
 }): ReactElement {
   const [number, setNumber] = useState('');
@@ -76,6 +80,18 @@ export function GateInSheet(props: {
         <div className="rounded-xl bg-blue-50 px-3.5 py-2.5 text-sm font-semibold text-blue-900">
           {AR.gateInAt}: <span dir="ltr">{props.positionText}</span>
         </div>
+        {props.slotState === 'RESERVED' && (
+          <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-800">
+            {AR.slotReservedNote}
+          </p>
+        )}
+        <button
+          type="button"
+          className="text-sm font-semibold text-blue-700 underline underline-offset-2"
+          onClick={props.onEditSlotState}
+        >
+          {AR.slotStateAction}
+        </button>
 
         <Field
           label={AR.containerNumber}

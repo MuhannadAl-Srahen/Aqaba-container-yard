@@ -1,4 +1,4 @@
-import type { ContainerStatus, ErrorCode } from '../shared/types';
+import type { ContainerStatus, ErrorCode, LocationState } from '../shared/types';
 
 /**
  * Every sentence the user reads, in one file, in the yard's own Jordanian
@@ -53,6 +53,20 @@ export const AR = {
   legendStacked: 'فوقها حاوية',
   legendFree: 'موقع فاضي',
   legendTarget: 'موقع مسموح',
+
+  // ---- location states ----
+  locationStateName: {
+    NORMAL: 'عادي',
+    MAINTENANCE: 'تحت الصيانة',
+    RESERVED: 'محجوز',
+    CLOSED: 'مغلق',
+  } satisfies Record<LocationState, string>,
+  slotStateTitle: 'حالة الموقع',
+  slotStateAction: 'حالة الموقع…',
+  slotStateScopeSlot: 'هالموقع بس',
+  slotStateScopeBlock: 'كل المنطقة',
+  slotStateSaved: 'انحفظت حالة الموقع.',
+  slotReservedNote: 'الموقع محجوز — انتبه قبل ما تحط فيه.',
 
   // ---- the yard editor ----
   editYard: 'تعديل الساحة',
@@ -287,6 +301,8 @@ export const AR = {
     BAD_STACK: 'ما بتنحط حاوية 40 فوق حاوية 20 — بتطيح.',
     NOT_DELETED: 'هذا السجل مش محذوف أصلًا.',
     CONTAINER_HOLD: 'الحاوية محجوزة — ما بتتحرك ولا بتطلع لحد ما ينفك الحجز.',
+    LOCATION_MAINTENANCE: 'الموقع تحت الصيانة — ما بينحط فيه شي هلأ.',
+    LOCATION_CLOSED: 'الموقع مغلق — اختار موقع ثاني.',
   } satisfies Record<ErrorCode, string>,
   errorWithBy: (code: ErrorCode, by: string): string => {
     if (code === 'SLOT_TAKEN') return `الموقع مشغول — فيه ${by}.`;

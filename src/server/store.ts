@@ -4,6 +4,7 @@ import type {
   BlockSize,
   ContainerDto,
   ContainerStatus,
+  LocationState,
   LogReportRow,
   MovementDto,
   MovementType,
@@ -13,6 +14,7 @@ import type {
   YardConfig,
 } from '../shared/types';
 import type { Standing } from '../shared/rules';
+import { slotKey } from '../shared/address';
 
 /**
  * Row ↔ DTO mapping and every SQL statement, in one file. The services above
@@ -88,6 +90,7 @@ interface BlockRow {
   x: number;
   y: number;
   angle: number;
+  state: string;
   deleted_at: string | null;
 }
 
@@ -101,6 +104,7 @@ function toBlock(row: BlockRow): BlockConfig {
     x: row.x,
     y: row.y,
     angle: row.angle,
+    state: row.state as LocationState,
   };
 }
 
@@ -140,19 +144,65 @@ export function listBlockNames(db: DatabaseSync): Record<string, string> {
 
 export function insertBlock(db: DatabaseSync, block: Omit<BlockConfig, 'id'>): number {
   const result = db
-    .prepare('INSERT INTO blocks (name, size, rows, cols, x, y, angle) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(block.name, block.size, block.rows, block.cols, block.x, block.y, block.angle);
+    .prepare(
+      'INSERT INTO blocks (name, size, rows, cols, x, y, angle, state) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    )
+    .run(block.name, block.size, block.rows, block.cols, block.x, block.y, block.angle, block.state);
   return Number(result.lastInsertRowid);
 }
 
-export function updateBlock(db: DatabaseSync, block: BlockConfig): void {
+/**
+ * The layout save deliberately CANNOT touch `state` — it is operational, not
+ * geometric, and travels its own endpoint. The parameter type enforces it.
+ */
+export function updateBlock(db: DatabaseSync, block: Omit<BlockConfig, 'state'>): void {
   db.prepare(
     'UPDATE blocks SET name = ?, size = ?, rows = ?, cols = ?, x = ?, y = ?, angle = ? WHERE id = ?',
   ).run(block.name, block.size, block.rows, block.cols, block.x, block.y, block.angle, block.id);
 }
 
+export function setBlockState(db: DatabaseSync, id: number, state: LocationState): void {
+  db.prepare('UPDATE blocks SET state = ? WHERE id = ? AND deleted_at IS NULL').run(state, id);
+}
+
 export function softDeleteBlock(db: DatabaseSync, id: number, at: string): void {
   db.prepare('UPDATE blocks SET deleted_at = ? WHERE id = ?').run(at, id);
+}
+
+/** Per-slot states for live blocks, keyed exactly as the rules read them. */
+export function listSlotStates(db: DatabaseSync): Record<string, LocationState> {
+  const rows = db
+    .prepare(
+      `SELECT s.block_id, s.row, s.col, s.state FROM slot_states s
+       JOIN blocks b ON b.id = s.block_id AND b.deleted_at IS NULL`,
+    )
+    .all() as unknown as Array<{ block_id: number; row: number; col: number; state: string }>;
+  const states: Record<string, LocationState> = {};
+  for (const row of rows) {
+    states[slotKey({ block: row.block_id, row: row.row, col: row.col })] =
+      row.state as LocationState;
+  }
+  return states;
+}
+
+/** NORMAL is the absent row: setting it deletes, anything else upserts. */
+export function setSlotState(
+  db: DatabaseSync,
+  slot: Pick<Position, 'block' | 'row' | 'col'>,
+  state: LocationState,
+): void {
+  if (state === 'NORMAL') {
+    db.prepare('DELETE FROM slot_states WHERE block_id = ? AND row = ? AND col = ?').run(
+      slot.block,
+      slot.row,
+      slot.col,
+    );
+    return;
+  }
+  db.prepare(
+    `INSERT INTO slot_states (block_id, row, col, state) VALUES (?, ?, ?, ?)
+     ON CONFLICT (block_id, row, col) DO UPDATE SET state = excluded.state`,
+  ).run(slot.block, slot.row, slot.col, state);
 }
 
 /** Everyone currently standing in the yard, as the rules see them. */

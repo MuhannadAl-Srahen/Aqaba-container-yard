@@ -897,3 +897,143 @@ describe('container status', () => {
     expect(move.status).toBe(200);
   });
 });
+
+describe('location states', () => {
+  it('a CLOSED slot refuses gate-in with its own code; NORMAL clears it', async () => {
+    const closed = await call({
+      method: 'PUT',
+      url: '/api/slots/state',
+      payload: { block: B20, row: 1, col: 1, state: 'CLOSED' },
+    });
+    expect(closed.status).toBe(200);
+    expect((closed.body as { slotStates: Record<string, string> }).slotStates['1|1|1']).toBe(
+      'CLOSED',
+    );
+
+    const refused = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    expect(refused.status).toBe(409);
+    expect(refused.body.code).toBe('LOCATION_CLOSED');
+
+    const cleared = await call({
+      method: 'PUT',
+      url: '/api/slots/state',
+      payload: { block: B20, row: 1, col: 1, state: 'NORMAL' },
+    });
+    expect(
+      (cleared.body as { slotStates: Record<string, string> }).slotStates['1|1|1'],
+    ).toBeUndefined();
+    const placed = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    expect(placed.status).toBe(201);
+  });
+
+  it('MAINTENANCE on an occupied block: stayers stay, drain out, nothing enters', async () => {
+    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+
+    const set = await call({
+      method: 'PUT',
+      url: `/api/blocks/${String(B20)}/state`,
+      payload: { state: 'MAINTENANCE' },
+    });
+    expect(set.status).toBe(200);
+    const blocks = (set.body as { blocks: Array<{ id: number; state: string }> }).blocks;
+    expect(blocks.find((b) => b.id === B20)?.state).toBe('MAINTENANCE');
+
+    // Nothing new lands anywhere in the area — including on top of the stayer.
+    const inRefused = await gateIn('CSQU3054383', 20, at(B20, 2, 2, 1));
+    expect(inRefused.body.code).toBe('LOCATION_MAINTENANCE');
+    const stackRefused = await gateIn('CSQU3054383', 20, at(B20, 1, 1, 2));
+    expect(stackRefused.body.code).toBe('LOCATION_MAINTENANCE');
+
+    // A move INTO it refuses; the stayer still drains OUT.
+    const elsewhere = await gateIn('TGHU1234560', 40, at(B40, 1, 1, 1));
+    expect(elsewhere.status).toBe(201);
+    const out = await gateOut(box.body.id);
+    expect(out.status).toBe(200);
+  });
+
+  it('a RESERVED slot still accepts placement', async () => {
+    await call({
+      method: 'PUT',
+      url: '/api/slots/state',
+      payload: { block: B20, row: 1, col: 2, state: 'RESERVED' },
+    });
+    const placed = await gateIn('MSCU1234566', 20, at(B20, 1, 2, 1));
+    expect(placed.status).toBe(201);
+  });
+
+  it('restore into a now-blocked slot refuses', async () => {
+    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    await call({ method: 'DELETE', url: `/api/containers/${String(box.body.id)}` });
+    await call({
+      method: 'PUT',
+      url: '/api/slots/state',
+      payload: { block: B20, row: 1, col: 1, state: 'MAINTENANCE' },
+    });
+    const restore = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/restore`,
+      payload: {},
+    });
+    expect(restore.status).toBe(409);
+    expect((restore.body as { code: string }).code).toBe('LOCATION_MAINTENANCE');
+  });
+
+  it('bounds and liveness are checked', async () => {
+    const outOfBounds = await call({
+      method: 'PUT',
+      url: '/api/slots/state',
+      payload: { block: B20, row: 99, col: 1, state: 'CLOSED' },
+    });
+    expect(outOfBounds.status).toBe(409);
+    const deadBlock = await call({
+      method: 'PUT',
+      url: '/api/slots/state',
+      payload: { block: 99, row: 1, col: 1, state: 'CLOSED' },
+    });
+    expect(deadBlock.status).toBe(404);
+    const badBlockState = await call({
+      method: 'PUT',
+      url: '/api/blocks/99/state',
+      payload: { state: 'CLOSED' },
+    });
+    expect(badBlockState.status).toBe(404);
+  });
+
+  it('a layout save PRESERVES block states — the wire cannot wipe them', async () => {
+    await call({
+      method: 'PUT',
+      url: `/api/blocks/${String(B20)}/state`,
+      payload: { state: 'RESERVED' },
+    });
+    const blocks = await currentBlocks();
+    // Re-save the layout untouched — even smuggling a state field in.
+    const saved = await putLayout(
+      blocks.map((b) => ({
+        id: b.id,
+        name: b.name,
+        size: b.size,
+        rows: b.rows,
+        cols: b.cols,
+        x: b.x,
+        y: b.y,
+        angle: b.angle,
+        state: 'NORMAL',
+      })),
+    );
+    expect(saved.status).toBe(200);
+    const after = await currentBlocks();
+    expect(after.find((b) => b.id === B20)?.state).toBe('RESERVED');
+  });
+
+  it('the state payload carries slotStates', async () => {
+    await call({
+      method: 'PUT',
+      url: '/api/slots/state',
+      payload: { block: B20, row: 2, col: 1, state: 'MAINTENANCE' },
+    });
+    const state = await call({ method: 'GET', url: '/api/state' });
+    expect((state.body as { slotStates: Record<string, string> }).slotStates['1|2|1']).toBe(
+      'MAINTENANCE',
+    );
+  });
+});

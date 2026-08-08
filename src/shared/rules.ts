@@ -1,6 +1,13 @@
-import type { BlockConfig, ContainerStatus, Position, Size, YardConfig } from './types';
+import type {
+  BlockConfig,
+  ContainerStatus,
+  LocationState,
+  Position,
+  Size,
+  YardConfig,
+} from './types';
 import { GROUND_TIER, MAX_TIER } from './types';
-import { positionKey, sameSlot } from './address';
+import { positionKey, sameSlot, slotKey } from './address';
 import { blockTakes } from './geometry';
 
 /**
@@ -26,7 +33,17 @@ export type RuleRefusal =
   | { readonly code: 'NO_SUPPORT' }
   | { readonly code: 'BAD_STACK'; readonly by: string }
   | { readonly code: 'BURIED'; readonly by: string }
-  | { readonly code: 'CONTAINER_HOLD' };
+  | { readonly code: 'CONTAINER_HOLD' }
+  | { readonly code: 'LOCATION_MAINTENANCE' }
+  | { readonly code: 'LOCATION_CLOSED' };
+
+/** The per-slot states, keyed by `slotKey` — non-NORMAL entries only. */
+export type SlotStates = Readonly<Record<string, LocationState>>;
+
+/** States that refuse new placement (standing containers stay and drain). */
+export function isBlockingState(state: LocationState): boolean {
+  return state === 'MAINTENANCE' || state === 'CLOSED';
+}
 
 export function blockOf(yard: YardConfig, blockId: number): BlockConfig | null {
   return yard.blocks.find((block) => block.id === blockId) ?? null;
@@ -77,17 +94,20 @@ export function containerAbove(standing: readonly Standing[], of: Standing): Sta
 }
 
 /**
- * May a container of this size land on this position, given who is standing?
- * `ignoreId` removes the moving container itself from the picture — without
- * that, a container could use its own body as the support under a move, or
- * refuse its own current slot as taken. `occupancy` is an optional
- * `buildOccupancy` index over the SAME standing list; at most one container
- * occupies a position (the DB unique index guarantees it), so looking up
- * then discarding the ignored id is exactly the filtered scan.
+ * May a container of this size land on this position, given who is standing
+ * and which locations are blocked? `slotStates` is deliberately required —
+ * an optional-with-default would let a forgotten caller silently skip the
+ * location check. `ignoreId` removes the moving container itself from the
+ * picture — without that, a container could use its own body as the support
+ * under a move, or refuse its own current slot as taken. `occupancy` is an
+ * optional `buildOccupancy` index over the SAME standing list; at most one
+ * container occupies a position (the DB unique index guarantees it), so
+ * looking up then discarding the ignored id is exactly the filtered scan.
  */
 export function canPlace(
   yard: YardConfig,
   standing: readonly Standing[],
+  slotStates: SlotStates,
   size: Size,
   position: Position,
   ignoreId?: number,
@@ -102,6 +122,15 @@ export function canPlace(
   const block = blockOf(yard, position.block);
   if (block === null || !isWithinYard(yard, position)) return { code: 'OUT_OF_BOUNDS' };
   if (!blockTakes(block.size, size)) return { code: 'WRONG_ZONE' };
+
+  // The ground itself may refuse: a blocking area state covers every slot in
+  // it; otherwise the slot's own state (both tiers) decides. RESERVED never
+  // blocks — it only paints.
+  const locationState = isBlockingState(block.state)
+    ? block.state
+    : (slotStates[slotKey(position)] ?? 'NORMAL');
+  if (locationState === 'MAINTENANCE') return { code: 'LOCATION_MAINTENANCE' };
+  if (locationState === 'CLOSED') return { code: 'LOCATION_CLOSED' };
 
   const occupant = occupantIn(position);
   if (occupant !== null) return { code: 'SLOT_TAKEN', by: occupant.number };

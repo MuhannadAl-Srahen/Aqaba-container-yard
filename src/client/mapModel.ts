@@ -1,7 +1,7 @@
 import type { ContainerDto, Position, Size, Tier, YardConfig } from '../shared/types';
 import { GROUND_TIER, MAX_TIER } from '../shared/types';
 import { positionKey, positionLabel, slotKey, type BlockNamer } from '../shared/address';
-import { buildOccupancy, canPlace, type Standing } from '../shared/rules';
+import { buildOccupancy, canPlace, type SlotStates, type Standing } from '../shared/rules';
 import { blockTakes } from '../shared/geometry';
 import { normalizeNumber } from '../shared/iso6346';
 
@@ -51,6 +51,7 @@ export function toStanding(containers: readonly ContainerDto[]): Standing[] {
 export function legalTargets(
   yard: YardConfig,
   containers: readonly ContainerDto[],
+  slotStates: SlotStates,
   size: Size,
   ignoreId?: number,
 ): Set<string> {
@@ -65,7 +66,7 @@ export function legalTargets(
       for (let col = 1; col <= block.cols; col += 1) {
         for (let tier = GROUND_TIER; tier <= MAX_TIER; tier += 1) {
           const position: Position = { block: block.id, row, col, tier: tier as Tier };
-          if (canPlace(yard, standing, size, position, ignoreId, occupancy) === null) {
+          if (canPlace(yard, standing, slotStates, size, position, ignoreId, occupancy) === null) {
             targets.add(positionKey(position));
           }
         }

@@ -25,6 +25,15 @@ export const MIXED_SIZE = 0;
 export type BlockSize = Size | typeof MIXED_SIZE;
 
 /**
+ * A location's operational state — for a whole area or a single slot.
+ * MAINTENANCE and CLOSED refuse every NEW placement (standing containers
+ * stay and may still be lifted out — an area drains, it never traps);
+ * RESERVED only flags. NORMAL is the everyday ground.
+ */
+export const LOCATION_STATES = ['NORMAL', 'MAINTENANCE', 'RESERVED', 'CLOSED'] as const;
+export type LocationState = (typeof LOCATION_STATES)[number];
+
+/**
  * One rectangular block of slots, placed freely on the yard canvas. A slot
  * in a 40 block is a 40 ft ground position drawn twice as TALL — the box
  * lies along the line's direction, exactly as it does on the ground.
@@ -44,6 +53,8 @@ export interface BlockConfig {
   readonly y: number;
   /** Degrees clockwise around the frame's centre, snapped to ANGLE_STEP. */
   readonly angle: number;
+  /** Operational state of the whole area. NOT part of the layout save. */
+  readonly state: LocationState;
 }
 
 export interface YardConfig {
@@ -168,6 +179,11 @@ export interface YardStateDto {
    * blocks that may have been deleted since, and their names must survive.
    */
   readonly blockNames: Readonly<Record<string, string>>;
+  /**
+   * Per-slot states keyed by `slotKey` (block|row|col), non-NORMAL entries
+   * only. A slot state covers both tiers.
+   */
+  readonly slotStates: Readonly<Record<string, LocationState>>;
 }
 
 /**
@@ -196,6 +212,8 @@ export const ERROR_CODES = [
   'BAD_STACK',
   'NOT_DELETED',
   'CONTAINER_HOLD',
+  'LOCATION_MAINTENANCE',
+  'LOCATION_CLOSED',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

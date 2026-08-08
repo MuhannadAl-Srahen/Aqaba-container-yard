@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, type ReactElement } from 'react';
 import type { BlockConfig, BlockSize, ContainerDto, YardConfig } from '../shared/types';
 import { ANGLE_STEP, MAX_BLOCKS, MAX_ZONE_COLS, MAX_ZONE_ROWS, MIXED_SIZE } from '../shared/types';
+import type { SlotStates } from '../shared/rules';
 import { blockFrame, overlappingPairs, yardBounds } from '../shared/geometry';
 import { AR } from './ar';
 import { ApiFailure, api, type BlockDraft } from './api';
@@ -53,6 +54,8 @@ interface RotateState {
 export function YardEditor(props: {
   yard: YardConfig;
   containers: readonly ContainerDto[];
+  /** The live slot states — the editor's map shows the truth. */
+  slotStates: SlotStates;
   onSaved: (message: string) => void;
   onCancel: () => void;
 }): ReactElement {
@@ -148,9 +151,10 @@ export function YardEditor(props: {
       searchActive: false,
       targets: null,
       movingId: null,
+      slotStates: props.slotStates,
       onCellClick: noopCellClick,
     }),
-    [draft, stacks],
+    [draft, stacks, props.slotStates],
   );
 
   const selected = draft.find((block) => block.id === selectedId) ?? null;
@@ -177,6 +181,7 @@ export function YardEditor(props: {
       x: bounds.maxX - frame.width,
       y: bounds.maxY + 30,
       angle: 0,
+      state: 'NORMAL',
     };
     setDraft((blocks) => [...blocks, block]);
     setSelectedId(id);

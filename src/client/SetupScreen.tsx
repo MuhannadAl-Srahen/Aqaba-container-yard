@@ -163,6 +163,7 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
                       searchActive: false,
                       targets: null,
                       movingId: null,
+                      slotStates: {},
                       onCellClick: () => undefined,
                     }}
                   />
