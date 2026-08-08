@@ -40,6 +40,7 @@ export const AR = {
   zone20: 'منطقة 20 قدم',
   zone40: 'منطقة 40 قدم',
   freeOf: (free: number, total: number): string => `فاضي ${String(free)} من ${String(total)}`,
+  blockNoSize: (size: number): string => `ما بتاخد مقاس ${String(size)}`,
   inYardCount: (n: number): string => `${String(n)} حاوية بالساحة`,
   fit: 'ملء الشاشة',
   zoomIn: 'تكبير',

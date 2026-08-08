@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ContainerDto, Position } from '../shared/types';
 import { GROUND_TIER, MIXED_SIZE } from '../shared/types';
-import { positionKey, slotKey } from '../shared/address';
+import { positionKey, sameSlot, slotKey } from '../shared/address';
 import { blockOf, canPlace } from '../shared/rules';
+import { blockTakes } from '../shared/geometry';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
 import { YardMap, computeLayout, type ViewTier } from './YardMap';
@@ -123,7 +124,27 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     if (moving !== null) {
       if (targets !== null && targets.has(positionKey(position))) {
         setConfirmMove({ container: moving, to: position });
+        return;
       }
+      // Not a green target: say why in words instead of ignoring the tap.
+      if (
+        moving.position !== null &&
+        sameSlot(moving.position, position) &&
+        moving.position.tier === position.tier
+      ) {
+        setToast(AR.errors.SAME_SLOT);
+        return;
+      }
+      const refusal = canPlace(yard, toStanding(containers), moving.size, position, moving.id);
+      if (refusal !== null) {
+        setToast(
+          'by' in refusal ? AR.errorWithBy(refusal.code, refusal.by) : AR.errors[refusal.code],
+        );
+        return;
+      }
+      // Legal by the fresh rules but missing from the (≤15 s old) target
+      // set: trust the rules — the server re-checks inside its transaction.
+      setConfirmMove({ container: moving, to: position });
       return;
     }
 
@@ -194,12 +215,19 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     const labels = new Map<number, string>();
     if (yard !== null) {
       for (const block of yard.blocks) {
+        // While a move is placing, a block the container's size can never
+        // enter says so where its free count usually stands — otherwise an
+        // all-grey area reads as a mystery, not a size policy.
+        if (moving !== null && !blockTakes(block.size, moving.size)) {
+          labels.set(block.id, AR.blockNoSize(moving.size));
+          continue;
+        }
         const summary = summarizeBlock(block, stacks);
         labels.set(block.id, AR.freeOf(summary.freeGround, summary.totalGround));
       }
     }
     return labels;
-  }, [yard, stacks]);
+  }, [yard, stacks, moving]);
 
   const gateInBlock = gateInAt === null || yard === null ? null : blockOf(yard, gateInAt.block);
 
