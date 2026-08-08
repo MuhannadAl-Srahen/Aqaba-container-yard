@@ -1,6 +1,7 @@
 import { memo, type ReactElement } from 'react';
 import type { BlockConfig, ContainerDto, Position, Tier, YardConfig } from '../shared/types';
 import { GROUND_TIER, MIXED_SIZE } from '../shared/types';
+import { positionKey } from '../shared/address';
 import {
   BLOCK_PAD,
   CELL_GAP,
@@ -160,9 +161,8 @@ function HalfCell(props: {
   view: PanelView;
   stack: SlotStack;
 }): ReactElement {
-  const { x, y, width, height, tier, position, occupant, supported, view } = props;
-  const key = `${String(position.block)}|${String(position.row)}|${String(position.col)}|${String(tier)}`;
-  const isTarget = view.targets !== null && view.targets.has(key);
+  const { x, y, width, height, position, occupant, supported, view } = props;
+  const isTarget = view.targets !== null && view.targets.has(positionKey(position));
   const isMovingSource = occupant !== undefined && occupant.id === view.movingId;
   const isSelected = occupant !== undefined && occupant.id === view.selectedId;
   const isMatch = occupant !== undefined && view.matches.has(occupant.id);
@@ -279,9 +279,8 @@ function Cell(props: {
   const occupant = tier === GROUND_TIER ? stack.ground : stack.upper;
   const groundBelow = stack.ground;
   const position: Position = { block: block.id, row, col, tier };
-  const key = `${String(block.id)}|${String(row)}|${String(col)}|${String(tier)}`;
 
-  const isTarget = view.targets !== null && view.targets.has(key);
+  const isTarget = view.targets !== null && view.targets.has(positionKey(position));
   const isMovingSource = occupant !== undefined && occupant.id === view.movingId;
   const isSelected =
     (occupant !== undefined && occupant.id === view.selectedId) ||

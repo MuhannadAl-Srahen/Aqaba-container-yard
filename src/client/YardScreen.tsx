@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ContainerDto, Position } from '../shared/types';
 import { GROUND_TIER, MIXED_SIZE } from '../shared/types';
-import { slotKey } from '../shared/address';
+import { positionKey, slotKey } from '../shared/address';
 import { blockOf, canPlace } from '../shared/rules';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
@@ -121,8 +121,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     if (yard === null) return;
 
     if (moving !== null) {
-      const key = `${slotKey(position)}|${String(position.tier)}`;
-      if (targets !== null && targets.has(key)) {
+      if (targets !== null && targets.has(positionKey(position))) {
         setConfirmMove({ container: moving, to: position });
       }
       return;

@@ -1,7 +1,7 @@
 import type { ContainerDto, Position, Size, Tier, YardConfig } from '../shared/types';
 import { GROUND_TIER, MAX_TIER } from '../shared/types';
-import { positionLabel, slotKey, type BlockNamer } from '../shared/address';
-import { canPlace, type Standing } from '../shared/rules';
+import { positionKey, positionLabel, slotKey, type BlockNamer } from '../shared/address';
+import { buildOccupancy, canPlace, type Standing } from '../shared/rules';
 import { blockTakes } from '../shared/geometry';
 import { normalizeNumber } from '../shared/iso6346';
 
@@ -54,6 +54,8 @@ export function legalTargets(
   ignoreId?: number,
 ): Set<string> {
   const standing = toStanding(containers);
+  // One index for the ~1800 probes — without it every probe rescans standing.
+  const occupancy = buildOccupancy(standing);
   const targets = new Set<string>();
 
   for (const block of yard.blocks) {
@@ -62,8 +64,8 @@ export function legalTargets(
       for (let col = 1; col <= block.cols; col += 1) {
         for (let tier = GROUND_TIER; tier <= MAX_TIER; tier += 1) {
           const position: Position = { block: block.id, row, col, tier: tier as Tier };
-          if (canPlace(yard, standing, size, position, ignoreId) === null) {
-            targets.add(`${slotKey(position)}|${String(tier)}`);
+          if (canPlace(yard, standing, size, position, ignoreId, occupancy) === null) {
+            targets.add(positionKey(position));
           }
         }
       }

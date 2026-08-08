@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Standing } from '../src/shared/rules';
-import { canLift, canPlace, containerAbove, strandedByLayout } from '../src/shared/rules';
-import type { Position, Size, YardConfig } from '../src/shared/types';
+import {
+  buildOccupancy,
+  canLift,
+  canPlace,
+  containerAbove,
+  strandedByLayout,
+} from '../src/shared/rules';
+import type { Position, Size, Tier, YardConfig } from '../src/shared/types';
+import { GROUND_TIER, MAX_TIER } from '../src/shared/types';
 
 const B20 = 1;
 const B40 = 2;
@@ -96,6 +103,42 @@ describe('placement', () => {
   it('a moving container does not collide with itself', () => {
     const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
     expect(canPlace(yard, s, 20, at(B20, 1, 1, 1), 1)).toBeNull();
+  });
+});
+
+describe('occupancy index', () => {
+  it('indexed canPlace answers exactly like the linear scan, everywhere', () => {
+    const withMixed: YardConfig = {
+      blocks: [
+        ...yard.blocks,
+        { id: 9, name: 'م', size: 0, rows: 2, cols: 2, x: 900, y: 0, angle: 0 },
+      ],
+    };
+    const s = standing(
+      [1, 'MSCU1234566', at(B20, 1, 1, 1)],
+      [2, 'CSQU3054383', at(B20, 1, 1, 2)],
+      [3, 'TGHU1234560', at(B40, 2, 1, 1), 40],
+      [4, 'ABCU7654325', at(9, 1, 2, 1), 20],
+      [5, 'TEST1234567', at(9, 2, 2, 1), 40],
+    );
+    const occupancy = buildOccupancy(s);
+
+    for (const block of withMixed.blocks) {
+      for (let row = 1; row <= block.rows + 1; row += 1) {
+        for (let col = 1; col <= block.cols + 1; col += 1) {
+          for (let tier = GROUND_TIER; tier <= MAX_TIER; tier += 1) {
+            for (const size of [20, 40] as const) {
+              for (const ignoreId of [undefined, 1, 4]) {
+                const position = at(block.id, row, col, tier as Tier);
+                expect(canPlace(withMixed, s, size, position, ignoreId, occupancy)).toEqual(
+                  canPlace(withMixed, s, size, position, ignoreId),
+                );
+              }
+            }
+          }
+        }
+      }
+    }
   });
 });
 

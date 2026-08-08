@@ -1,6 +1,6 @@
 import type { BlockConfig, Position, Size, YardConfig } from './types';
 import { GROUND_TIER, MAX_TIER } from './types';
-import { sameSlot } from './address';
+import { positionKey, sameSlot } from './address';
 import { blockTakes } from './geometry';
 
 /**
@@ -56,6 +56,18 @@ export function occupantAt(standing: readonly Standing[], position: Position): S
   );
 }
 
+/**
+ * The standing list as a position-keyed index. Callers that probe many
+ * positions against the same snapshot (the green-target painter runs ~1800
+ * `canPlace` probes per repaint) build this once and hand it to `canPlace`
+ * instead of paying a linear scan per probe.
+ */
+export function buildOccupancy(standing: readonly Standing[]): ReadonlyMap<string, Standing> {
+  const occupancy = new Map<string, Standing>();
+  for (const s of standing) occupancy.set(positionKey(s.position), s);
+  return occupancy;
+}
+
 /** The container directly on top of this one, if any. */
 export function containerAbove(standing: readonly Standing[], of: Standing): Standing | null {
   if (of.position.tier >= MAX_TIER) return null;
@@ -66,7 +78,10 @@ export function containerAbove(standing: readonly Standing[], of: Standing): Sta
  * May a container of this size land on this position, given who is standing?
  * `ignoreId` removes the moving container itself from the picture — without
  * that, a container could use its own body as the support under a move, or
- * refuse its own current slot as taken.
+ * refuse its own current slot as taken. `occupancy` is an optional
+ * `buildOccupancy` index over the SAME standing list; at most one container
+ * occupies a position (the DB unique index guarantees it), so looking up
+ * then discarding the ignored id is exactly the filtered scan.
  */
 export function canPlace(
   yard: YardConfig,
@@ -74,18 +89,23 @@ export function canPlace(
   size: Size,
   position: Position,
   ignoreId?: number,
+  occupancy?: ReadonlyMap<string, Standing>,
 ): RuleRefusal | null {
-  const others = ignoreId === undefined ? standing : standing.filter((s) => s.id !== ignoreId);
+  const occupantIn = (at: Position): Standing | null => {
+    const found =
+      occupancy !== undefined ? (occupancy.get(positionKey(at)) ?? null) : occupantAt(standing, at);
+    return found !== null && found.id === ignoreId ? null : found;
+  };
 
   const block = blockOf(yard, position.block);
   if (block === null || !isWithinYard(yard, position)) return { code: 'OUT_OF_BOUNDS' };
   if (!blockTakes(block.size, size)) return { code: 'WRONG_ZONE' };
 
-  const occupant = occupantAt(others, position);
+  const occupant = occupantIn(position);
   if (occupant !== null) return { code: 'SLOT_TAKEN', by: occupant.number };
 
   if (position.tier > GROUND_TIER) {
-    const below = occupantAt(others, { ...position, tier: (position.tier - 1) as Position['tier'] });
+    const below = occupantIn({ ...position, tier: (position.tier - 1) as Position['tier'] });
     if (below === null) return { code: 'NO_SUPPORT' };
     // Physics: a 40 overhangs a 20 and falls — it never stacks on one.
     if (size === 40 && below.size === 20) return { code: 'BAD_STACK', by: below.number };
