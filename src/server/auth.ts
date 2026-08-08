@@ -1,11 +1,13 @@
 import { createHmac, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { OWNER_ID } from '../shared/types';
 import { getSetting, setSetting } from './db';
 
 /**
- * One password guards the whole site — the owner's explicit phase-1 choice,
- * with user accounts deferred. Everything here uses Node's own crypto: scrypt
- * for the stored hash, an HMAC-signed expiring token for the session cookie.
+ * Two kinds of sign-in, one mechanism. The owner has the site password; each
+ * employee has a PIN. Both are stored the same way — scrypt over a random
+ * salt — and both end in the same signed cookie, which now carries WHO signed
+ * in so every write can be attributed to a person.
  */
 
 const PASSWORD_KEY = 'password';
@@ -16,14 +18,25 @@ const SESSION_MS = 14 * 24 * 60 * 60 * 1000;
 
 export const SESSION_COOKIE = 'yard_session';
 
-function hashPassword(password: string, salt: Buffer): Buffer {
-  return scryptSync(password, salt, 64);
+/** `salt:hash`, hex. The one storage form for every secret in the system. */
+export function hashSecret(secret: string): string {
+  const salt = randomBytes(16);
+  return `${salt.toString('hex')}:${scryptSync(secret, salt, 64).toString('hex')}`;
+}
+
+/** Constant-time check of a secret against its stored `salt:hash`. */
+export function verifySecret(stored: string | null, secret: string): boolean {
+  if (stored === null) return false;
+  const [saltHex, hashHex] = stored.split(':');
+  if (saltHex === undefined || hashHex === undefined) return false;
+
+  const expected = Buffer.from(hashHex, 'hex');
+  const actual = scryptSync(secret, Buffer.from(saltHex, 'hex'), 64);
+  return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
 export function setPassword(db: DatabaseSync, password: string): void {
-  const salt = randomBytes(16);
-  const hash = hashPassword(password, salt);
-  setSetting(db, PASSWORD_KEY, `${salt.toString('hex')}:${hash.toString('hex')}`);
+  setSetting(db, PASSWORD_KEY, hashSecret(password));
 }
 
 export function hasPassword(db: DatabaseSync): boolean {
@@ -31,15 +44,7 @@ export function hasPassword(db: DatabaseSync): boolean {
 }
 
 export function verifyPassword(db: DatabaseSync, password: string): boolean {
-  const stored = getSetting(db, PASSWORD_KEY);
-  if (stored === null) return false;
-
-  const [saltHex, hashHex] = stored.split(':');
-  if (saltHex === undefined || hashHex === undefined) return false;
-
-  const expected = Buffer.from(hashHex, 'hex');
-  const actual = hashPassword(password, Buffer.from(saltHex, 'hex'));
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  return verifySecret(getSetting(db, PASSWORD_KEY), password);
 }
 
 function cookieSecret(db: DatabaseSync): Buffer {
@@ -51,21 +56,33 @@ function cookieSecret(db: DatabaseSync): Buffer {
   return Buffer.from(secret, 'hex');
 }
 
-/** `expiryMs.signature` — nothing user-controlled, nothing to parse loosely. */
-export function issueSession(db: DatabaseSync, now: number): string {
+/**
+ * `userId.expiryMs.signature` — the actor is inside the signature, so a
+ * cookie cannot be edited into somebody else's. Tokens from before employees
+ * existed had two parts and no longer parse: everyone signs in once more,
+ * which is the right thing for the release that introduces accounts.
+ */
+export function issueSession(db: DatabaseSync, userId: number, now: number): string {
   const expires = now + SESSION_MS;
-  const signature = createHmac('sha256', cookieSecret(db)).update(String(expires)).digest('hex');
-  return `${String(expires)}.${signature}`;
+  const payload = `${String(userId)}.${String(expires)}`;
+  const signature = createHmac('sha256', cookieSecret(db)).update(payload).digest('hex');
+  return `${payload}.${signature}`;
 }
 
-export function verifySession(db: DatabaseSync, token: string, now: number): boolean {
-  const [expiresText, signature] = token.split('.');
-  if (expiresText === undefined || signature === undefined) return false;
+/** The signed-in user's id (OWNER_ID for the owner), or null for no session. */
+export function verifySession(db: DatabaseSync, token: string, now: number): number | null {
+  const [userText, expiresText, signature] = token.split('.');
+  if (userText === undefined || expiresText === undefined || signature === undefined) return null;
 
+  const userId = Number(userText);
   const expires = Number(expiresText);
-  if (!Number.isFinite(expires) || expires < now) return false;
+  if (!Number.isInteger(userId) || userId < OWNER_ID) return null;
+  if (!Number.isFinite(expires) || expires < now) return null;
 
-  const expected = createHmac('sha256', cookieSecret(db)).update(expiresText).digest();
+  const expected = createHmac('sha256', cookieSecret(db))
+    .update(`${userText}.${expiresText}`)
+    .digest();
   const actual = Buffer.from(signature, 'hex');
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null;
+  return userId;
 }
