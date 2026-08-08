@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, MovementDto, Position } from '../shared/types';
 import { GROUND_TIER } from '../shared/types';
 import { AR } from './ar';
-import { ApiFailure, api, dwellDays, formatDate } from './api';
+import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
 
 /**
@@ -11,38 +11,90 @@ import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
  * opened by tapping it on the map or in a search result.
  */
 
-function movementLine(movement: MovementDto, label: (p: Position) => string): string {
-  switch (movement.type) {
-    case 'IN':
-      return movement.to === null ? AR.movementIn : `${AR.movementIn} → ${label(movement.to)}`;
-    case 'MOVE':
-      return movement.from !== null && movement.to !== null
-        ? `${AR.movementMove}: ${label(movement.from)} → ${label(movement.to)}`
-        : AR.movementMove;
-    case 'OUT':
-      return movement.from === null
-        ? AR.movementOut
-        : `${AR.movementOut} من ${label(movement.from)}`;
-    case 'EDIT':
-      return movement.note === '' ? AR.movementEdit : AR.editedFields(movement.note);
-    case 'DELETE':
-      return AR.movementDelete;
-    case 'RESTORE':
-      return AR.movementRestore;
-  }
-}
-
-function Badge(props: { text: string; tone: 'blue' | 'sky' | 'amber' | 'slate' }): ReactElement {
+function Badge(props: {
+  text: string;
+  tone: 'blue' | 'sky' | 'amber' | 'slate' | 'red' | 'emerald';
+}): ReactElement {
   const tones = {
     blue: 'bg-blue-100 text-blue-800',
     sky: 'bg-sky-100 text-sky-800',
     amber: 'bg-amber-100 text-amber-800',
     slate: 'bg-slate-100 text-slate-600',
+    red: 'bg-red-100 text-red-800',
+    emerald: 'bg-emerald-100 text-emerald-800',
   } as const;
   return (
     <span className={`rounded-lg px-2 py-0.5 text-xs font-bold ${tones[props.tone]}`}>
       {props.text}
     </span>
+  );
+}
+
+const MOVEMENT_TONES = {
+  IN: 'blue',
+  MOVE: 'sky',
+  OUT: 'slate',
+  EDIT: 'amber',
+  DELETE: 'red',
+  RESTORE: 'emerald',
+} as const;
+
+/** Addresses live in one isolated LTR run: nothing fuses, no arrow flips. */
+function Addr(props: { text: string }): ReactElement {
+  return (
+    <bdi dir="ltr" className="font-mono text-[13px] font-semibold text-slate-800">
+      {props.text}
+    </bdi>
+  );
+}
+
+function MovementRow(props: {
+  movement: MovementDto;
+  label: (p: Position) => string;
+}): ReactElement {
+  const { movement, label } = props;
+
+  let detail: ReactElement | null = null;
+  switch (movement.type) {
+    case 'IN':
+      detail = movement.to === null ? null : <Addr text={label(movement.to)} />;
+      break;
+    case 'MOVE':
+      detail =
+        movement.from !== null && movement.to !== null ? (
+          <Addr text={`${label(movement.from)} → ${label(movement.to)}`} />
+        ) : null;
+      break;
+    case 'OUT':
+      detail = movement.from === null ? null : <Addr text={label(movement.from)} />;
+      break;
+    case 'EDIT':
+      detail =
+        movement.note === '' ? null : (
+          <span className="min-w-0 text-xs leading-5 text-slate-600 wrap-anywhere">
+            {AR.editedFields(movement.note)}
+          </span>
+        );
+      break;
+    case 'DELETE':
+    case 'RESTORE':
+      detail = null;
+      break;
+  }
+
+  return (
+    <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <Badge
+        text={AR.operationName[movement.type] ?? movement.type}
+        tone={MOVEMENT_TONES[movement.type]}
+      />
+      {detail}
+      <span className="ms-auto whitespace-nowrap text-xs text-slate-400">
+        <span dir="ltr">{formatDateOnly(movement.at)}</span>
+        {' · '}
+        <span dir="ltr">{formatTimeOnly(movement.at)}</span>
+      </span>
+    </li>
   );
 }
 
@@ -124,12 +176,16 @@ export function ContainerCard(props: {
           )}
           <div className="flex justify-between gap-3">
             <dt className="text-slate-500">{AR.enteredAt}</dt>
-            <dd className="font-semibold text-slate-900">{formatDate(container.enteredAt)}</dd>
+            <dd className="font-semibold text-slate-900" dir="ltr">
+              {formatDate(container.enteredAt)}
+            </dd>
           </div>
           {container.exitedAt !== null ? (
             <div className="flex justify-between gap-3">
               <dt className="text-slate-500">{AR.exitedAt}</dt>
-              <dd className="font-semibold text-slate-900">{formatDate(container.exitedAt)}</dd>
+              <dd className="font-semibold text-slate-900" dir="ltr">
+                {formatDate(container.exitedAt)}
+              </dd>
             </div>
           ) : (
             <div className="flex justify-between gap-3">
@@ -277,14 +333,9 @@ export function ContainerCard(props: {
 
         <div>
           <h3 className="mb-2 text-sm font-bold text-slate-700">{AR.movementsTitle}</h3>
-          <ol className="space-y-1.5 border-s-2 border-slate-100 ps-3">
+          <ol className="space-y-2 border-s-2 border-slate-100 ps-3">
             {(detail.data?.movements ?? []).map((movement) => (
-              <li key={movement.id} className="text-xs leading-5">
-                <span className="font-semibold text-slate-700">
-                  {movementLine(movement, props.label)}
-                </span>
-                <span className="ms-2 text-slate-400">{formatDate(movement.at)}</span>
-              </li>
+              <MovementRow key={movement.id} movement={movement} label={props.label} />
             ))}
           </ol>
         </div>

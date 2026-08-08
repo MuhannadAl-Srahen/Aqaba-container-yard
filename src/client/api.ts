@@ -195,14 +195,33 @@ export const api = {
     request(`/api/containers/${String(id)}`),
 };
 
-const dateFormat = new Intl.DateTimeFormat('ar-JO-u-nu-latn', {
-  dateStyle: 'medium',
+// Latin digit order (dd/mm/yyyy) so the date never scrambles inside RTL text
+// — the ar-JO date pattern carries RLM marks that visually reverse it. The
+// same split sheetKit and PrintCard already use; api.ts cannot import them
+// back without inverting the layering.
+const dateOnlyFormat = new Intl.DateTimeFormat('en-GB', {
+  dateStyle: 'short',
+  timeZone: 'Asia/Amman',
+});
+/** 12-hour clock with the Arabic م/ص marker, Western digits. */
+const timeOnlyFormat = new Intl.DateTimeFormat('ar-JO-u-nu-latn', {
   timeStyle: 'short',
   timeZone: 'Asia/Amman',
 });
 
+/** dd/mm/yyyy — render it inside a dir="ltr" element. */
+export function formatDateOnly(iso: string): string {
+  return dateOnlyFormat.format(new Date(iso));
+}
+
+/** h:mm م/ص — render it inside a dir="ltr" element. */
+export function formatTimeOnly(iso: string): string {
+  return timeOnlyFormat.format(new Date(iso));
+}
+
+/** Date then time in one run — must be rendered inside dir="ltr". */
 export function formatDate(iso: string): string {
-  return dateFormat.format(new Date(iso));
+  return `${formatDateOnly(iso)}، ${formatTimeOnly(iso)}`;
 }
 
 export function dwellDays(enteredAt: string, until?: string): number {
