@@ -13,8 +13,18 @@ import type { BlockConfig, Position } from '../src/shared/types';
 let app: FastifyInstance;
 let cookie: string;
 
-const YARD = { twenty: { rows: 3, cols: 5 }, forty: { rows: 2, cols: 4 } };
-/** Setup inserts the 20 block first, so ids are deterministic. */
+/**
+ * Two columns: A holds three locations of four twenty-foot places over two
+ * tiers — eight 20s each; B holds two locations of the same eight places,
+ * which is four 40s each.
+ */
+const YARD = {
+  twenty: { rows: 3, placesPerTier: 4, tiers: 2 },
+  forty: { rows: 2, placesPerTier: 4, tiers: 2 },
+};
+/** Every location in this fixture holds this many twenty-foot places. */
+const CAPACITY = 8;
+/** Setup inserts the 20 column first, so ids are deterministic. */
 const B20 = 1;
 const B40 = 2;
 
@@ -35,12 +45,7 @@ async function setup(): Promise<void> {
   cookie = header.split(';')[0] ?? '';
 }
 
-const at = (block: number, row: number, col: number, tier: 1 | 2): Position => ({
-  block,
-  row,
-  col,
-  tier,
-});
+const at = (block: number, row: number): Position => ({ block, row });
 
 interface InjectOptions {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE' | 'PUT';
@@ -78,10 +83,10 @@ async function gateIn(
       number,
       size,
       customer,
-      cargo: 'LADEN',
       notes: '',
       position,
       truck: '500',
+      seal: 'JO100001',
       driver: 'أبو أحمد',
       weight: '25',
     },
@@ -96,8 +101,23 @@ async function gateOut(id: number | undefined): Promise<{ status: number; body: 
   return call({
     method: 'POST',
     url: `/api/containers/${String(id)}/exit`,
-    payload: { truck: '522', driver: '' },
+    payload: { truck: '522', seal: 'JO100001', driver: '' },
   });
+}
+
+/** Yesterday to tomorrow — a range every movement of a test lands inside. */
+const wideRange = (): { from: string; to: string } => ({
+  from: new Date(Date.now() - 86_400_000).toISOString(),
+  to: new Date(Date.now() + 86_400_000).toISOString(),
+});
+
+/** Pour `count` containers into one location, to fill it toward the brim. */
+async function fill(position: Position, count: number, size: 20 | 40 = 20): Promise<void> {
+  for (let i = 0; i < count; i += 1) {
+    const tag = `${String(position.block)}${String(position.row)}${String(i)}`;
+    const result = await gateIn(`FILL${tag.padStart(4, '0')}`, size, position);
+    if (result.status !== 201) throw new Error(`fill failed: ${JSON.stringify(result.body)}`);
+  }
 }
 
 async function currentBlocks(): Promise<BlockConfig[]> {
@@ -107,6 +127,18 @@ async function currentBlocks(): Promise<BlockConfig[]> {
 
 async function putLayout(blocks: unknown[]): Promise<{ status: number; body: unknown }> {
   return call({ method: 'PUT', url: '/api/yard', payload: { blocks } });
+}
+
+/** A reserve column that takes either size, for the mixed-capacity tests. */
+async function addMixedColumn(): Promise<number> {
+  const saved = await putLayout([
+    ...(await currentBlocks()),
+    { name: 'R', size: 0, rows: 2, placesPerTier: 4, tiers: 2, x: 0, y: 3000, angle: 0 },
+  ]);
+  if (saved.status !== 200) throw new Error(`mixed column failed: ${JSON.stringify(saved.body)}`);
+  const id = (saved.body as { blocks: BlockConfig[] }).blocks.find((b) => b.name === 'R')?.id;
+  if (id === undefined) throw new Error('mixed column missing');
+  return id;
 }
 
 beforeEach(setup);
@@ -156,22 +188,22 @@ describe('auth', () => {
 });
 
 describe('setup layout', () => {
-  it('creates the two named blocks and reports their names', async () => {
+  it('creates the two named columns and reports their names', async () => {
     const blocks = await currentBlocks();
     expect(blocks).toHaveLength(2);
-    expect(blocks[0]).toMatchObject({ id: B20, size: 20, rows: 3, cols: 5 });
-    expect(blocks[1]).toMatchObject({ id: B40, size: 40, rows: 2, cols: 4 });
+    expect(blocks[0]).toMatchObject({ id: B20, size: 20, rows: 3, placesPerTier: 4, tiers: 2 });
+    expect(blocks[1]).toMatchObject({ id: B40, size: 40, rows: 2, placesPerTier: 4, tiers: 2 });
 
     const state = await call({ method: 'GET', url: '/api/state' });
     const names = (state.body as { blockNames: Record<string, string> }).blockNames;
-    expect(names[String(B20)]).toBe('منطقة 20');
-    expect(names[String(B40)]).toBe('منطقة 40');
+    expect(names[String(B20)]).toBe('A');
+    expect(names[String(B40)]).toBe('B');
   });
 });
 
 describe('gate in', () => {
   it('receives a container and reports it in the state', async () => {
-    const created = await gateIn('CSQU3054383', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('CSQU3054383', 20, at(B20, 1));
     expect(created.status).toBe(201);
 
     const state = await call({ method: 'GET', url: '/api/state' });
@@ -182,77 +214,132 @@ describe('gate in', () => {
   });
 
   it('an invalid number is received with a warning, never refused', async () => {
-    const created = await gateIn('MSCU1234567', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU1234567', 20, at(B20, 1));
     expect(created.status).toBe(201);
     const state = await call({ method: 'GET', url: '/api/state' });
     const body = state.body as { containers: Array<{ numberValid: boolean }> };
     expect(body.containers[0]?.numberValid).toBe(false);
   });
 
-  it('refuses a taken slot', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    const second = await gateIn('CSQU3054383', 20, at(B20, 1, 1, 1));
-    expect(second.status).toBe(409);
-    expect(second.body.code).toBe('SLOT_TAKEN');
+  it('takes container after container into one location until it is full', async () => {
+    await fill(at(B20, 1), CAPACITY);
+    const overflow = await gateIn('CSQU3054383', 20, at(B20, 1));
+    expect(overflow.status).toBe(409);
+    expect(overflow.body.code).toBe('LOCATION_FULL');
+    // The neighbouring location is untouched by its neighbour's fullness.
+    expect((await gateIn('CSQU3054383', 20, at(B20, 2))).status).toBe(201);
   });
 
-  it('refuses a 20 ft in a 40 block and the reverse', async () => {
-    const wrong20 = await gateIn('MSCU1234566', 20, at(B40, 1, 1, 1));
+  it('a 40 takes two places, so four of them fill the same location', async () => {
+    await fill(at(B40, 1), 4, 40);
+    const overflow = await gateIn('TGHU1234560', 40, at(B40, 1));
+    expect(overflow.body.code).toBe('LOCATION_FULL');
+  });
+
+  it('says how short a full location is when a 40 will not fit', async () => {
+    const mixedId = await addMixedColumn();
+    await fill(at(mixedId, 1), CAPACITY - 1);
+    const refused = await gateIn('TGHU1234560', 40, at(mixedId, 1));
+    expect(refused.body.code).toBe('LOCATION_FULL');
+    expect((refused.body as { details?: { free?: number; need?: number } }).details).toEqual({
+      free: 1,
+      need: 2,
+    });
+    // A 20 still fits in the one place that is left.
+    expect((await gateIn('MSCU1234566', 20, at(mixedId, 1))).status).toBe(201);
+  });
+
+  it('refuses a 20 ft in a 40 column and the reverse', async () => {
+    const wrong20 = await gateIn('MSCU1234566', 20, at(B40, 1));
     expect(wrong20.body.code).toBe('WRONG_ZONE');
-    const wrong40 = await gateIn('MSCU1234566', 40, at(B20, 1, 1, 1));
+    const wrong40 = await gateIn('MSCU1234566', 40, at(B20, 1));
     expect(wrong40.body.code).toBe('WRONG_ZONE');
   });
 
-  it('refuses a position in a block that does not exist', async () => {
-    const ghost = await gateIn('MSCU1234566', 20, at(99, 1, 1, 1));
+  it('refuses a location in a column that does not exist', async () => {
+    const ghost = await gateIn('MSCU1234566', 20, at(99, 1));
     expect(ghost.status).toBe(409);
     expect(ghost.body.code).toBe('OUT_OF_BOUNDS');
   });
 
-  it('refuses the first tier over empty ground', async () => {
-    const floating = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 2));
-    expect(floating.body.code).toBe('NO_SUPPORT');
+  it('refuses a location past the end of the column', async () => {
+    const past = await gateIn('MSCU1234566', 20, at(B20, 4));
+    expect(past.status).toBe(409);
+    expect(past.body.code).toBe('OUT_OF_BOUNDS');
   });
 
-  it('accepts stacking on a standing container, to the site limit only', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    const second = await gateIn('CSQU3054383', 20, at(B20, 1, 1, 2));
-    expect(second.status).toBe(201);
-    // A third tier does not exist in the wire schema at all — sent raw.
-    const third = await call({
+  it('the seal is mandatory at the gate, both ways', async () => {
+    const noSeal = await call({
       method: 'POST',
       url: '/api/containers',
       payload: {
-        number: 'TCLU1234565',
+        number: 'MSCU1234566',
         size: 20,
         customer: 'عميل',
-        cargo: 'LADEN',
         notes: '',
-        position: { block: B20, row: 1, col: 1, tier: 3 },
+        position: at(B20, 1),
+        truck: '500',
+        seal: '',
       },
     });
-    expect(third.status).toBe(400);
+    expect(noSeal.status).toBe(400);
+
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
+    const noSealOut = await call({
+      method: 'POST',
+      url: `/api/containers/${String(created.body.id)}/exit`,
+      payload: { truck: '522', seal: '', driver: '' },
+    });
+    expect(noSealOut.status).toBe(400);
+  });
+
+  it('the seal rides on the record and on both registers', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(created.body.id)}/exit`,
+      // A different seal on the way out: the door was opened inside.
+      payload: { truck: '522', seal: 'JO999999', driver: '' },
+    });
+    const detail = await call({
+      method: 'GET',
+      url: `/api/containers/${String(created.body.id)}`,
+    });
+    expect((detail.body as { container: { sealIn: string; sealOut: string } }).container)
+      .toMatchObject({ sealIn: 'JO100001', sealOut: 'JO999999' });
+
+    const { from, to } = wideRange();
+    for (const [type, seal] of [
+      ['IN', 'JO100001'],
+      ['OUT', 'JO999999'],
+    ] as const) {
+      const report = await call({
+        method: 'GET',
+        url: `/api/reports/gate?type=${type}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      });
+      expect((report.body as { rows: Array<{ seal: string }> }).rows[0]?.seal, type).toBe(seal);
+    }
   });
 
   it('refuses a number already standing in the yard, allows it after it left', async () => {
-    const first = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    const duplicate = await gateIn('MSCU1234566', 20, at(B20, 1, 2, 1));
+    const first = await gateIn('MSCU1234566', 20, at(B20, 1));
+    const duplicate = await gateIn('MSCU1234566', 20, at(B20, 1));
     expect(duplicate.body.code).toBe('NUMBER_IN_YARD');
 
     await gateOut(first.body.id);
-    const returning = await gateIn('MSCU1234566', 20, at(B20, 1, 2, 1));
+    const returning = await gateIn('MSCU1234566', 20, at(B20, 1));
     expect(returning.status).toBe(201);
   });
 });
 
 describe('move', () => {
   it('moves a container and records the movement', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
     const id = created.body.id;
     const moved = await call({
       method: 'POST',
       url: `/api/containers/${String(id)}/move`,
-      payload: { to: at(B20, 2, 3, 1) },
+      payload: { to: at(B20, 2) },
     });
     expect(moved.status).toBe(200);
 
@@ -261,45 +348,60 @@ describe('move', () => {
     expect(body.movements.map((m) => m.type)).toEqual(['IN', 'MOVE']);
   });
 
-  it('refuses to move a buried container and names the one on top', async () => {
-    const bottom = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    await gateIn('CSQU3054383', 20, at(B20, 1, 1, 2));
+  it('any container in a shared location moves out freely — nothing is buried', async () => {
+    const first = await gateIn('MSCU1234566', 20, at(B20, 1));
+    await gateIn('CSQU3054383', 20, at(B20, 1));
     const moved = await call({
       method: 'POST',
-      url: `/api/containers/${String(bottom.body.id)}/move`,
-      payload: { to: at(B20, 2, 2, 1) },
+      url: `/api/containers/${String(first.body.id)}/move`,
+      payload: { to: at(B20, 2) },
     });
-    expect(moved.status).toBe(409);
-    const body = moved.body as { code: string; details?: { by?: string } };
-    expect(body.code).toBe('BURIED');
-    expect(body.details?.by).toBe('CSQU3054383');
+    expect(moved.status).toBe(200);
   });
 
-  it('a container cannot move onto the tier above itself', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+  it('a container cannot move to the location it already stands in', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
     const moved = await call({
       method: 'POST',
       url: `/api/containers/${String(created.body.id)}/move`,
-      payload: { to: at(B20, 1, 1, 2) },
+      payload: { to: at(B20, 1) },
     });
-    expect((moved.body as { code: string }).code).toBe('NO_SUPPORT');
+    expect((moved.body as { code: string }).code).toBe('SAME_SLOT');
   });
 
-  it('moving the top of a stack down to the ground is legal', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    const top = await gateIn('CSQU3054383', 20, at(B20, 1, 1, 2));
+  it('refuses a move into a full location', async () => {
+    const traveller = await gateIn('MSCU1234566', 20, at(B20, 1));
+    await fill(at(B20, 2), CAPACITY);
     const moved = await call({
       method: 'POST',
-      url: `/api/containers/${String(top.body.id)}/move`,
-      payload: { to: at(B20, 3, 5, 1) },
+      url: `/api/containers/${String(traveller.body.id)}/move`,
+      payload: { to: at(B20, 2) },
     });
-    expect(moved.status).toBe(200);
+    expect(moved.status).toBe(409);
+    expect((moved.body as { code: string }).code).toBe('LOCATION_FULL');
+  });
+
+  it('the move carries the note along and records who did it', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(created.body.id)}/move`,
+      payload: { to: at(B20, 2) },
+    });
+    const { from, to } = wideRange();
+    const log = await call({
+      method: 'GET',
+      url: `/api/reports/log?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    const rows = (log.body as { rows: Array<{ type: string; user: string }> }).rows;
+    // The owner ran this one; an employee's name would stand here instead.
+    expect(rows.find((r) => r.type === 'MOVE')?.user).toBe('المالك');
   });
 });
 
 describe('gate out', () => {
-  it('frees the slot and keeps the record findable', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+  it('frees its place and keeps the record findable', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
     const out = await gateOut(created.body.id);
     expect(out.status).toBe(200);
 
@@ -312,16 +414,16 @@ describe('gate out', () => {
     expect(results[0]?.exitedAt).not.toBeNull();
   });
 
-  it('refuses to gate out a buried container', async () => {
-    const bottom = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    await gateIn('CSQU3054383', 20, at(B20, 1, 1, 2));
-    const out = await gateOut(bottom.body.id);
-    expect(out.status).toBe(409);
-    expect((out.body as { code: string }).code).toBe('BURIED');
+  it('gating one out gives its place back to the location', async () => {
+    await fill(at(B20, 1), CAPACITY - 1);
+    const last = await gateIn('MSCU1234566', 20, at(B20, 1));
+    expect((await gateIn('CSQU3054383', 20, at(B20, 1))).body.code).toBe('LOCATION_FULL');
+    await gateOut(last.body.id);
+    expect((await gateIn('CSQU3054383', 20, at(B20, 1))).status).toBe(201);
   });
 
   it('gating out twice is refused', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
     await gateOut(created.body.id);
     const again = await gateOut(created.body.id);
     expect(again.status).toBe(409);
@@ -331,34 +433,34 @@ describe('gate out', () => {
 
 describe('edit and delete', () => {
   it('edits fields and logs which ones changed', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
     const id = created.body.id;
     const edited = await call({
       method: 'PATCH',
       url: `/api/containers/${String(id)}`,
-      payload: { number: 'MSCU1234566', customer: 'عميل ثاني', cargo: 'EMPTY', size: 20, notes: '' },
+      payload: { number: 'MSCU1234566', customer: 'عميل ثاني', size: 20, notes: 'الباب مبعوج' },
     });
     expect(edited.status).toBe(200);
 
     const detail = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
     const body = detail.body as {
-      container: { customer: string; cargo: string };
+      container: { customer: string; notes: string };
       movements: Array<{ type: string; note: string }>;
     };
     expect(body.container.customer).toBe('عميل ثاني');
-    expect(body.container.cargo).toBe('EMPTY');
+    expect(body.container.notes).toBe('الباب مبعوج');
     const edit = body.movements.find((m) => m.type === 'EDIT');
     const note = JSON.parse(edit?.note ?? '{}') as {
       k: string[];
       b: Record<string, string | number>;
     };
-    expect(note.k).toEqual(['customer', 'cargo']);
+    expect(note.k).toEqual(['customer', 'notes']);
     // The old values ride along so the log can undo the edit later.
-    expect(note.b).toMatchObject({ customer: 'شركة النقل الأردنية', cargo: 'LADEN' });
+    expect(note.b).toMatchObject({ customer: 'شركة النقل الأردنية', notes: '' });
   });
 
-  it('a deleted record can be restored to its old slot — unless taken', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 2, 2, 1));
+  it('a deleted record can be restored to its old location — unless it filled up', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 2));
     await call({ method: 'DELETE', url: `/api/containers/${String(created.body.id)}` });
 
     const restored = await call({
@@ -370,7 +472,6 @@ describe('edit and delete', () => {
     expect((restored.body as { position: Position | null }).position).toMatchObject({
       block: B20,
       row: 2,
-      col: 2,
     });
 
     // Restoring a live record is refused.
@@ -382,36 +483,36 @@ describe('edit and delete', () => {
     expect(again.status).toBe(409);
     expect((again.body as { code: string }).code).toBe('NOT_DELETED');
 
-    // Delete once more, let someone take the slot: the restore must refuse.
+    // Delete once more and let the location fill: the restore must refuse.
     await call({ method: 'DELETE', url: `/api/containers/${String(created.body.id)}` });
-    await gateIn('CSQU3054383', 20, at(B20, 2, 2, 1));
+    await fill(at(B20, 2), CAPACITY);
     const blocked = await call({
       method: 'POST',
       url: `/api/containers/${String(created.body.id)}/restore`,
       payload: {},
     });
     expect(blocked.status).toBe(409);
-    expect((blocked.body as { code: string }).code).toBe('SLOT_TAKEN');
+    expect((blocked.body as { code: string }).code).toBe('LOCATION_FULL');
   });
 
   it('renaming onto a number standing elsewhere is refused', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    const second = await gateIn('CSQU3054383', 20, at(B20, 1, 2, 1));
+    await gateIn('MSCU1234566', 20, at(B20, 1));
+    const second = await gateIn('CSQU3054383', 20, at(B20, 2));
     const renamed = await call({
       method: 'PATCH',
       url: `/api/containers/${String(second.body.id)}`,
-      payload: { number: 'MSCU1234566', customer: 'x', cargo: 'LADEN', size: 20, notes: '' },
+      payload: { number: 'MSCU1234566', customer: 'x', size: 20, notes: '' },
     });
     expect(renamed.status).toBe(409);
     expect((renamed.body as { code: string }).code).toBe('NUMBER_IN_YARD');
   });
 
-  it('a size flip is refused while standing in a mismatched block', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+  it('a size flip is refused while standing in a mismatched column', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
     const flipped = await call({
       method: 'PATCH',
       url: `/api/containers/${String(created.body.id)}`,
-      payload: { number: 'MSCU1234566', customer: 'عميل', cargo: 'LADEN', size: 40, notes: '' },
+      payload: { number: 'MSCU1234566', customer: 'عميل', size: 40, notes: '' },
     });
     expect(flipped.status).toBe(409);
     expect((flipped.body as { code: string }).code).toBe('WRONG_ZONE');
@@ -421,14 +522,14 @@ describe('edit and delete', () => {
     const corrected = await call({
       method: 'PATCH',
       url: `/api/containers/${String(created.body.id)}`,
-      payload: { number: 'MSCU1234566', customer: 'عميل', cargo: 'LADEN', size: 40, notes: '' },
+      payload: { number: 'MSCU1234566', customer: 'عميل', size: 40, notes: '' },
     });
     expect(corrected.status).toBe(200);
     expect((corrected.body as { size: number }).size).toBe(40);
   });
 
-  it('a deleted record vacates its slot and disappears from search', async () => {
-    const created = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+  it('a deleted record gives its place back and disappears from search', async () => {
+    const created = await gateIn('MSCU1234566', 20, at(B20, 1));
     const removed = await call({
       method: 'DELETE',
       url: `/api/containers/${String(created.body.id)}`,
@@ -437,28 +538,38 @@ describe('edit and delete', () => {
 
     const state = await call({ method: 'GET', url: '/api/state' });
     expect((state.body as { containers: unknown[] }).containers).toHaveLength(0);
-    const retry = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    const retry = await gateIn('MSCU1234566', 20, at(B20, 1));
     expect(retry.status).toBe(201);
   });
 
-  it('deleting the bottom of a stack is refused', async () => {
-    const bottom = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    await gateIn('CSQU3054383', 20, at(B20, 1, 1, 2));
-    const removed = await call({
-      method: 'DELETE',
-      url: `/api/containers/${String(bottom.body.id)}`,
-    });
-    expect(removed.status).toBe(409);
+  it('a full location still lets every one of its containers walk out', async () => {
+    await fill(at(B20, 1), CAPACITY);
+    const state = await call({ method: 'GET', url: '/api/state' });
+    const inside = (state.body as { containers: Array<{ id: number }> }).containers;
+    expect(inside).toHaveLength(CAPACITY);
+    // Nothing is buried in a basket: the first one in leaves as freely as
+    // the last, in any order the crane happens to reach them.
+    for (const container of inside) {
+      expect((await gateOut(container.id)).status).toBe(200);
+    }
   });
 });
 
 describe('yard layout', () => {
   it('grows, moves and turns freely — containers ride along', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 3, 5, 1));
+    await gateIn('MSCU1234566', 20, at(B20, 3));
     const blocks = await currentBlocks();
     const changed = blocks.map((block) =>
       block.id === B20
-        ? { ...block, rows: 5, cols: 8, x: block.x + 400, y: block.y + 200, angle: 45 }
+        ? {
+            ...block,
+            rows: 5,
+            placesPerTier: 6,
+            tiers: 3,
+            x: block.x + 400,
+            y: block.y + 200,
+            angle: 45,
+          }
         : block,
     );
     const saved = await putLayout(changed);
@@ -469,12 +580,29 @@ describe('yard layout', () => {
       yard: { blocks: BlockConfig[] };
       containers: Array<{ position: Position | null }>;
     };
-    expect(body.yard.blocks.find((b) => b.id === B20)).toMatchObject({ rows: 5, angle: 45 });
-    expect(body.containers[0]?.position).toMatchObject({ block: B20, row: 3, col: 5 });
+    expect(body.yard.blocks.find((b) => b.id === B20)).toMatchObject({
+      rows: 5,
+      placesPerTier: 6,
+      tiers: 3,
+      angle: 45,
+    });
+    expect(body.containers[0]?.position).toMatchObject({ block: B20, row: 3 });
+  });
+
+  it('refuses cutting capacity under a location that is fuller than that', async () => {
+    await fill(at(B20, 1), CAPACITY);
+    const blocks = await currentBlocks();
+    const cut = await putLayout(
+      blocks.map((block) => (block.id === B20 ? { ...block, tiers: 1 } : block)),
+    );
+    expect(cut.status).toBe(409);
+    const body = cut.body as { code: string; details?: { locations?: string } };
+    expect(body.code).toBe('CAPACITY_OCCUPIED');
+    expect(body.details?.locations).toContain('A-01');
   });
 
   it('refuses a shrink that would strand a container, naming it', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 3, 5, 1));
+    await gateIn('MSCU1234566', 20, at(B20, 3));
     const blocks = await currentBlocks();
     const shrunk = await putLayout(
       blocks.map((block) => (block.id === B20 ? { ...block, rows: 2 } : block)),
@@ -506,7 +634,7 @@ describe('yard layout', () => {
   });
 
   it('refuses deleting a block that still holds containers', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    await gateIn('MSCU1234566', 20, at(B20, 1));
     const blocks = await currentBlocks();
     const without = await putLayout(blocks.filter((block) => block.id !== B20));
     expect(without.status).toBe(409);
@@ -518,7 +646,7 @@ describe('yard layout', () => {
     const kept = blocks.filter((block) => block.id !== B40);
     const saved = await putLayout([
       ...kept.map((block) => ({ ...block, name: 'المخزن الشمالي' })),
-      { name: 'جنب البوابة', size: 40, rows: 2, cols: 3, x: 0, y: 2000, angle: 15 },
+      { name: 'جنب البوابة', size: 40, rows: 2, placesPerTier: 4, tiers: 2, x: 0, y: 2000, angle: 15 },
     ]);
     expect(saved.status).toBe(200);
 
@@ -526,10 +654,27 @@ describe('yard layout', () => {
     expect(after).toHaveLength(2);
     expect(after.map((b) => b.name)).toEqual(['المخزن الشمالي', 'جنب البوابة']);
 
-    // The deleted block's name still resolves for history.
+    // The deleted column's name still resolves for history.
     const state = await call({ method: 'GET', url: '/api/state' });
     const names = (state.body as { blockNames: Record<string, string> }).blockNames;
-    expect(names[String(B40)]).toBe('منطقة 40');
+    expect(names[String(B40)]).toBe('B');
+  });
+
+  it('a 40 column is counted in whole 40s: an odd place count is refused', async () => {
+    const blocks = await currentBlocks();
+    const odd = await putLayout(
+      blocks.map((block) => (block.id === B40 ? { ...block, placesPerTier: 5 } : block)),
+    );
+    expect(odd.status).toBe(400);
+    const even = await putLayout(
+      blocks.map((block) => (block.id === B40 ? { ...block, placesPerTier: 6 } : block)),
+    );
+    expect(even.status).toBe(200);
+    // A 20 column has no such rule — it counts in single places.
+    const oddTwenty = await putLayout(
+      blocks.map((block) => (block.id === B20 ? { ...block, placesPerTier: 5 } : block)),
+    );
+    expect(oddTwenty.status).toBe(200);
   });
 
   it('accepts any whole degree, refuses fractional or out-of-range angles', async () => {
@@ -552,45 +697,32 @@ describe('yard layout', () => {
     expect(wild.status).toBe(400);
   });
 
-  it('a mixed block takes both sizes, chosen at the gate', async () => {
-    const blocks = await currentBlocks();
-    const saved = await putLayout([
-      ...blocks,
-      { name: 'مختلطة', size: 0, rows: 2, cols: 2, x: 0, y: 3000, angle: 0 },
-    ]);
-    expect(saved.status).toBe(200);
-    const mixedId = (saved.body as { blocks: BlockConfig[] }).blocks.find(
-      (b) => b.name === 'مختلطة',
-    )?.id;
-    if (mixedId === undefined) throw new Error('mixed block missing');
+  it('a mixed column takes both sizes, adding their places up', async () => {
+    const mixedId = await addMixedColumn();
 
-    const small = await gateIn('MSCU1234', 20, at(mixedId, 1, 1, 1));
+    const small = await gateIn('MSCU1234', 20, at(mixedId, 1));
     expect(small.status).toBe(201);
-    const big = await gateIn('TGHU5678', 40, at(mixedId, 1, 2, 1));
+    const big = await gateIn('TGHU5678', 40, at(mixedId, 1));
     expect(big.status).toBe(201);
+    // 1 + 2 places used of eight; five more 20s exactly fill it.
+    await fill(at(mixedId, 1), 5);
+    expect((await gateIn('CAIU1112223', 20, at(mixedId, 1))).body.code).toBe('LOCATION_FULL');
 
-    // Converting an occupied block to mixed is free; back to one size is
+    // Converting an occupied column to mixed is free; back to one size is
     // refused while the other size still stands in it.
     const after = await currentBlocks();
-    const to20 = await putLayout(
-      after.map((b) => (b.id === mixedId ? { ...b, size: 20 } : b)),
-    );
+    const to20 = await putLayout(after.map((b) => (b.id === mixedId ? { ...b, size: 20 } : b)));
     expect(to20.status).toBe(409);
     expect((to20.body as { code: string }).code).toBe('SHRINK_OCCUPIED');
   });
 
-  it('the dev reset wipes containers and counters, keeps the yard', async () => {
-    await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
-    const reset = await call({ method: 'POST', url: '/api/dev/reset', payload: {} });
-    expect(reset.status).toBe(200);
-
-    const state = await call({ method: 'GET', url: '/api/state' });
-    const body = state.body as { containers: unknown[]; yard: { blocks: unknown[] } };
-    expect(body.containers).toHaveLength(0);
-    expect(body.yard.blocks.length).toBeGreaterThan(0);
-
-    const again = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
-    expect(again.body.cardIn).toBe(1);
+  it('has no wipe route at all — the record is the point of the system', async () => {
+    // The demo tools were removed with the yard in real use: nothing in the
+    // API may delete a container or a movement for real any more.
+    for (const url of ['/api/dev/reset', '/api/dev/seed']) {
+      const gone = await call({ method: 'POST', url, payload: {} });
+      expect(gone.status, url).toBe(404);
+    }
   });
 
   it('refuses an unknown block id', async () => {
@@ -611,14 +743,14 @@ describe('gate paperwork', () => {
         customer: 'عميل',
         cargo: 'LADEN',
         notes: '',
-        position: at(B20, 1, 1, 1),
+        position: at(B20, 1),
       },
     });
     expect(result.status).toBe(400);
   });
 
   it('the local 4+4 number form is valid, not a warning', async () => {
-    const created = await gateIn('MSCU 1234', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU 1234', 20, at(B20, 1));
     expect(created.status).toBe(201);
     const state = await call({ method: 'GET', url: '/api/state' });
     const body = state.body as { containers: Array<{ number: string; numberValid: boolean }> };
@@ -627,8 +759,8 @@ describe('gate paperwork', () => {
   });
 
   it('card serials count up from 1, separately per direction', async () => {
-    const first = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
-    const second = await gateIn('CSQU5678', 20, at(B20, 1, 2, 1));
+    const first = await gateIn('MSCU1234', 20, at(B20, 1));
+    const second = await gateIn('CSQU5678', 20, at(B20, 1));
     expect(first.body.cardIn).toBe(1);
     expect(second.body.cardIn).toBe(2);
 
@@ -640,7 +772,7 @@ describe('gate paperwork', () => {
   });
 
   it('a bare exit without the truck is refused', async () => {
-    const created = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU1234', 20, at(B20, 1));
     const bare = await call({
       method: 'POST',
       url: `/api/containers/${String(created.body.id)}/exit`,
@@ -651,13 +783,8 @@ describe('gate paperwork', () => {
 });
 
 describe('reports', () => {
-  const wideRange = (): { from: string; to: string } => ({
-    from: new Date(Date.now() - 86_400_000).toISOString(),
-    to: new Date(Date.now() + 86_400_000).toISOString(),
-  });
-
   it('the entry register lists gate-ins with their paperwork', async () => {
-    await gateIn('MSCU1234', 20, at(B20, 1, 1, 1), 'شركة البحر');
+    await gateIn('MSCU1234', 20, at(B20, 1), 'شركة البحر');
     const { from, to } = wideRange();
     const report = await call({
       method: 'GET',
@@ -678,7 +805,7 @@ describe('reports', () => {
   });
 
   it('the exit register carries the exit truck, card and dwell', async () => {
-    const created = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU1234', 20, at(B20, 1));
     await gateOut(created.body.id);
     const { from, to } = wideRange();
     const report = await call({
@@ -691,8 +818,8 @@ describe('reports', () => {
   });
 
   it('the daily summary counts ins, outs, and who is standing', async () => {
-    const a = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
-    await gateIn('CSQU5678', 20, at(B20, 1, 2, 1));
+    const a = await gateIn('MSCU1234', 20, at(B20, 1));
+    await gateIn('CSQU5678', 20, at(B20, 1));
     await gateOut(a.body.id);
     const { from, to } = wideRange();
     const report = await call({
@@ -705,8 +832,57 @@ describe('reports', () => {
     expect(today).toMatchObject({ inCount: 2, outCount: 1, standing: 1 });
   });
 
+  it('the daily summary never invents a day the yard did not work', async () => {
+    // A three-day window with movement on one day of it must produce exactly
+    // one row. The register used to emit a line per calendar day, which read
+    // as days the yard had never seen.
+    await gateIn('MSCU1234', 20, at(B20, 1));
+    const from = new Date(Date.now() - 3 * 86_400_000).toISOString();
+    const to = new Date(Date.now() + 86_400_000).toISOString();
+    const report = await call({
+      method: 'GET',
+      url: `/api/reports/daily?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    const rows = (report.body as { rows: Array<{ date: string; inCount: number }> }).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.inCount).toBe(1);
+  });
+
+  it('a range with no movement at all is an empty sheet, not a wall of zeros', async () => {
+    await gateIn('MSCU1234', 20, at(B20, 1));
+    const from = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const to = new Date(Date.now() - 20 * 86_400_000).toISOString();
+    const report = await call({
+      method: 'GET',
+      url: `/api/reports/daily?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    expect((report.body as { rows: unknown[] }).rows).toHaveLength(0);
+  });
+
+  it('the standing sheet lists what is in the yard, oldest first, with its dwell', async () => {
+    const first = await gateIn('MSCU1234', 20, at(B20, 1), 'شركة البحر');
+    await gateIn('CSQU5678', 20, at(B20, 2));
+    // One of them leaves: a snapshot shows only who is actually standing.
+    const gone = await gateIn('TGHU9012', 20, at(B20, 3));
+    await gateOut(gone.body.id);
+
+    const report = await call({ method: 'GET', url: '/api/reports/standing' });
+    expect(report.status).toBe(200);
+    const rows = (report.body as {
+      rows: Array<{ number: string; seal: string; dwellDays: number; position: Position }>;
+    }).rows;
+    expect(rows.map((r) => r.number)).toEqual(['MSCU1234', 'CSQU5678']);
+    expect(rows[0]).toMatchObject({
+      containerId: first.body.id,
+      seal: 'JO100001',
+      customer: 'شركة البحر',
+      dwellDays: 0,
+      position: { block: B20, row: 1 },
+    });
+  });
+
   it('a soft-deleted record leaves the registers', async () => {
-    const created = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
+    const created = await gateIn('MSCU1234', 20, at(B20, 1));
     await call({ method: 'DELETE', url: `/api/containers/${String(created.body.id)}` });
     const { from, to } = wideRange();
     const report = await call({
@@ -717,11 +893,11 @@ describe('reports', () => {
   });
 
   it('the operations log records everything, deletions included', async () => {
-    const a = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1));
+    const a = await gateIn('MSCU1234', 20, at(B20, 1));
     await call({
       method: 'POST',
       url: `/api/containers/${String(a.body.id)}/move`,
-      payload: { to: at(B20, 2, 2, 1) },
+      payload: { to: at(B20, 2) },
     });
     await call({ method: 'DELETE', url: `/api/containers/${String(a.body.id)}` });
 
@@ -737,8 +913,8 @@ describe('reports', () => {
   });
 
   it('the truck register gathers one truck across both directions', async () => {
-    const a = await gateIn('MSCU1234', 20, at(B20, 1, 1, 1)); // truck 500 in
-    await gateIn('CSQU5678', 20, at(B20, 1, 2, 1)); // truck 500 in
+    const a = await gateIn('MSCU1234', 20, at(B20, 1)); // truck 500 in
+    await gateIn('CSQU5678', 20, at(B20, 1)); // truck 500 in
     await gateOut(a.body.id); // truck 522 out
 
     const { from, to } = wideRange();
@@ -762,9 +938,9 @@ describe('reports', () => {
 
 describe('search', () => {
   it('finds by number fragment and by customer, in-yard first', async () => {
-    const first = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1), 'شركة البحر');
+    const first = await gateIn('MSCU1234566', 20, at(B20, 1), 'شركة البحر');
     await gateOut(first.body.id);
-    await gateIn('CSQU3054383', 20, at(B20, 1, 2, 1), 'شركة البحر');
+    await gateIn('CSQU3054383', 20, at(B20, 1), 'شركة البحر');
 
     const byCustomer = await call({
       method: 'GET',
@@ -781,338 +957,9 @@ describe('search', () => {
   });
 
   it('a literal % finds nothing rather than everything', async () => {
-    await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
+    await gateIn('MSCU1234566', 20, at(B20, 1));
     const result = await call({ method: 'GET', url: '/api/containers?q=%25' });
     expect((result.body as { results: unknown[] }).results).toHaveLength(0);
   });
 });
 
-describe('container status', () => {
-  it('sets a status, logs it as a revertible EDIT, and clears it back', async () => {
-    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    const set = await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/status`,
-      payload: { status: 'DAMAGED' },
-    });
-    expect(set.status).toBe(200);
-    expect((set.body as { status: string }).status).toBe('DAMAGED');
-
-    const detail = await call({
-      method: 'GET',
-      url: `/api/containers/${String(box.body.id)}`,
-    });
-    const movements = (detail.body as { movements: Array<{ type: string; note: string }> })
-      .movements;
-    const edit = movements.find((m) => m.type === 'EDIT');
-    expect(edit).toBeDefined();
-    expect(JSON.parse(edit?.note ?? '{}')).toEqual({ k: ['status'], b: { status: 'NORMAL' } });
-
-    // Same status again: no new movement.
-    await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/status`,
-      payload: { status: 'DAMAGED' },
-    });
-    const again = await call({ method: 'GET', url: `/api/containers/${String(box.body.id)}` });
-    expect(
-      (again.body as { movements: Array<{ type: string }> }).movements.filter(
-        (m) => m.type === 'EDIT',
-      ),
-    ).toHaveLength(1);
-
-    const back = await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/status`,
-      payload: { status: 'NORMAL' },
-    });
-    expect((back.body as { status: string }).status).toBe('NORMAL');
-  });
-
-  it('a nonsense status is refused', async () => {
-    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    const bad = await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/status`,
-      payload: { status: 'BROKEN' },
-    });
-    expect(bad.status).toBe(400);
-  });
-
-  it('HOLD freezes the container: no move, no exit, no delete — until lifted', async () => {
-    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/status`,
-      payload: { status: 'HOLD' },
-    });
-
-    const move = await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/move`,
-      payload: { to: at(B20, 2, 2, 1) },
-    });
-    expect(move.status).toBe(409);
-    expect((move.body as { code: string }).code).toBe('CONTAINER_HOLD');
-
-    const exit = await gateOut(box.body.id);
-    expect(exit.status).toBe(409);
-    expect((exit.body as { code: string }).code).toBe('CONTAINER_HOLD');
-
-    const remove = await call({
-      method: 'DELETE',
-      url: `/api/containers/${String(box.body.id)}`,
-    });
-    expect(remove.status).toBe(409);
-    expect((remove.body as { code: string }).code).toBe('CONTAINER_HOLD');
-
-    // Lift the hold: everything works again.
-    await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/status`,
-      payload: { status: 'NORMAL' },
-    });
-    const moved = await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/move`,
-      payload: { to: at(B20, 2, 2, 1) },
-    });
-    expect(moved.status).toBe(200);
-    const out = await gateOut(box.body.id);
-    expect(out.status).toBe(200);
-  });
-
-  it('the other conditions leave operations alone', async () => {
-    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/status`,
-      payload: { status: 'REPAIR' },
-    });
-    const move = await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/move`,
-      payload: { to: at(B20, 2, 2, 1) },
-    });
-    expect(move.status).toBe(200);
-  });
-});
-
-describe('location states', () => {
-  it('a CLOSED slot refuses gate-in with its own code; NORMAL clears it', async () => {
-    const closed = await call({
-      method: 'PUT',
-      url: '/api/slots/state',
-      payload: { block: B20, row: 1, col: 1, state: 'CLOSED' },
-    });
-    expect(closed.status).toBe(200);
-    expect((closed.body as { slotStates: Record<string, string> }).slotStates['1|1|1']).toBe(
-      'CLOSED',
-    );
-
-    const refused = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    expect(refused.status).toBe(409);
-    expect(refused.body.code).toBe('LOCATION_CLOSED');
-
-    const cleared = await call({
-      method: 'PUT',
-      url: '/api/slots/state',
-      payload: { block: B20, row: 1, col: 1, state: 'NORMAL' },
-    });
-    expect(
-      (cleared.body as { slotStates: Record<string, string> }).slotStates['1|1|1'],
-    ).toBeUndefined();
-    const placed = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    expect(placed.status).toBe(201);
-  });
-
-  it('MAINTENANCE on an occupied block: stayers stay, drain out, nothing enters', async () => {
-    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-
-    const set = await call({
-      method: 'PUT',
-      url: `/api/blocks/${String(B20)}/state`,
-      payload: { state: 'MAINTENANCE' },
-    });
-    expect(set.status).toBe(200);
-    const blocks = (set.body as { blocks: Array<{ id: number; state: string }> }).blocks;
-    expect(blocks.find((b) => b.id === B20)?.state).toBe('MAINTENANCE');
-
-    // Nothing new lands anywhere in the area — including on top of the stayer.
-    const inRefused = await gateIn('CSQU3054383', 20, at(B20, 2, 2, 1));
-    expect(inRefused.body.code).toBe('LOCATION_MAINTENANCE');
-    const stackRefused = await gateIn('CSQU3054383', 20, at(B20, 1, 1, 2));
-    expect(stackRefused.body.code).toBe('LOCATION_MAINTENANCE');
-
-    // A move INTO it refuses; the stayer still drains OUT.
-    const elsewhere = await gateIn('TGHU1234560', 40, at(B40, 1, 1, 1));
-    expect(elsewhere.status).toBe(201);
-    const out = await gateOut(box.body.id);
-    expect(out.status).toBe(200);
-  });
-
-  it('a RESERVED slot still accepts placement', async () => {
-    await call({
-      method: 'PUT',
-      url: '/api/slots/state',
-      payload: { block: B20, row: 1, col: 2, state: 'RESERVED' },
-    });
-    const placed = await gateIn('MSCU1234566', 20, at(B20, 1, 2, 1));
-    expect(placed.status).toBe(201);
-  });
-
-  it('restore into a now-blocked slot refuses', async () => {
-    const box = await gateIn('MSCU1234566', 20, at(B20, 1, 1, 1));
-    await call({ method: 'DELETE', url: `/api/containers/${String(box.body.id)}` });
-    await call({
-      method: 'PUT',
-      url: '/api/slots/state',
-      payload: { block: B20, row: 1, col: 1, state: 'MAINTENANCE' },
-    });
-    const restore = await call({
-      method: 'POST',
-      url: `/api/containers/${String(box.body.id)}/restore`,
-      payload: {},
-    });
-    expect(restore.status).toBe(409);
-    expect((restore.body as { code: string }).code).toBe('LOCATION_MAINTENANCE');
-  });
-
-  it('bounds and liveness are checked', async () => {
-    const outOfBounds = await call({
-      method: 'PUT',
-      url: '/api/slots/state',
-      payload: { block: B20, row: 99, col: 1, state: 'CLOSED' },
-    });
-    expect(outOfBounds.status).toBe(409);
-    const deadBlock = await call({
-      method: 'PUT',
-      url: '/api/slots/state',
-      payload: { block: 99, row: 1, col: 1, state: 'CLOSED' },
-    });
-    expect(deadBlock.status).toBe(404);
-    const badBlockState = await call({
-      method: 'PUT',
-      url: '/api/blocks/99/state',
-      payload: { state: 'CLOSED' },
-    });
-    expect(badBlockState.status).toBe(404);
-  });
-
-  it('a layout save PRESERVES block states — the wire cannot wipe them', async () => {
-    await call({
-      method: 'PUT',
-      url: `/api/blocks/${String(B20)}/state`,
-      payload: { state: 'RESERVED' },
-    });
-    const blocks = await currentBlocks();
-    // Re-save the layout untouched — even smuggling a state field in.
-    const saved = await putLayout(
-      blocks.map((b) => ({
-        id: b.id,
-        name: b.name,
-        size: b.size,
-        rows: b.rows,
-        cols: b.cols,
-        x: b.x,
-        y: b.y,
-        angle: b.angle,
-        state: 'NORMAL',
-      })),
-    );
-    expect(saved.status).toBe(200);
-    const after = await currentBlocks();
-    expect(after.find((b) => b.id === B20)?.state).toBe('RESERVED');
-  });
-
-  it('the state payload carries slotStates', async () => {
-    await call({
-      method: 'PUT',
-      url: '/api/slots/state',
-      payload: { block: B20, row: 2, col: 1, state: 'MAINTENANCE' },
-    });
-    const state = await call({ method: 'GET', url: '/api/state' });
-    expect((state.body as { slotStates: Record<string, string> }).slotStates['1|2|1']).toBe(
-      'MAINTENANCE',
-    );
-  });
-});
-
-describe('dev seed', () => {
-  it('fills the current yard: state, reports and serials all speak', async () => {
-    const seeded = await call({
-      method: 'POST',
-      url: '/api/dev/seed',
-      payload: { seed: 42 },
-    });
-    expect(seeded.status).toBe(200);
-    const count = (seeded.body as { containers: number }).containers;
-    expect(count).toBeGreaterThan(10);
-
-    const state = await call({ method: 'GET', url: '/api/state' });
-    const body = state.body as {
-      containers: Array<{ position: { tier: number } | null; status: string }>;
-      yard: { blocks: unknown[] };
-    };
-    expect(body.yard.blocks).toHaveLength(2); // the layout is untouched
-    expect(body.containers.length).toBeGreaterThan(5);
-    expect(body.containers.some((c) => c.position?.tier === 2)).toBe(true);
-    expect(body.containers.some((c) => c.status !== 'NORMAL')).toBe(true);
-
-    // Reports over the last month see the back-dated work.
-    const to = new Date(Date.now() + 86_400_000).toISOString();
-    const from = new Date(Date.now() - 31 * 86_400_000).toISOString();
-    const gate = await call({
-      method: 'GET',
-      url: `/api/reports/gate?type=IN&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    });
-    expect((gate.body as { rows: unknown[] }).rows.length).toBeGreaterThan(5);
-    const outs = await call({
-      method: 'GET',
-      url: `/api/reports/gate?type=OUT&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    });
-    expect((outs.body as { rows: unknown[] }).rows.length).toBeGreaterThan(0);
-    const log = await call({
-      method: 'GET',
-      url: `/api/reports/log?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
-    });
-    expect((log.body as { rows: unknown[] }).rows.length).toBeGreaterThan(count - 1);
-
-    // The next real gate-in continues the serial line.
-    const freeRow = 3;
-    let next: Awaited<ReturnType<typeof gateIn>> | null = null;
-    for (let row = freeRow; row <= 3 + 20 && next === null; row += 1) {
-      const attempt = await gateIn(
-        'TCLU1234565',
-        20,
-        at(B20, ((row - 1) % 3) + 1, ((row - 1) % 5) + 1, 1),
-      );
-      if (attempt.status === 201) next = attempt;
-    }
-    expect(next).not.toBeNull();
-    const seededIns = count;
-    expect(next?.body.cardIn).toBeGreaterThan(seededIns - 15); // counter continued, not reset
-  });
-
-  it('same seed twice reproduces the same numbers; no auth refuses', async () => {
-    await call({ method: 'POST', url: '/api/dev/seed', payload: { seed: 7 } });
-    const first = await call({ method: 'GET', url: '/api/state' });
-    const numbersA = (first.body as { containers: Array<{ number: string }> }).containers
-      .map((c) => c.number)
-      .sort();
-    await call({ method: 'POST', url: '/api/dev/seed', payload: { seed: 7 } });
-    const second = await call({ method: 'GET', url: '/api/state' });
-    const numbersB = (second.body as { containers: Array<{ number: string }> }).containers
-      .map((c) => c.number)
-      .sort();
-    expect(numbersB).toEqual(numbersA);
-
-    const denied = await call({
-      method: 'POST',
-      url: '/api/dev/seed',
-      payload: {},
-      noAuth: true,
-    });
-    expect(denied.status).toBe(401);
-  });
-});
