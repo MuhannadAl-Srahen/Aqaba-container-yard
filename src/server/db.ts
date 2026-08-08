@@ -128,6 +128,31 @@ export function migrate(db: DatabaseSync): void {
     }
   }
 
+  // v6: a container's status and a block's state. Purely additive ALTERs
+  // detected from the columns themselves — and they must run AFTER the v5/v4
+  // rebuilds above, which copy `SELECT *` positionally: a column added first
+  // would hand an old file more columns than the rebuilt table expects. Both
+  // new CHECKs now live in the tables' DDL, so widening either later needs
+  // the rebuild pattern keyed on a NEW token (the 314080d lesson).
+  if (hasContainers) {
+    const columns = db.prepare('PRAGMA table_info(containers)').all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === 'status')) {
+      db.exec(`
+        ALTER TABLE containers ADD COLUMN status TEXT NOT NULL DEFAULT 'NORMAL'
+          CHECK (status IN ('NORMAL', 'DAMAGED', 'HOLD', 'REPAIR', 'INSPECT'))
+      `);
+    }
+  }
+  if (blocksSql !== undefined) {
+    const columns = db.prepare('PRAGMA table_info(blocks)').all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === 'state')) {
+      db.exec(`
+        ALTER TABLE blocks ADD COLUMN state TEXT NOT NULL DEFAULT 'NORMAL'
+          CHECK (state IN ('NORMAL', 'MAINTENANCE', 'RESERVED', 'CLOSED'))
+      `);
+    }
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -146,6 +171,9 @@ export function migrate(db: DatabaseSync): void {
       x           REAL    NOT NULL,
       y           REAL    NOT NULL,
       angle       REAL    NOT NULL DEFAULT 0,
+      -- Operational state of the whole area (maintenance closes it).
+      state       TEXT    NOT NULL DEFAULT 'NORMAL'
+        CHECK (state IN ('NORMAL', 'MAINTENANCE', 'RESERVED', 'CLOSED')),
       deleted_at  TEXT
     );
 
@@ -178,6 +206,9 @@ export function migrate(db: DatabaseSync): void {
       truck_out     TEXT    NOT NULL DEFAULT '',
       driver_out    TEXT    NOT NULL DEFAULT '',
       card_out      INTEGER,
+      -- The container's own condition: damaged, held, in repair, inspection.
+      status        TEXT    NOT NULL DEFAULT 'NORMAL'
+        CHECK (status IN ('NORMAL', 'DAMAGED', 'HOLD', 'REPAIR', 'INSPECT')),
       -- Soft delete for a record that was a mistake. Never removed.
       deleted_at    TEXT
     );
@@ -205,7 +236,17 @@ export function migrate(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 5;
+    -- A slot's own state (tier-independent, covers both floors). NORMAL is
+    -- simply the absent row.
+    CREATE TABLE IF NOT EXISTS slot_states (
+      block_id INTEGER NOT NULL REFERENCES blocks (id),
+      row      INTEGER NOT NULL,
+      col      INTEGER NOT NULL,
+      state    TEXT    NOT NULL CHECK (state IN ('MAINTENANCE', 'RESERVED', 'CLOSED')),
+      PRIMARY KEY (block_id, row, col)
+    );
+
+    PRAGMA user_version = 6;
   `);
 }
 
