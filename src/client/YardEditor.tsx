@@ -368,6 +368,7 @@ export function YardEditor(props: {
           ref={pz.attachContainer}
           {...pz.handlers}
           className="absolute inset-0 touch-none overflow-hidden"
+          style={{ contain: 'layout paint' }}
         >
           <div
             style={{
@@ -376,6 +377,9 @@ export function YardEditor(props: {
               top: 0,
               transform: `translate(${String(pz.view.x)}px, ${String(pz.view.y)}px) scale(${String(pz.view.scale)})`,
               transformOrigin: '0 0',
+              // Its own compositor layer: block drags repaint one panel, and
+              // panning repaints nothing.
+              willChange: 'transform',
               width: canvasWidth,
               height: canvasHeight,
             }}

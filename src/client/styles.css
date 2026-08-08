@@ -20,10 +20,20 @@ body {
 .map-cell {
   cursor: pointer;
 }
-.map-cell:hover .cell-frame {
-  stroke: #0284c7;
-  stroke-width: 2.5;
-  stroke-dasharray: none;
+/* Hover feedback only where a pointer can hover AND the cells are big enough
+   to mean anything (.map-hover appears past the zoom threshold) — sweeping a
+   mouse across ~1800 tiny targets at fit zoom was a repaint per boundary. */
+@media (hover: hover) and (pointer: fine) {
+  .map-hover .map-cell:hover .cell-frame {
+    stroke: #0284c7;
+    stroke-width: 2.5;
+    stroke-dasharray: none;
+  }
+}
+/* Text never answers the pointer: hit-testing skips ~a third of the map's
+   nodes, and clicks land on the cell rect exactly as before. */
+.yard-map text {
+  pointer-events: none;
 }
 
 /*

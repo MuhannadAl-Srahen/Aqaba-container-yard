@@ -25,6 +25,9 @@ import { ContainerCard } from './ContainerCard';
 import { YardEditor } from './YardEditor';
 import { Button, Confirm, Toast, useEscape } from './ui';
 
+/** Below this zoom a cell is a few pixels — hover feedback means nothing. */
+const HOVER_MIN_SCALE = 0.5;
+
 /**
  * The one screen. The yard drawing is the interface: receiving, moving and
  * releasing all start with a tap on the ground itself.
@@ -424,9 +427,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           ref={pz.attachContainer}
           {...pz.handlers}
           className="absolute inset-0 touch-none overflow-hidden"
+          style={{ contain: 'layout paint' }}
         >
           {layout !== null && mapProps !== null && (
             <div
+              className={pz.view.scale >= HOVER_MIN_SCALE ? 'map-hover' : undefined}
               style={{
                 // Pinned physically top-left: pan/zoom math works in client
                 // coordinates, and RTL would otherwise right-align this box
@@ -436,6 +441,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                 top: 0,
                 transform: `translate(${String(pz.view.x)}px, ${String(pz.view.y)}px) scale(${String(pz.view.scale)})`,
                 transformOrigin: '0 0',
+                // Its own compositor layer: panning must never repaint the
+                // thousands of SVG nodes behind it.
+                willChange: 'transform',
                 width: layout.width,
                 height: layout.height,
               }}

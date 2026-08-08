@@ -178,7 +178,7 @@ function HalfCell(props: {
   return (
     <g
       className="map-cell"
-      opacity={dimmed ? 0.22 : 1}
+      opacity={dimmed ? 0.22 : undefined}
       onClick={() => {
         view.onCellClick(position, props.stack);
       }}
@@ -394,7 +394,7 @@ function Cell(props: {
   return (
     <g
       className="map-cell"
-      opacity={dimmed ? 0.22 : 1}
+      opacity={dimmed ? 0.22 : undefined}
       onClick={() => {
         view.onCellClick(position, stack);
       }}
@@ -537,6 +537,7 @@ export const YardMap = memo(function YardMap(props: {
   };
   return (
     <svg
+      className="yard-map"
       width={layout.width}
       height={layout.height}
       viewBox={`0 0 ${String(layout.width)} ${String(layout.height)}`}
