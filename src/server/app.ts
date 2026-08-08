@@ -11,14 +11,27 @@ import type {
   ErrorCode,
   GateReportRow,
   LogReportRow,
+  MeDto,
+  Permission,
   Position,
+  StandingReportRow,
   YardConfig,
   YardStateDto,
 } from '../shared/types';
-import { MAX_BLOCKS, MAX_BLOCK_NAME, MAX_ZONE_COLS, MAX_ZONE_ROWS } from '../shared/types';
+import {
+  MAX_BLOCKS,
+  MAX_BLOCK_NAME,
+  MAX_LOCATIONS,
+  MAX_PLACES_PER_TIER,
+  MAX_TIERS,
+  OWNER_ID,
+  PERMISSIONS,
+} from '../shared/types';
+import { ammanDay, daysBetween } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
-import { canLift, canPlace, strandedByLayout } from '../shared/rules';
-import { sameSlot, slotLabel } from '../shared/address';
+import type { RuleRefusal } from '../shared/rules';
+import { canPlace, overfilledByLayout, strandedByLayout } from '../shared/rules';
+import { positionLabel, samePosition } from '../shared/address';
 import { blockTakes, defaultLayout, overlappingPairs } from '../shared/geometry';
 import {
   SESSION_COOKIE,
@@ -26,11 +39,11 @@ import {
   issueSession,
   setPassword,
   verifyPassword,
+  verifySecret,
   verifySession,
 } from './auth';
 import { transaction } from './db';
 import * as store from './store';
-import { buildSeedPlan } from './seedData';
 
 /**
  * The whole API. Every write runs inside a transaction and re-checks the yard
@@ -51,37 +64,50 @@ const refuse = (status: number, code: ErrorCode, details?: ApiError['details']):
   throw new Refusal(status, details === undefined ? { code } : { code, details });
 };
 
+/** A rule refusal with whatever numbers its Arabic sentence interpolates. */
+const refuseRule = (refusal: RuleRefusal): never =>
+  refuse(
+    409,
+    refusal.code,
+    refusal.code === 'LOCATION_FULL' ? { free: refusal.free, need: refusal.need } : undefined,
+  );
+
 const positionSchema = z.object({
   block: z.number().int().min(1),
   row: z.number().int().min(1),
-  col: z.number().int().min(1),
-  tier: z.union([z.literal(1), z.literal(2)]),
 });
 
-const zoneConfigSchema = z.object({
-  rows: z.number().int().min(1).max(MAX_ZONE_ROWS),
-  cols: z.number().int().min(1).max(MAX_ZONE_COLS),
+const columnShapeSchema = z.object({
+  rows: z.number().int().min(1).max(MAX_LOCATIONS),
+  placesPerTier: z.number().int().min(1).max(MAX_PLACES_PER_TIER),
+  tiers: z.number().int().min(1).max(MAX_TIERS),
 });
 
-/** The simple first-run shape: two halves, laid out by defaultLayout. */
+/** The simple first-run shape: two columns, laid out by defaultLayout. */
 const setupYardSchema = z.object({
-  twenty: zoneConfigSchema,
-  forty: zoneConfigSchema,
+  twenty: columnShapeSchema,
+  forty: columnShapeSchema,
 });
 
-const blockSchema = z.object({
-  /** Present for an existing block; absent for one the editor just added. */
-  id: z.number().int().min(1).optional(),
-  name: z.string().trim().min(1).max(MAX_BLOCK_NAME),
-  /** 0 = مختلط: the block takes either container size. */
-  size: z.union([z.literal(20), z.literal(40), z.literal(0)]),
-  rows: z.number().int().min(1).max(MAX_ZONE_ROWS),
-  cols: z.number().int().min(1).max(MAX_ZONE_COLS),
-  x: z.number().finite().min(-50000).max(50000),
-  y: z.number().finite().min(-50000).max(50000),
-  // Any whole degree: the owner turns blocks freely with the mouse.
-  angle: z.number().int().min(0).max(359),
-});
+const blockSchema = z
+  .object({
+    /** Present for an existing block; absent for one the editor just added. */
+    id: z.number().int().min(1).optional(),
+    name: z.string().trim().min(1).max(MAX_BLOCK_NAME),
+    /** 0 = مختلط: the column takes either container size. */
+    size: z.union([z.literal(20), z.literal(40), z.literal(0)]),
+    rows: z.number().int().min(1).max(MAX_LOCATIONS),
+    /** Twenty-foot places per tier — a 40 fills two of them. */
+    placesPerTier: z.number().int().min(1).max(MAX_PLACES_PER_TIER),
+    tiers: z.number().int().min(1).max(MAX_TIERS),
+    x: z.number().finite().min(-50000).max(50000),
+    y: z.number().finite().min(-50000).max(50000),
+    // Any whole degree: the owner turns columns freely with the mouse.
+    angle: z.number().int().min(0).max(359),
+  })
+  // A 40-only column is counted in whole 40s by the editor, so an odd number
+  // of places would round-trip as a half container the owner never typed.
+  .refine((block) => block.size !== 40 || block.placesPerTier % 2 === 0);
 
 const layoutSchema = z.object({
   blocks: z.array(blockSchema).min(1).max(MAX_BLOCKS),
@@ -91,33 +117,44 @@ const gateInSchema = z.object({
   number: z.string().trim().min(1).max(20),
   size: z.union([z.literal(20), z.literal(40)]),
   customer: z.string().trim().min(1).max(120),
-  cargo: z.enum(['EMPTY', 'LADEN']),
   notes: z.string().trim().max(2000),
   position: positionSchema,
-  /** The truck at the gate — the owner made it mandatory paperwork. */
+  /** The truck and the seal — the owner made both mandatory paperwork. */
   truck: z.string().trim().min(1).max(30),
+  seal: z.string().trim().min(1).max(30),
   driver: z.string().trim().max(60).default(''),
   weight: z.string().trim().max(20).default(''),
 });
 
 const gateOutSchema = z.object({
   truck: z.string().trim().min(1).max(30),
+  /** The seal on the door as it leaves — a different one means it was opened. */
+  seal: z.string().trim().min(1).max(30),
   driver: z.string().trim().max(60).default(''),
 });
 
 const editSchema = z.object({
   number: z.string().trim().min(1).max(20),
   customer: z.string().trim().min(1).max(120),
-  cargo: z.enum(['EMPTY', 'LADEN']),
   size: z.union([z.literal(20), z.literal(40)]),
   notes: z.string().trim().max(2000),
 });
 
-const statusSchema = z.object({
-  status: z.enum(['NORMAL', 'DAMAGED', 'HOLD', 'REPAIR', 'INSPECT']),
+const permissionSchema = z.array(z.enum(PERMISSIONS)).max(PERMISSIONS.length);
+const pinSchema = z.string().trim().regex(/^\d{4,6}$/);
+
+const userSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  pin: pinSchema,
+  permissions: permissionSchema,
 });
 
-const locationStateSchema = z.enum(['NORMAL', 'MAINTENANCE', 'RESERVED', 'CLOSED']);
+/** An edit may leave the PIN alone; sending one replaces it. */
+const userPatchSchema = z.object({
+  name: z.string().trim().min(1).max(40),
+  permissions: permissionSchema,
+  pin: pinSchema.optional(),
+});
 
 function parseOrRefuse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);
@@ -130,6 +167,11 @@ const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const ATTEMPT_LIMIT = 20;
 
 /** The machine's own browser engine, for printing PDFs server-side. */
+/** The sheet's title lands inside a footer template — it must not be markup. */
+function escapeHtml(text: string): string {
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+}
+
 async function launchSystemBrowser(chromium: BrowserType): Promise<Browser> {
   for (const channel of ['msedge', 'chrome'] as const) {
     try {
@@ -149,13 +191,52 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   const now = (): string => new Date().toISOString();
 
-  const isAuthorized = (request: FastifyRequest): boolean => {
+  /** Who the cookie says is working: the owner, an employee, or nobody. */
+  const actorOf = (request: FastifyRequest): MeDto | null => {
     const token = request.cookies[SESSION_COOKIE];
-    return token !== undefined && verifySession(db, token, Date.now());
+    if (token === undefined) return null;
+    const id = verifySession(db, token, Date.now());
+    if (id === null) return null;
+    if (id === OWNER_ID) {
+      return { id: OWNER_ID, name: store.OWNER_NAME, owner: true, permissions: PERMISSIONS };
+    }
+    // An employee removed mid-session loses the session with the account.
+    const user = store.getUser(db, id);
+    if (user === null) return null;
+    return { id: user.id, name: user.name, owner: false, permissions: user.permissions };
   };
 
-  const requireAuth = (request: FastifyRequest): void => {
-    if (!isAuthorized(request)) refuse(401, 'UNAUTHORIZED');
+  const isAuthorized = (request: FastifyRequest): boolean => actorOf(request) !== null;
+
+  const requireAuth = (request: FastifyRequest): MeDto => {
+    const actor = actorOf(request);
+    if (actor === null) refuse(401, 'UNAUTHORIZED');
+    if (actor === null) throw new Error('unreachable');
+    return actor;
+  };
+
+  /** Signed in AND allowed to do this particular thing. */
+  const requirePerm = (request: FastifyRequest, permission: Permission): MeDto => {
+    const actor = requireAuth(request);
+    if (!actor.owner && !actor.permissions.includes(permission)) refuse(403, 'FORBIDDEN');
+    return actor;
+  };
+
+  /** The yard's shape, the staff and the dev tools are the owner's alone. */
+  const requireOwner = (request: FastifyRequest): MeDto => {
+    const actor = requireAuth(request);
+    if (!actor.owner) refuse(403, 'FORBIDDEN');
+    return actor;
+  };
+
+  /** The id a movement records: null for the owner. */
+  const actorId = (actor: MeDto): number | null => (actor.owner ? null : actor.id);
+
+  const idParam = (request: FastifyRequest): number => {
+    const params = request.params as { id?: string };
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id < 1) refuse(400, 'VALIDATION');
+    return id;
   };
 
   const requireYard = (): ReturnType<typeof store.getYard> & object => {
@@ -166,8 +247,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return yard;
   };
 
-  const sendSession = (reply: FastifyReply): void => {
-    reply.setCookie(SESSION_COOKIE, issueSession(db, Date.now()), {
+  const sendSession = (reply: FastifyReply, userId: number): void => {
+    reply.setCookie(SESSION_COOKIE, issueSession(db, userId, Date.now()), {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
@@ -184,55 +265,28 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     // A constraint violation surfacing here means a rule check missed a race —
     // the database held the line; report it as the conflict it is.
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
-      const code: ErrorCode = error.message.includes('blocks.name') ? 'NAME_TAKEN' : 'SLOT_TAKEN';
-      void reply.status(409).send({ code } satisfies ApiError);
+      void reply.status(409).send({ code: 'NAME_TAKEN' } satisfies ApiError);
       return;
     }
     void reply.status(500).send({ code: 'VALIDATION' } satisfies ApiError);
   });
 
   /**
-   * DEVELOPMENT ONLY: wipe containers, movements and card counters so the
-   * owner can test from zero. Disabled in production builds; slated for an
-   * admin-only life later.
+   * What the client needs before it can draw anything — including the staff
+   * names, so the sign-in screen can offer them as buttons. Names are all it
+   * gives away, and the whole site sits behind the sign-in either way.
    */
-  app.post('/api/dev/reset', (request) => {
-    if (process.env['NODE_ENV'] === 'production') refuse(404, 'NOT_FOUND');
-    requireAuth(request);
-    transaction(db, () => {
-      store.devReset(db);
-    });
-    return { ok: true };
-  });
-
-  /**
-   * DEVELOPMENT ONLY: wipe like the reset, then fill the CURRENT yard with a
-   * realistic month of demo work — for showing the app, never for records.
-   * The layout, slot states and password stay exactly as they are.
-   */
-  app.post('/api/dev/seed', (request) => {
-    if (process.env['NODE_ENV'] === 'production') refuse(404, 'NOT_FOUND');
-    requireAuth(request);
-    const yard = requireYard();
-    const body = parseOrRefuse(
-      z.object({ seed: z.number().int().min(0).optional() }),
-      request.body ?? {},
-    );
-    const plan = buildSeedPlan(body.seed ?? Date.now() % 2_147_483_647, new Date(), yard);
-    transaction(db, () => {
-      store.devSeed(db, plan);
-    });
-    return { ok: true, containers: plan.containers.length };
-  });
-
-  /** What the client needs before it can draw anything. */
   app.get('/api/boot', (request) => {
     return {
       firstRun: !hasPassword(db),
       authorized: isAuthorized(request),
       yardConfigured: store.getYard(db) !== null,
+      staff: store.listUsers(db).map((user) => ({ id: user.id, name: user.name })),
     };
   });
+
+  /** Who is signed in and what the screen may offer them. */
+  app.get('/api/me', (request): MeDto => requireAuth(request));
 
   /** First run only: password + yard shape in one step, then signed in. */
   app.post('/api/setup', (request, reply) => {
@@ -248,12 +302,23 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         store.insertBlock(db, block);
       }
     });
-    sendSession(reply);
+    sendSession(reply, OWNER_ID);
     return { ok: true };
   });
 
+  /**
+   * Two doors, one throttle: the owner's password, or an employee's id and
+   * PIN. Both refuse with the same code so a wrong PIN never tells an
+   * outsider which half of the pair was wrong.
+   */
   app.post('/api/login', (request, reply) => {
-    const body = parseOrRefuse(z.object({ password: z.string().max(200) }), request.body);
+    const body = parseOrRefuse(
+      z.union([
+        z.object({ password: z.string().max(200) }),
+        z.object({ userId: z.number().int().min(1), pin: z.string().max(20) }),
+      ]),
+      request.body,
+    );
 
     const key = request.ip;
     const entry = attempts.get(key);
@@ -264,15 +329,60 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       attempts.set(key, { count: 0, windowStart: nowMs });
     }
 
-    if (!verifyPassword(db, body.password)) {
+    const ok =
+      'password' in body
+        ? verifyPassword(db, body.password)
+        : verifySecret(store.userPinHash(db, body.userId), body.pin);
+    if (!ok) {
       const current = attempts.get(key) ?? { count: 0, windowStart: nowMs };
       attempts.set(key, { count: current.count + 1, windowStart: current.windowStart });
       refuse(401, 'BAD_PASSWORD');
     }
 
     attempts.delete(key);
-    sendSession(reply);
+    sendSession(reply, 'password' in body ? OWNER_ID : body.userId);
     return { ok: true };
+  });
+
+  /** The staff, with their permissions. The owner's screen alone. */
+  app.get('/api/users', (request) => {
+    requireOwner(request);
+    return { users: store.listUsers(db) };
+  });
+
+  app.post('/api/users', (request, reply) => {
+    requireOwner(request);
+    const body = parseOrRefuse(userSchema, request.body);
+    return transaction(db, () => {
+      if (store.userNameTaken(db, body.name)) refuse(409, 'USER_EXISTS', { name: body.name });
+      const id = store.insertUser(db, body);
+      void reply.status(201);
+      return store.getUser(db, id);
+    });
+  });
+
+  /** Rename, re-permission, and — only when one is sent — a fresh PIN. */
+  app.patch('/api/users/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    const body = parseOrRefuse(userPatchSchema, request.body);
+    return transaction(db, () => {
+      if (store.getUser(db, id) === null) refuse(404, 'NOT_FOUND');
+      if (store.userNameTaken(db, body.name, id)) refuse(409, 'USER_EXISTS', { name: body.name });
+      store.updateUser(db, id, body);
+      return store.getUser(db, id);
+    });
+  });
+
+  /** Soft: their name must still resolve on every register they ever signed. */
+  app.delete('/api/users/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    return transaction(db, () => {
+      if (store.getUser(db, id) === null) refuse(404, 'NOT_FOUND');
+      store.softDeleteUser(db, id, now());
+      return { ok: true };
+    });
   });
 
   app.post('/api/logout', (_request, reply) => {
@@ -288,57 +398,17 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       containers: store.listInYard(db),
       customers: store.listCustomers(db),
       blockNames: store.listBlockNames(db),
-      slotStates: store.listSlotStates(db),
     };
   });
 
-  /** A whole area's operational state — set from the map's slot sheet. */
-  app.put('/api/blocks/:id/state', (request) => {
-    requireAuth(request);
-    const yard = requireYard();
-    const id = idParam(request);
-    const body = parseOrRefuse(z.object({ state: locationStateSchema }), request.body);
-
-    if (!yard.blocks.some((block) => block.id === id)) refuse(404, 'NOT_FOUND');
-    transaction(db, () => {
-      store.setBlockState(db, id, body.state);
-    });
-    return store.getYard(db);
-  });
-
-  /** One slot's state (both tiers). Occupied is fine: standing boxes drain. */
-  app.put('/api/slots/state', (request) => {
-    requireAuth(request);
-    const yard = requireYard();
-    const body = parseOrRefuse(
-      z.object({
-        block: z.number().int().min(1),
-        row: z.number().int().min(1),
-        col: z.number().int().min(1),
-        state: locationStateSchema,
-      }),
-      request.body,
-    );
-
-    const block = yard.blocks.find((candidate) => candidate.id === body.block);
-    if (block === undefined) refuse(404, 'NOT_FOUND');
-    if (block === undefined) throw new Error('unreachable');
-    if (body.row > block.rows || body.col > block.cols) refuse(409, 'OUT_OF_BOUNDS');
-
-    transaction(db, () => {
-      store.setSlotState(db, { block: body.block, row: body.row, col: body.col }, body.state);
-    });
-    return { slotStates: store.listSlotStates(db) };
-  });
-
   /**
-   * The whole layout in one atomic save: blocks move, turn, grow, get
+   * The whole layout in one atomic save: columns move, turn, grow, get
    * renamed, appear or disappear together. Growth and movement are free; a
-   * change may never strand a standing container nor stack two areas on the
-   * same ground.
+   * change may never strand a standing container, overfill a location, nor
+   * stack two columns on the same ground.
    */
   app.put('/api/yard', (request) => {
-    requireAuth(request);
+    requireOwner(request);
     const current = requireYard();
     const body = parseOrRefuse(layoutSchema, request.body);
 
@@ -355,16 +425,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         seenNames.add(block.name);
       }
 
-      // New blocks get placeholder ids for the checks; nothing stands in
-      // them. The layout wire carries no `state` — each block keeps its
-      // stored one (new blocks start NORMAL).
-      const stateOf = new Map(current.blocks.map((block) => [block.id, block.state]));
+      // New blocks get placeholder ids for the checks; nothing stands in them.
       const proposed: YardConfig = {
-        blocks: body.blocks.map((block, index) => ({
-          ...block,
-          id: block.id ?? -(index + 1),
-          state: (block.id !== undefined ? stateOf.get(block.id) : undefined) ?? 'NORMAL',
-        })),
+        blocks: body.blocks.map((block, index) => ({ ...block, id: block.id ?? -(index + 1) })),
       };
 
       const overlaps = overlappingPairs(proposed.blocks);
@@ -390,8 +453,18 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (stranded.length > 0) {
         refuse(409, 'SHRINK_OCCUPIED', {
           containers: stranded
-            .map((s) => `${s.number} @ ${slotLabel(nameOf, s.position)}`)
+            .map((s) => `${s.number} @ ${positionLabel(nameOf, s.position)}`)
             .join('، '),
+        });
+      }
+
+      // Cutting places or tiers may leave a location holding more than the
+      // new shape allows — a different fault from stranding, and a different
+      // fix: raise the number back, or empty the location first.
+      const overfilled = overfilledByLayout(proposed, standing);
+      if (overfilled.length > 0) {
+        refuse(409, 'CAPACITY_OCCUPIED', {
+          locations: overfilled.map((position) => positionLabel(nameOf, position)).join('، '),
         });
       }
 
@@ -400,18 +473,15 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         if (!keptIds.has(id)) store.softDeleteBlock(db, id, at);
       }
       for (const block of body.blocks) {
-        if (block.id !== undefined) {
-          store.updateBlock(db, { ...block, id: block.id });
-        } else {
-          store.insertBlock(db, { ...block, state: 'NORMAL' });
-        }
+        if (block.id !== undefined) store.updateBlock(db, { ...block, id: block.id });
+        else store.insertBlock(db, block);
       }
       return store.getYard(db);
     });
   });
 
   app.post('/api/containers', (request, reply) => {
-    requireAuth(request);
+    const actor = requirePerm(request, 'GATE_IN');
     const yard = requireYard();
     const body = parseOrRefuse(gateInSchema, request.body);
     const check = checkNumber(body.number);
@@ -422,10 +492,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (duplicate !== null) refuse(409, 'NUMBER_IN_YARD', { number: check.normalized });
 
       const standing = store.listStanding(db);
-      const refusal = canPlace(yard, standing, store.listSlotStates(db), body.size, body.position);
-      if (refusal !== null) {
-        refuse(409, refusal.code, 'by' in refusal ? { by: refusal.by } : undefined);
-      }
+      const refusal = canPlace(yard, standing, body.size, body.position);
+      if (refusal !== null) refuseRule(refusal);
 
       const at = now();
       const id = store.insertContainer(db, {
@@ -433,27 +501,20 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         numberValid: check.valid,
         size: body.size,
         customer: body.customer,
-        cargo: body.cargo,
         notes: body.notes,
         position: body.position,
         at,
         weight: body.weight,
         truckIn: body.truck,
         driverIn: body.driver,
+        sealIn: body.seal,
         cardIn: store.nextCardNumber(db, 'in'),
       });
-      store.recordMovement(db, id, 'IN', at, null, body.position, '');
+      store.recordMovement(db, id, 'IN', at, null, body.position, '', actorId(actor));
       void reply.status(201);
       return store.getContainer(db, id);
     });
   });
-
-  const idParam = (request: FastifyRequest): number => {
-    const params = request.params as { id?: string };
-    const id = Number(params.id);
-    if (!Number.isInteger(id) || id < 1) refuse(400, 'VALIDATION');
-    return id;
-  };
 
   const standingContainer = (id: number): { dto: ContainerDto; position: Position } => {
     const dto = store.getContainer(db, id);
@@ -465,64 +526,47 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   };
 
   app.post('/api/containers/:id/move', (request) => {
-    requireAuth(request);
+    const actor = requirePerm(request, 'MOVE');
     const yard = requireYard();
     const id = idParam(request);
     const body = parseOrRefuse(z.object({ to: positionSchema }), request.body);
 
     return transaction(db, () => {
       const { dto, position } = standingContainer(id);
-      if (sameSlot(position, body.to) && position.tier === body.to.tier) {
-        refuse(409, 'SAME_SLOT');
-      }
+      if (samePosition(position, body.to)) refuse(409, 'SAME_SLOT');
 
-      const standing = store.listStanding(db);
-      const self = standing.find((s) => s.id === id);
-      if (self === undefined) refuse(404, 'NOT_FOUND');
-      if (self === undefined) throw new Error('unreachable');
-
-      const lift = canLift(standing, self);
-      if (lift !== null) refuse(409, lift.code, 'by' in lift ? { by: lift.by } : undefined);
-
-      const place = canPlace(yard, standing, store.listSlotStates(db), dto.size, body.to, id);
-      if (place !== null) refuse(409, place.code, 'by' in place ? { by: place.by } : undefined);
+      const place = canPlace(yard, store.listStanding(db), dto.size, body.to, id);
+      if (place !== null) refuseRule(place);
 
       const at = now();
       store.setPosition(db, id, body.to);
-      store.recordMovement(db, id, 'MOVE', at, position, body.to, '');
+      store.recordMovement(db, id, 'MOVE', at, position, body.to, '', actorId(actor));
       return store.getContainer(db, id);
     });
   });
 
   app.post('/api/containers/:id/exit', (request) => {
-    requireAuth(request);
+    const actor = requirePerm(request, 'GATE_OUT');
     requireYard();
     const id = idParam(request);
     const gate = parseOrRefuse(gateOutSchema, request.body);
 
     return transaction(db, () => {
       const { position } = standingContainer(id);
-      const standing = store.listStanding(db);
-      const self = standing.find((s) => s.id === id);
-      if (self === undefined) refuse(404, 'NOT_FOUND');
-      if (self === undefined) throw new Error('unreachable');
-
-      const lift = canLift(standing, self);
-      if (lift !== null) refuse(409, lift.code, 'by' in lift ? { by: lift.by } : undefined);
-
       const at = now();
       store.markExited(db, id, at, {
         truck: gate.truck,
         driver: gate.driver,
+        sealOut: gate.seal,
         cardOut: store.nextCardNumber(db, 'out'),
       });
-      store.recordMovement(db, id, 'OUT', at, position, null, '');
+      store.recordMovement(db, id, 'OUT', at, position, null, '', actorId(actor));
       return store.getContainer(db, id);
     });
   });
 
   app.patch('/api/containers/:id', (request) => {
-    requireAuth(request);
+    const actor = requirePerm(request, 'EDIT');
     const id = idParam(request);
     const body = parseOrRefuse(editSchema, request.body);
 
@@ -542,12 +586,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         }
       }
 
-      // A size flip while standing must fit the block the container is
-      // standing in — a 40 cannot claim a 20 slot by paperwork alone.
+      // A size flip while standing must fit the column the container stands
+      // in, and its location must still have room: a 20 growing into a 40
+      // claims a second place, and paperwork alone cannot create one.
       if (body.size !== existing.size && existing.position !== null) {
         const yard = requireYard();
-        const block = yard.blocks.find((b) => b.id === existing.position?.block);
+        const at = existing.position;
+        const block = yard.blocks.find((b) => b.id === at.block);
         if (block === undefined || !blockTakes(block.size, body.size)) refuse(409, 'WRONG_ZONE');
+        const grow = canPlace(yard, store.listStanding(db), body.size, at, id);
+        if (grow !== null) refuseRule(grow);
       }
 
       const changed: string[] = [];
@@ -559,10 +607,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (body.customer !== existing.customer) {
         changed.push('customer');
         before['customer'] = existing.customer;
-      }
-      if (body.cargo !== existing.cargo) {
-        changed.push('cargo');
-        before['cargo'] = existing.cargo;
       }
       if (body.size !== existing.size) {
         changed.push('size');
@@ -578,7 +622,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           number: check.normalized,
           numberValid: check.valid,
           customer: body.customer,
-          cargo: body.cargo,
           size: body.size,
           notes: body.notes,
         });
@@ -592,36 +635,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           null,
           null,
           JSON.stringify({ k: changed, b: before }),
-        );
-      }
-      return store.getContainer(db, id);
-    });
-  });
-
-  /**
-   * The container's condition, set from its card. A change is an EDIT
-   * movement carrying the old value, so the log names it and can revert it.
-   */
-  app.post('/api/containers/:id/status', (request) => {
-    requireAuth(request);
-    const id = idParam(request);
-    const body = parseOrRefuse(statusSchema, request.body);
-
-    return transaction(db, () => {
-      const existing = store.getContainer(db, id);
-      if (existing === null) refuse(404, 'NOT_FOUND');
-      if (existing === null) throw new Error('unreachable');
-
-      if (body.status !== existing.status) {
-        store.setContainerStatus(db, id, body.status);
-        store.recordMovement(
-          db,
-          id,
-          'EDIT',
-          now(),
-          null,
-          null,
-          JSON.stringify({ k: ['status'], b: { status: existing.status } }),
+          actorId(actor),
         );
       }
       return store.getContainer(db, id);
@@ -630,7 +644,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   /** Undo a deletion: the record returns, standing where it stood if it can. */
   app.post('/api/containers/:id/restore', (request) => {
-    requireAuth(request);
+    const actor = requirePerm(request, 'DELETE');
     const yard = requireYard();
     const id = idParam(request);
 
@@ -642,26 +656,18 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       const wasAt = store.lastDeletePosition(db, id);
       if (wasAt !== null) {
-        const refusal = canPlace(
-          yard,
-          store.listStanding(db),
-          store.listSlotStates(db),
-          existing.size,
-          wasAt,
-        );
-        if (refusal !== null) {
-          refuse(409, refusal.code, 'by' in refusal ? { by: refusal.by } : undefined);
-        }
+        const refusal = canPlace(yard, store.listStanding(db), existing.size, wasAt);
+        if (refusal !== null) refuseRule(refusal);
       }
       store.restoreContainer(db, id, wasAt);
-      store.recordMovement(db, id, 'RESTORE', now(), null, wasAt, '');
+      store.recordMovement(db, id, 'RESTORE', now(), null, wasAt, '', actorId(actor));
       return store.getContainer(db, id);
     });
   });
 
   /** A record that was a mistake. Soft: hidden everywhere, never destroyed. */
   app.delete('/api/containers/:id', (request) => {
-    requireAuth(request);
+    const actor = requirePerm(request, 'DELETE');
     const id = idParam(request);
 
     return transaction(db, () => {
@@ -669,19 +675,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (existing === null) refuse(404, 'NOT_FOUND');
       if (existing === null) throw new Error('unreachable');
 
-      if (existing.position !== null) {
-        const standing = store.listStanding(db);
-        const self = standing.find((s) => s.id === id);
-        if (self !== undefined) {
-          const lift = canLift(standing, self);
-          if (lift !== null) refuse(409, lift.code, 'by' in lift ? { by: lift.by } : undefined);
-        }
-      }
-
       const at = now();
       store.softDelete(db, id, at);
       // The mistake itself goes on the record — audits hide nothing.
-      store.recordMovement(db, id, 'DELETE', at, existing.position, null, '');
+      store.recordMovement(db, id, 'DELETE', at, existing.position, null, '', actorId(actor));
       return { ok: true };
     });
   });
@@ -691,17 +688,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     to: z.string().datetime({ offset: true }).or(z.string().datetime()),
   });
 
-  /** Amman-calendar date of an instant, for grouping the registers by day. */
-  const ammanDate = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Amman',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  });
-
   /** كشف حركة الدخول أو الخروج: every gate movement in the range. */
   app.get('/api/reports/gate', (request): { rows: GateReportRow[] } => {
-    requireAuth(request);
+    requirePerm(request, 'REPORTS');
     const query = request.query as { type?: string; from?: string; to?: string };
     if (query.type !== 'IN' && query.type !== 'OUT') refuse(400, 'VALIDATION');
     const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
@@ -719,15 +708,36 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         size: row.size,
         customer: row.customer,
         position: row.position,
-        dwellDays:
-          type === 'OUT'
-            ? Math.max(
-                0,
-                Math.floor(
-                  (new Date(row.at).getTime() - new Date(row.enteredAt).getTime()) / 86_400_000,
-                ),
-              )
-            : null,
+        seal: row.seal,
+        notes: row.notes,
+        user: row.user,
+        // Calendar days, not elapsed 24-hour blocks: a box that came in last
+        // night and left this morning stayed a day, and the yard bills a day.
+        dwellDays: type === 'OUT' ? daysBetween(row.enteredAt, row.at) : null,
+      }),
+    );
+    return { rows };
+  });
+
+  /**
+   * كشف الحاويات بالساحة: a snapshot of everything standing right now, oldest
+   * first — the sheet that answers «مين قاعد طول عمره».
+   */
+  app.get('/api/reports/standing', (request): { rows: StandingReportRow[] } => {
+    requirePerm(request, 'REPORTS');
+    const at = now();
+    const rows = store.listStandingContainers(db).map(
+      (container): StandingReportRow => ({
+        containerId: container.id,
+        number: container.number,
+        size: container.size,
+        customer: container.customer,
+        position: container.position,
+        seal: container.sealIn,
+        enteredAt: container.enteredAt,
+        dwellDays: daysBetween(container.enteredAt, at),
+        user: container.user,
+        notes: container.notes,
       }),
     );
     return { rows };
@@ -735,7 +745,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   /** سجل العمليات: كل شي صار، بما فيه الحذف والسجلات المحذوفة. */
   app.get('/api/reports/log', (request): { rows: LogReportRow[] } => {
-    requireAuth(request);
+    requirePerm(request, 'REPORTS');
     const query = request.query as { from?: string; to?: string };
     const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
     return { rows: store.listOperationsLog(db, range.from, range.to) };
@@ -745,7 +755,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   app.get(
     '/api/reports/truck',
     (request): { rows: Array<GateReportRow & { statement: 'IN' | 'OUT' }> } => {
-      requireAuth(request);
+      requirePerm(request, 'REPORTS');
       const query = request.query as { truck?: string; from?: string; to?: string };
       const truck = (query.truck ?? '').trim();
       if (truck === '' || truck.length > 30) refuse(400, 'VALIDATION');
@@ -763,6 +773,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         size: row.size,
         customer: row.customer,
         position: row.position,
+        seal: row.seal,
+        notes: row.notes,
+        user: row.user,
         dwellDays: null,
       }));
       return { rows };
@@ -794,7 +807,18 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         format: 'A4',
         landscape: body.landscape,
         printBackground: true,
-        margin: { top: '9mm', bottom: '9mm', left: '9mm', right: '9mm' },
+        // A register that runs to several pages has to say which page you are
+        // holding; the sheet's own title rides along so a loose page is still
+        // identifiable on a desk.
+        displayHeaderFooter: true,
+        headerTemplate: '<div></div>',
+        footerTemplate:
+          `<div style="width:100%;font-family:'Segoe UI',Tahoma,sans-serif;font-size:8px;` +
+          `color:#64748b;padding:0 9mm;display:flex;justify-content:space-between;direction:rtl">` +
+          `<span>${escapeHtml(body.title)}</span>` +
+          `<span>صفحة <span class="pageNumber"></span> من <span class="totalPages"></span></span>` +
+          `</div>`,
+        margin: { top: '9mm', bottom: '13mm', left: '9mm', right: '9mm' },
       });
       void reply
         .type('application/pdf')
@@ -808,9 +832,15 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     }
   });
 
-  /** كشف التقرير اليومي: دخول وخروج وواقف، يوم بيوم. */
+  /**
+   * كشف التقرير اليومي: دخول وخروج وواقف، يوم بيوم.
+   *
+   * Only days that actually carry a movement get a row. The sheet used to
+   * emit one line per calendar day in the range whether the yard worked that
+   * day or not, which read as the register inventing days it had never seen.
+   */
   app.get('/api/reports/daily', (request): { rows: DailyReportRow[] } => {
-    requireAuth(request);
+    requirePerm(request, 'REPORTS');
     const query = request.query as { from?: string; to?: string };
     const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
 
@@ -818,34 +848,24 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     // only decides which days get a row.
     const instants = store.listMovementInstants(db, range.to);
     const fromMs = new Date(range.from).getTime();
-    const byDay = new Map<string, { inCount: number; outCount: number }>();
-    let standingBefore = 0;
-    const standingByDay = new Map<string, number>();
+    const days = new Map<string, { inCount: number; outCount: number; standing: number }>();
     let running = 0;
     for (const instant of instants) {
-      const day = ammanDate.format(new Date(instant.at));
       running += instant.type === 'IN' ? 1 : -1;
-      standingByDay.set(day, running);
-      if (new Date(instant.at).getTime() < fromMs) {
-        standingBefore = running;
-        continue;
-      }
-      const entry = byDay.get(day) ?? { inCount: 0, outCount: 0 };
+      if (new Date(instant.at).getTime() < fromMs) continue;
+
+      const day = ammanDay(instant.at);
+      const entry = days.get(day) ?? { inCount: 0, outCount: 0, standing: 0 };
       if (instant.type === 'IN') entry.inCount += 1;
       else entry.outCount += 1;
-      byDay.set(day, entry);
+      // The last movement of the day leaves the day's closing total behind.
+      entry.standing = running;
+      days.set(day, entry);
     }
 
-    // Every day of the range appears, movement or none, like the paper sheet.
-    const rows: DailyReportRow[] = [];
-    let standing = standingBefore;
-    for (let t = fromMs; t < new Date(range.to).getTime(); t += 86_400_000) {
-      const day = ammanDate.format(new Date(t));
-      if (rows.some((r) => r.date === day)) continue;
-      const entry = byDay.get(day) ?? { inCount: 0, outCount: 0 };
-      standing = standingByDay.get(day) ?? standing;
-      rows.push({ date: day, inCount: entry.inCount, outCount: entry.outCount, standing });
-    }
+    const rows: DailyReportRow[] = [...days.entries()]
+      .map(([date, entry]) => ({ date, ...entry }))
+      .sort((a, b) => a.date.localeCompare(b.date));
     return { rows };
   });
 
