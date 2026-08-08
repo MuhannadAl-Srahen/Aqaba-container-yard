@@ -195,17 +195,22 @@ function HalfCell(props: {
         strokeWidth={stroke !== null ? 2 : 1}
         strokeDasharray={occupant === undefined && stroke === null ? '3 2' : undefined}
       />
-      <text
-        x={x + width / 2}
-        y={y + 13}
-        textAnchor="middle"
-        fontSize={8}
-        fontWeight={700}
-        fill={occupant === undefined ? C.label : (palette?.text ?? C.label)}
-        direction="ltr"
-      >
-        {props.tier === GROUND_TIER ? 'L' : 'H'}
-      </text>
+      {/* The tier letter only where a container carries it: an empty half's
+          label was ~2px at fit zoom and cost the الكل view ~1800 text nodes.
+          L is always the first half, so empty slots stay unambiguous. */}
+      {occupant !== undefined && (
+        <text
+          x={x + width / 2}
+          y={y + 13}
+          textAnchor="middle"
+          fontSize={8}
+          fontWeight={700}
+          fill={palette?.text ?? C.label}
+          direction="ltr"
+        >
+          {props.tier === GROUND_TIER ? 'L' : 'H'}
+        </text>
+      )}
       {occupant !== undefined && (
         <text
           x={x + width / 2}
