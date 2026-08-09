@@ -1,37 +1,37 @@
 import { useState, type ReactElement } from 'react';
-import type { BlockSize, LocationState, Position, Size } from '../shared/types';
+import type { BlockSize, Position, Size } from '../shared/types';
 import { MIXED_SIZE } from '../shared/types';
+import { placesFor } from '../shared/rules';
 import { checkNumber } from '../shared/iso6346';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Button, ErrorLine, Field, Sheet, inputClass } from './ui';
 
 /**
- * The gate-in card. The clerk tapped an empty position first, so the
- * destination is already decided by WHERE. A sized block decides the size
- * too; in a mixed block the card asks 20 or 40.
+ * The gate-in card. The clerk tapped a location first, so the destination is
+ * already decided by WHERE. A sized column decides the size too; in a mixed
+ * column the card asks 20 or 40 — and offers 40 only while two places are
+ * still open, because a 40 fills two.
  */
 export function GateInSheet(props: {
   position: Position;
-  /** The tapped block's policy — the position itself only carries the block id. */
+  /** The tapped column's policy — the position itself only carries the block id. */
   blockSize: BlockSize;
-  /** The position spoken: `A1-5-L`. */
+  /** The location spoken: `A-01`. */
   positionText: string;
-  /** The slot's effective location state, for the reserved warning. */
-  slotState: LocationState;
+  /** Twenty-foot places still open in that location. */
+  freePlaces: number;
   customers: readonly string[];
   onDone: (message: string) => void;
-  /** Open the slot's own state sheet (صيانة / محجوز / مغلق). */
-  onEditSlotState: () => void;
   onClose: () => void;
 }): ReactElement {
   const [number, setNumber] = useState('');
   const [customer, setCustomer] = useState('');
-  const [cargo, setCargo] = useState<'EMPTY' | 'LADEN'>('LADEN');
   const [chosenSize, setChosenSize] = useState<Size>(
     props.blockSize === MIXED_SIZE ? 20 : props.blockSize,
   );
   const [truck, setTruck] = useState('');
+  const [seal, setSeal] = useState('');
   const [driver, setDriver] = useState('');
   const [weight, setWeight] = useState('');
   const [notes, setNotes] = useState('');
@@ -40,8 +40,16 @@ export function GateInSheet(props: {
 
   const check = number.trim() === '' ? null : checkNumber(number);
   const mixed = props.blockSize === MIXED_SIZE;
-  const size = mixed ? chosenSize : (props.blockSize as Size);
-  const ready = number.trim() !== '' && customer.trim() !== '' && truck.trim() !== '' && !busy;
+  // A 40 needs two places; if only one is left the card falls back to a 20
+  // rather than letting the clerk fill the form and be refused at the end.
+  const fits = (option: Size): boolean => placesFor(option) <= props.freePlaces;
+  const size = mixed ? (fits(chosenSize) ? chosenSize : 20) : (props.blockSize as Size);
+  const ready =
+    number.trim() !== '' &&
+    customer.trim() !== '' &&
+    truck.trim() !== '' &&
+    seal.trim() !== '' &&
+    !busy;
 
   const submit = (): void => {
     if (!ready) return;
@@ -52,10 +60,10 @@ export function GateInSheet(props: {
         number,
         size,
         customer: customer.trim(),
-        cargo,
         notes: notes.trim(),
         position: props.position,
         truck: truck.trim(),
+        seal: seal.trim(),
         driver: driver.trim(),
         weight: weight.trim(),
       })
@@ -77,21 +85,14 @@ export function GateInSheet(props: {
           submit();
         }}
       >
-        <div className="rounded-xl bg-blue-50 px-3.5 py-2.5 text-sm font-semibold text-blue-900">
-          {AR.gateInAt}: <span dir="ltr">{props.positionText}</span>
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-blue-50 px-3.5 py-2.5 text-sm font-semibold text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+          <span>
+            {AR.gateInAt}: <span dir="ltr">{props.positionText}</span>
+          </span>
+          <span className="text-xs font-bold text-blue-700 dark:text-blue-300">
+            {AR.freePlaces(props.freePlaces)}
+          </span>
         </div>
-        {props.slotState === 'RESERVED' && (
-          <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-800">
-            {AR.slotReservedNote}
-          </p>
-        )}
-        <button
-          type="button"
-          className="text-sm font-semibold text-blue-700 underline underline-offset-2"
-          onClick={props.onEditSlotState}
-        >
-          {AR.slotStateAction}
-        </button>
 
         <Field
           label={AR.containerNumber}
@@ -128,17 +129,28 @@ export function GateInSheet(props: {
               }}
             />
           </Field>
-          <Field label={AR.weight}>
+          <Field label={AR.seal} hint={<span className="text-faint">{AR.sealHint}</span>}>
             <input
               dir="ltr"
-              className={`${inputClass} text-start`}
-              value={weight}
+              className={`${inputClass} text-start font-mono`}
+              value={seal}
               onChange={(event) => {
-                setWeight(event.target.value);
+                setSeal(event.target.value);
               }}
             />
           </Field>
         </div>
+
+        <Field label={AR.weight}>
+          <input
+            dir="ltr"
+            className={`${inputClass} text-start`}
+            value={weight}
+            onChange={(event) => {
+              setWeight(event.target.value);
+            }}
+          />
+        </Field>
 
         <Field label={AR.driver}>
           <input
@@ -150,7 +162,7 @@ export function GateInSheet(props: {
           />
         </Field>
 
-        <Field label={AR.customer} hint={<span className="text-slate-400">{AR.customerHint}</span>}>
+        <Field label={AR.customer} hint={<span className="text-faint">{AR.customerHint}</span>}>
           <input
             className={inputClass}
             value={customer}
@@ -173,14 +185,16 @@ export function GateInSheet(props: {
                 <button
                   key={option}
                   type="button"
+                  disabled={!fits(option)}
                   onClick={() => {
                     setChosenSize(option);
                   }}
                   className={
                     'rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ' +
-                    (chosenSize === option
+                    'disabled:cursor-not-allowed disabled:border-line disabled:bg-sunken disabled:text-faint ' +
+                    (size === option
                       ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-slate-300 bg-white text-slate-600 hover:border-blue-400')
+                      : 'border-line-strong bg-surface text-muted hover:border-blue-400')
                   }
                 >
                   {option} قدم
@@ -190,32 +204,13 @@ export function GateInSheet(props: {
           </Field>
         )}
 
-        <Field label={AR.cargo}>
-          <div className="grid grid-cols-2 gap-2">
-            {(['LADEN', 'EMPTY'] as const).map((state) => (
-              <button
-                key={state}
-                type="button"
-                onClick={() => {
-                  setCargo(state);
-                }}
-                className={
-                  'rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ' +
-                  (cargo === state
-                    ? 'border-blue-600 bg-blue-600 text-white'
-                    : 'border-slate-300 bg-white text-slate-600 hover:border-blue-400')
-                }
-              >
-                {state === 'LADEN' ? AR.cargoLaden : AR.cargoEmpty}
-              </button>
-            ))}
-          </div>
-        </Field>
-
-        <Field label={AR.notes}>
+        {/* The notes carry the container's condition now — dents, an opened
+            lock, a customs hold — so they get room to be written in. */}
+        <Field label={AR.notes} hint={<span className="text-faint">{AR.notesHint}</span>}>
           <textarea
-            className={`${inputClass} min-h-16 resize-y`}
-            rows={2}
+            className={`${inputClass} min-h-24 resize-y leading-7`}
+            rows={3}
+            maxLength={2000}
             value={notes}
             onChange={(event) => {
               setNotes(event.target.value);

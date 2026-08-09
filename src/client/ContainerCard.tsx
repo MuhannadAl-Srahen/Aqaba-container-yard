@@ -1,7 +1,6 @@
 import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto, MovementDto, Position } from '../shared/types';
-import { CONTAINER_STATUSES, GROUND_TIER } from '../shared/types';
+import type { ContainerDto, MovementDto, Permission, Position } from '../shared/types';
 import { AR } from './ar';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
@@ -16,13 +15,13 @@ function Badge(props: {
   tone: 'blue' | 'sky' | 'amber' | 'slate' | 'red' | 'emerald' | 'violet' | 'dark';
 }): ReactElement {
   const tones = {
-    blue: 'bg-blue-100 text-blue-800',
-    sky: 'bg-sky-100 text-sky-800',
-    amber: 'bg-amber-100 text-amber-800',
-    slate: 'bg-slate-100 text-slate-600',
-    red: 'bg-red-100 text-red-800',
-    emerald: 'bg-emerald-100 text-emerald-800',
-    violet: 'bg-violet-100 text-violet-800',
+    blue: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-200',
+    sky: 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-200',
+    amber: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200',
+    slate: 'bg-sunken text-muted',
+    red: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-200',
+    emerald: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200',
+    violet: 'bg-violet-100 text-violet-800 dark:bg-violet-950 dark:text-violet-200',
     dark: 'bg-slate-800 text-white',
   } as const;
   return (
@@ -44,7 +43,7 @@ const MOVEMENT_TONES = {
 /** Addresses live in one isolated LTR run: nothing fuses, no arrow flips. */
 function Addr(props: { text: string }): ReactElement {
   return (
-    <bdi dir="ltr" className="font-mono text-[13px] font-semibold text-slate-800">
+    <bdi dir="ltr" className="font-mono text-[13px] font-semibold text-ink">
       {props.text}
     </bdi>
   );
@@ -73,7 +72,7 @@ function MovementRow(props: {
     case 'EDIT':
       detail =
         movement.note === '' ? null : (
-          <span className="min-w-0 text-xs leading-5 text-slate-600 wrap-anywhere">
+          <span className="min-w-0 text-xs leading-5 text-muted wrap-anywhere">
             {AR.editedFields(movement.note)}
           </span>
         );
@@ -91,7 +90,7 @@ function MovementRow(props: {
         tone={MOVEMENT_TONES[movement.type]}
       />
       {detail}
-      <span className="ms-auto whitespace-nowrap text-xs text-slate-400">
+      <span className="ms-auto whitespace-nowrap text-xs text-faint">
         <span dir="ltr">{formatDateOnly(movement.at)}</span>
         {' · '}
         <span dir="ltr">{formatTimeOnly(movement.at)}</span>
@@ -102,15 +101,17 @@ function MovementRow(props: {
 
 export function ContainerCard(props: {
   container: ContainerDto;
-  /** The container standing on top of this one, when there is one. */
-  above: ContainerDto | null;
-  /** The container this one stands on, when on the upper tier. */
-  below: ContainerDto | null;
+  /** The others sharing this container's location. */
+  siblings: readonly ContainerDto[];
+  /** Twenty-foot places still open in that location. */
+  roomHere: number;
+  /** What the signed-in employee is allowed to do. */
+  may: (permission: Permission) => boolean;
   /** Position → spoken address, with the block's name resolved. */
   label: (position: Position) => string;
   onStartMove: (container: ContainerDto) => void;
-  /** Start a gate-in on the empty slot directly above this container. */
-  onStackOnTop: (position: Position) => void;
+  /** Start a gate-in in this container's own location. */
+  onAddHere: (position: Position) => void;
   /** Open the printable gate card. */
   onPrint: (kind: 'in' | 'out', container: ContainerDto) => void;
   /** The container just left: refresh AND hand over its exit card to print. */
@@ -123,6 +124,9 @@ export function ContainerCard(props: {
   const [editing, setEditing] = useState(false);
   const [truckOut, setTruckOut] = useState('');
   const [driverOut, setDriverOut] = useState('');
+  // Pre-filled with the seal it came in under: the common case is unchanged,
+  // and an actual change is then a deliberate edit, not a typo.
+  const [sealOut, setSealOut] = useState(props.container.sealIn);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -131,8 +135,6 @@ export function ContainerCard(props: {
     queryFn: () => api.detail(container.id),
   });
 
-  const buried = props.above !== null;
-  const held = container.status === 'HOLD';
   const inYard = container.position !== null;
 
   const run = (work: Promise<unknown>, message: string): void => {
@@ -154,59 +156,45 @@ export function ContainerCard(props: {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge text={`${String(container.size)} قدم`} tone="slate" />
-          <Badge
-            text={container.cargo === 'LADEN' ? AR.cargoLaden : AR.cargoEmpty}
-            tone={container.cargo === 'LADEN' ? 'blue' : 'sky'}
-          />
           {!container.numberValid && <Badge text={AR.numberNotVerified} tone="amber" />}
           {!inYard && <Badge text={AR.outOfYard} tone="slate" />}
-          {container.status !== 'NORMAL' && (
-            <Badge
-              text={AR.containerStatusName[container.status]}
-              tone={
-                container.status === 'DAMAGED'
-                  ? 'red'
-                  : container.status === 'HOLD'
-                    ? 'dark'
-                    : container.status === 'REPAIR'
-                      ? 'violet'
-                      : 'amber'
-              }
-            />
+          {/* Two different seals means the door was opened inside the yard. */}
+          {container.sealOut !== '' && container.sealOut !== container.sealIn && (
+            <Badge text={AR.sealChanged} tone="red" />
           )}
         </div>
 
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between gap-3">
-            <dt className="shrink-0 text-slate-500">{AR.customer}</dt>
-            <dd className="min-w-0 font-semibold text-slate-900 wrap-anywhere">
+            <dt className="shrink-0 text-muted">{AR.customer}</dt>
+            <dd className="min-w-0 font-semibold text-ink wrap-anywhere">
               {container.customer}
             </dd>
           </div>
           {container.position !== null && (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">{AR.slot}</dt>
-              <dd className="font-semibold text-slate-900" dir="ltr">
+              <dt className="text-muted">{AR.slot}</dt>
+              <dd className="font-semibold text-ink" dir="ltr">
                 {props.label(container.position)}
               </dd>
             </div>
           )}
           <div className="flex justify-between gap-3">
-            <dt className="text-slate-500">{AR.enteredAt}</dt>
-            <dd className="font-semibold text-slate-900" dir="ltr">
+            <dt className="text-muted">{AR.enteredAt}</dt>
+            <dd className="font-semibold text-ink" dir="ltr">
               {formatDate(container.enteredAt)}
             </dd>
           </div>
           {container.exitedAt !== null ? (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">{AR.exitedAt}</dt>
-              <dd className="font-semibold text-slate-900" dir="ltr">
+              <dt className="text-muted">{AR.exitedAt}</dt>
+              <dd className="font-semibold text-ink" dir="ltr">
                 {formatDate(container.exitedAt)}
               </dd>
             </div>
           ) : (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500" />
+              <dt className="text-muted" />
               <dd className="font-semibold text-blue-700">
                 {AR.dwell(dwellDays(container.enteredAt))}
               </dd>
@@ -214,61 +202,59 @@ export function ContainerCard(props: {
           )}
           {container.truckIn !== '' && (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">{AR.cardTruck}</dt>
-              <dd className="font-semibold text-slate-900" dir="ltr">
+              <dt className="text-muted">{AR.cardTruck}</dt>
+              <dd className="font-semibold text-ink" dir="ltr">
                 {container.truckIn}
+              </dd>
+            </div>
+          )}
+          {container.sealIn !== '' && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted">{AR.seal}</dt>
+              <dd className="font-mono font-semibold text-ink" dir="ltr">
+                {container.sealIn}
+              </dd>
+            </div>
+          )}
+          {container.sealOut !== '' && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted">{AR.sealOut}</dt>
+              <dd
+                className={
+                  'font-mono font-semibold ' +
+                  (container.sealOut === container.sealIn ? 'text-ink' : 'text-red-600')
+                }
+                dir="ltr"
+              >
+                {container.sealOut}
               </dd>
             </div>
           )}
           {container.driverIn !== '' && (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">{AR.cardDriver}</dt>
-              <dd className="text-slate-700">{container.driverIn}</dd>
+              <dt className="text-muted">{AR.cardDriver}</dt>
+              <dd className="text-ink">{container.driverIn}</dd>
             </div>
           )}
           {container.weight !== '' && (
             <div className="flex justify-between gap-3">
-              <dt className="text-slate-500">{AR.cardWeight}</dt>
-              <dd className="text-slate-700" dir="ltr">
+              <dt className="text-muted">{AR.cardWeight}</dt>
+              <dd className="text-ink" dir="ltr">
                 {container.weight}
               </dd>
             </div>
           )}
+          {/* The notes hold the condition now, so they get the room a
+              paragraph needs and never get clipped. */}
           {container.notes !== '' && (
             <div>
-              <dt className="mb-1 text-slate-500">{AR.notes}</dt>
-              <dd className="whitespace-pre-wrap rounded-lg bg-slate-50 px-2.5 py-1.5 leading-6 text-slate-700 wrap-anywhere">
+              <dt className="mb-1 text-muted">{AR.notes}</dt>
+              <dd className="whitespace-pre-wrap rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 leading-7 text-ink wrap-anywhere dark:border-amber-900 dark:bg-amber-950/40">
                 {container.notes}
               </dd>
             </div>
           )}
         </dl>
-
-        {inYard && !editing && (
-          <div>
-            <p className="mb-1.5 text-sm text-slate-500">{AR.statusLabel}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {CONTAINER_STATUSES.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  disabled={busy || option === container.status}
-                  onClick={() => {
-                    run(api.setStatus(container.id, option), AR.statusSaved);
-                  }}
-                  className={
-                    'rounded-xl border px-2.5 py-1.5 text-xs font-semibold ' +
-                    (option === container.status
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-slate-300 bg-white text-slate-600')
-                  }
-                >
-                  {AR.containerStatusName[option]}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         <div className="flex flex-wrap gap-2">
           <Button
@@ -291,18 +277,8 @@ export function ContainerCard(props: {
           )}
         </div>
 
-        {buried && props.above !== null && (
-          <p className="rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-800">
-            {AR.stackedUnder(props.above.number)}
-          </p>
-        )}
-        {inYard && container.status === 'HOLD' && (
-          <p className="rounded-xl bg-red-50 px-3.5 py-2.5 text-sm font-medium text-red-800">
-            {AR.errors.CONTAINER_HOLD}
-          </p>
-        )}
-        {props.below !== null && (
-          <p className="text-xs text-slate-500">{AR.stackedOver(props.below.number)}</p>
+        {props.siblings.length > 0 && (
+          <p className="text-xs text-muted">{AR.sharingLocation(props.siblings.length)}</p>
         )}
 
         <ErrorLine message={error} />
@@ -310,59 +286,67 @@ export function ContainerCard(props: {
         {inYard &&
           !editing &&
           container.position !== null &&
-          container.position.tier === GROUND_TIER &&
-          props.above === null && (
+          props.roomHere > 0 &&
+          props.may('GATE_IN') && (
             <Button
               full
               kind="quiet"
               disabled={busy}
               onClick={() => {
-                if (container.position !== null) {
-                  props.onStackOnTop({ ...container.position, tier: 2 });
-                }
+                if (container.position !== null) props.onAddHere(container.position);
               }}
             >
-              {AR.stackOnTop}
+              {AR.addToLocation}
             </Button>
           )}
 
+        {/* Only what this employee may do is offered. The refusal still lives
+            on the server; this only keeps dead buttons off the screen. */}
         {inYard && !editing && (
           <div className="grid grid-cols-2 gap-2">
-            <Button
-              onClick={() => {
-                props.onStartMove(container);
-              }}
-              disabled={buried || held || busy}
-            >
-              {AR.actionMove}
-            </Button>
-            <Button
-              kind="quiet"
-              onClick={() => {
-                setConfirming('exit');
-              }}
-              disabled={buried || held || busy}
-            >
-              {AR.actionExit}
-            </Button>
-            <Button
-              kind="quiet"
-              onClick={() => {
-                setEditing(true);
-              }}
-              disabled={busy}
-            >
-              {AR.actionEdit}
-            </Button>
-            <Button
-              kind="danger"
-              onClick={() => {
-                setConfirming('delete');
-              }}
-              disabled={buried || held || busy}
-            >
-              {AR.actionDelete}
-            </Button>
+            {props.may('MOVE') && (
+              <Button
+                onClick={() => {
+                  props.onStartMove(container);
+                }}
+                disabled={busy}
+              >
+                {AR.actionMove}
+              </Button>
+            )}
+            {props.may('GATE_OUT') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setConfirming('exit');
+                }}
+                disabled={busy}
+              >
+                {AR.actionExit}
+              </Button>
+            )}
+            {props.may('EDIT') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setEditing(true);
+                }}
+                disabled={busy}
+              >
+                {AR.actionEdit}
+              </Button>
+            )}
+            {props.may('DELETE') && (
+              <Button
+                kind="danger"
+                onClick={() => {
+                  setConfirming('delete');
+                }}
+                disabled={busy}
+              >
+                {AR.actionDelete}
+              </Button>
+            )}
           </div>
         )}
 
@@ -380,8 +364,8 @@ export function ContainerCard(props: {
         )}
 
         <div>
-          <h3 className="mb-2 text-sm font-bold text-slate-700">{AR.movementsTitle}</h3>
-          <ol className="space-y-2 border-s-2 border-slate-100 ps-3">
+          <h3 className="mb-2 text-sm font-bold text-ink">{AR.movementsTitle}</h3>
+          <ol className="space-y-2 border-s-2 border-line ps-3">
             {(detail.data?.movements ?? []).map((movement) => (
               <MovementRow key={movement.id} movement={movement} label={props.label} />
             ))}
@@ -391,9 +375,9 @@ export function ContainerCard(props: {
 
       {confirming === 'exit' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl">
-            <h3 className="text-base font-bold text-slate-900">{AR.confirmExitTitle}</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-2xl">
+            <h3 className="text-base font-bold text-ink">{AR.confirmExitTitle}</h3>
+            <p className="mt-2 text-sm leading-6 text-muted">
               {AR.confirmExitBody(container.number)}
             </p>
             <div className="mt-4 space-y-3">
@@ -408,6 +392,23 @@ export function ContainerCard(props: {
                   autoFocus
                 />
               </Field>
+              <Field
+                label={AR.sealOut}
+                hint={
+                  container.sealIn !== '' ? (
+                    <span className="text-faint">{AR.sealWas(container.sealIn)}</span>
+                  ) : undefined
+                }
+              >
+                <input
+                  dir="ltr"
+                  className={`${inputClass} text-start font-mono`}
+                  value={sealOut}
+                  onChange={(event) => {
+                    setSealOut(event.target.value);
+                  }}
+                />
+              </Field>
               <Field label={AR.driver}>
                 <input
                   className={inputClass}
@@ -420,13 +421,14 @@ export function ContainerCard(props: {
             </div>
             <div className="mt-5 flex gap-2">
               <Button
-                disabled={busy || truckOut.trim() === ''}
+                disabled={busy || truckOut.trim() === '' || sealOut.trim() === ''}
                 onClick={() => {
                   setBusy(true);
                   setError(null);
                   api
                     .exit(container.id, {
                       truck: truckOut.trim(),
+                      seal: sealOut.trim(),
                       driver: driverOut.trim(),
                     })
                     .then((departed) => {
@@ -476,25 +478,18 @@ export function ContainerCard(props: {
 function EditForm(props: {
   container: ContainerDto;
   busy: boolean;
-  onSave: (input: {
-    number: string;
-    customer: string;
-    cargo: 'EMPTY' | 'LADEN';
-    size: 20 | 40;
-    notes: string;
-  }) => void;
+  onSave: (input: { number: string; customer: string; size: 20 | 40; notes: string }) => void;
   onCancel: () => void;
 }): ReactElement {
   const [number, setNumber] = useState(props.container.number);
   const [customer, setCustomer] = useState(props.container.customer);
-  const [cargo, setCargo] = useState<'EMPTY' | 'LADEN'>(props.container.cargo);
   const [size, setSize] = useState<20 | 40>(props.container.size);
   const [notes, setNotes] = useState(props.container.notes);
 
   const ready = number.trim() !== '' && customer.trim() !== '' && !props.busy;
 
   return (
-    <div className="space-y-3 rounded-xl bg-slate-50 p-3.5">
+    <div className="space-y-3 rounded-xl bg-sunken p-3.5">
       <Field label={AR.containerNumber}>
         <input
           dir="ltr"
@@ -514,27 +509,6 @@ function EditForm(props: {
           }}
         />
       </Field>
-      <Field label={AR.cargo}>
-        <div className="grid grid-cols-2 gap-2">
-          {(['LADEN', 'EMPTY'] as const).map((state) => (
-            <button
-              key={state}
-              type="button"
-              onClick={() => {
-                setCargo(state);
-              }}
-              className={
-                'rounded-xl border px-3 py-2 text-sm font-semibold ' +
-                (cargo === state
-                  ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-slate-300 bg-white text-slate-600')
-              }
-            >
-              {state === 'LADEN' ? AR.cargoLaden : AR.cargoEmpty}
-            </button>
-          ))}
-        </div>
-      </Field>
       <Field label={AR.cardSize}>
         <div className="grid grid-cols-2 gap-2">
           {([20, 40] as const).map((option) => (
@@ -548,7 +522,7 @@ function EditForm(props: {
                 'rounded-xl border px-3 py-2 text-sm font-semibold ' +
                 (size === option
                   ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-slate-300 bg-white text-slate-600')
+                  : 'border-line-strong bg-surface text-muted')
               }
             >
               {option} قدم
@@ -556,10 +530,11 @@ function EditForm(props: {
           ))}
         </div>
       </Field>
-      <Field label={AR.notes}>
+      <Field label={AR.notes} hint={<span className="text-faint">{AR.notesHint}</span>}>
         <textarea
-          className={`${inputClass} min-h-16 resize-y`}
-          rows={2}
+          className={`${inputClass} min-h-24 resize-y leading-7`}
+          rows={3}
+          maxLength={2000}
           value={notes}
           onChange={(event) => {
             setNotes(event.target.value);
@@ -573,7 +548,6 @@ function EditForm(props: {
             props.onSave({
               number: number.trim(),
               customer: customer.trim(),
-              cargo,
               size,
               notes: notes.trim(),
             });

@@ -48,15 +48,16 @@ export function PrintCard(props: {
   const serial = kind === 'in' ? container.cardIn : container.cardOut;
   const truck = kind === 'in' ? container.truckIn : container.truckOut;
   const driver = kind === 'in' ? container.driverIn : container.driverOut;
+  const sealShown = kind === 'in' ? container.sealIn : container.sealOut;
   const accent = kind === 'in' ? 'bg-blue-700' : 'bg-slate-700';
 
   const row = (label: string, value: string, mono = false): ReactElement => (
-    <div className="flex items-stretch border-b border-slate-300 last:border-b-0">
-      <span className="gate-label flex w-32 shrink-0 items-center border-e border-slate-300 bg-slate-50 px-3 py-2 text-[13px] font-bold text-slate-700">
+    <div className="flex items-stretch border-b border-line-strong last:border-b-0">
+      <span className="gate-label flex w-32 shrink-0 items-center border-e border-line-strong bg-sunken px-3 py-2 text-[13px] font-bold text-ink">
         {label}
       </span>
       <span
-        className={`gate-value flex flex-1 items-center px-3 py-2 text-sm font-semibold text-slate-900${mono ? ' font-mono tracking-wide' : ''}`}
+        className={`gate-value flex flex-1 items-center px-3 py-2 text-sm font-semibold text-ink${mono ? ' font-mono tracking-wide' : ''}`}
         dir="ltr"
       >
         {value}
@@ -69,7 +70,7 @@ export function PrintCard(props: {
       {/* The card prints upright, unlike the wide report sheets. */}
       <style>{'@media print { @page { size: A4 portrait; margin: 14mm; } }'}</style>
       <div className="max-h-full w-full max-w-md overflow-y-auto">
-        <div className="print-area gate-card overflow-hidden rounded-xl border-2 border-slate-800 bg-white shadow-2xl">
+        <div className="print-area gate-card overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
           {/* The voucher strip: serial | title | day+date. */}
           <div className={`flex items-stretch ${accent} text-white`}>
             <div className="flex w-24 flex-col items-center justify-center gap-0.5 border-e border-white/25 px-2 py-2.5">
@@ -100,9 +101,9 @@ export function PrintCard(props: {
 
           {/* The container number is what the gate checker actually reads —
               it stands alone, big, above the table. */}
-          <div className="gate-hero border-b-2 border-slate-800 px-3 py-2.5 text-center">
-            <p className="text-[10px] font-bold text-slate-500">{AR.containerNumber}</p>
-            <p className="font-mono text-3xl font-extrabold tracking-widest text-slate-900" dir="ltr">
+          <div className="gate-hero border-b-2 border-rule-strong px-3 py-2.5 text-center">
+            <p className="text-[10px] font-bold text-muted">{AR.containerNumber}</p>
+            <p className="font-mono text-3xl font-extrabold tracking-widest text-ink" dir="ltr">
               {container.number}
             </p>
           </div>
@@ -112,20 +113,24 @@ export function PrintCard(props: {
           {row(AR.cardTruck, truck === '' ? '—' : truck)}
           {row(AR.cardDriver, driver === '' ? '—' : driver)}
           {row(AR.cardWeight, container.weight === '' ? '—' : container.weight)}
+          {/* The seal of THIS gate moment: the one it came under on the entry
+              card, the one it leaves under on the exit card. */}
+          {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, true)}
           {row(AR.cardSlot, slot === null ? '—' : props.label(slot), true)}
+          {container.notes !== '' && row(AR.cardNotes, container.notes)}
 
-          <div className="flex border-t-2 border-slate-800">
+          <div className="flex border-t-2 border-rule-strong">
             {[AR.cardWorkerSign, AR.cardSupervisorSign].map((sign, index) => (
               <div
                 key={sign}
-                className={`gate-sign h-24 flex-1 p-2.5${index === 0 ? ' border-e border-slate-300' : ''}`}
+                className={`gate-sign h-24 flex-1 p-2.5${index === 0 ? ' border-e border-line-strong' : ''}`}
               >
-                <p className="text-[12px] font-bold text-slate-600">{sign}</p>
+                <p className="text-[12px] font-bold text-muted">{sign}</p>
               </div>
             ))}
           </div>
 
-          <p className="border-t border-slate-200 px-3 py-1 text-[10px] text-slate-400">
+          <p className="border-t border-line px-3 py-1 text-[10px] text-faint">
             {AR.printedAt}{' '}
             <span dir="ltr">{`${dateFormat.format(new Date())} ${timeFormat.format(new Date())}`}</span>
           </p>
