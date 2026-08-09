@@ -1,19 +1,90 @@
 @import 'tailwindcss';
 
+/* The theme is a class on <html>, set before first paint by index.html. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * One vocabulary of surfaces and ink, not a `dark:` twin on every class.
+ * Every panel, sheet and map cell reads these, so the whole site — the SVG
+ * yard included — turns over together when the class flips.
+ */
 @theme {
   --font-sans: 'Cairo Variable', 'Segoe UI', system-ui, sans-serif;
+
+  /* Chrome */
+  --color-canvas: #f1f5f9;
+  --color-surface: #ffffff;
+  --color-sunken: #f8fafc;
+  --color-ink: #0f172a;
+  --color-muted: #64748b;
+  --color-faint: #94a3b8;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  /* A register's ruling is darker than the chrome's: these lines are read as
+     a table on paper, not as a soft edge between panels. */
+  --color-rule: #94a3b8;
+  --color-rule-strong: #334155;
+
+  /* The yard drawing. The SVG reads these directly. */
+  --yard-panel: #ffffff;
+  --yard-panel-border: #e2e8f0;
+  --yard-free: #f8fafc;
+  --yard-free-border: #cbd5e1;
+  --yard-partial: #dbeafe;
+  --yard-partial-border: #93c5fd;
+  --yard-full: #1e40af;
+  --yard-full-text: #ffffff;
+  --yard-target: #dcfce7;
+  --yard-target-border: #16a34a;
+  --yard-match: #f59e0b;
+  --yard-selected: #0284c7;
+  --yard-text: #0f172a;
+  --yard-muted: #64748b;
+}
+
+.dark {
+  --color-canvas: #0b1220;
+  --color-surface: #111a2b;
+  --color-sunken: #16203485;
+  --color-ink: #e8eef7;
+  --color-muted: #94a3b8;
+  --color-faint: #64748b;
+  --color-line: #1f2b40;
+  --color-line-strong: #31405a;
+  --color-rule: #33445f;
+  --color-rule-strong: #5d7398;
+
+  --yard-panel: #111a2b;
+  --yard-panel-border: #1f2b40;
+  --yard-free: #0e1728;
+  --yard-free-border: #31405a;
+  --yard-partial: #1d3357;
+  --yard-partial-border: #3b6bb5;
+  --yard-full: #2563eb;
+  --yard-full-text: #f8fafc;
+  --yard-target: #14361f;
+  --yard-target-border: #22c55e;
+  --yard-match: #f59e0b;
+  --yard-selected: #38bdf8;
+  --yard-text: #e8eef7;
+  --yard-muted: #94a3b8;
 }
 
 html {
   font-family: var(--font-sans);
   /* Lining figures keep Western digits aligned inside Arabic text. */
   font-variant-numeric: lining-nums;
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
-  background-color: var(--color-slate-100);
-  color: var(--color-slate-900);
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
 }
 
 /* The map's cells brighten under the pointer so "clickable" needs no manual. */
@@ -25,7 +96,7 @@ body {
    mouse across ~1800 tiny targets at fit zoom was a repaint per boundary. */
 @media (hover: hover) and (pointer: fine) {
   .map-hover .map-cell:hover .cell-frame {
-    stroke: #0284c7;
+    stroke: var(--yard-selected);
     stroke-width: 2.5;
     stroke-dasharray: none;
   }
@@ -41,8 +112,37 @@ body {
  * sheet — everything else on screen disappears.
  */
 @media print {
+  /*
+   * Paper is always paper. Whatever the screen is wearing, the light palette
+   * comes back for the print and for the server-rendered PDF — a dark sheet
+   * would burn a cartridge and read worse than the register it replaces.
+   */
+  html,
+  html.dark {
+    color-scheme: light;
+    --color-canvas: #ffffff;
+    --color-surface: #ffffff;
+    --color-sunken: #f1f5f9;
+    --color-ink: #0f172a;
+    --color-muted: #475569;
+    --color-faint: #94a3b8;
+    --color-line: #e2e8f0;
+    --color-line-strong: #cbd5e1;
+    --color-rule: #94a3b8;
+    --color-rule-strong: #334155;
+  }
+
   body {
     background: white;
+    color: #0f172a;
+  }
+
+  /* The header band and the alternating rows are what make a long register
+     readable across a desk. Browsers drop background colour from print by
+     default; a register without its ruling is a wall of numbers. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
   body *:not(.print-area):not(.print-area *) {
     visibility: hidden;
@@ -100,21 +200,37 @@ body {
     border-radius: 0;
     padding: 0 !important;
   }
-  .report-sheet .overflow-x-auto {
+  .report-sheet .sheet-scroll {
     overflow: visible !important;
   }
   .report-sheet table {
     width: 100%;
     font-size: 9.5px;
+    table-layout: fixed;
   }
   .report-sheet th,
   .report-sheet td {
-    padding: 2px 4px !important;
+    padding: 2.5px 4px !important;
+    /* The screen gives free-text columns a comfortable floor; paper is the
+       one place where the page decides the width, so the floor lifts. */
+    min-width: 0 !important;
+    max-width: none !important;
   }
   .report-sheet thead {
     display: table-header-group;
   }
+  .report-sheet tfoot {
+    display: table-footer-group;
+  }
   .report-sheet tr {
     break-inside: avoid;
+  }
+  /* A register is read down its columns; a row cut across a page break costs
+     the reader the line they were on. */
+  .report-sheet thead th {
+    background: #e2e8f0 !important;
+  }
+  .report-sheet tbody tr:nth-child(even) td {
+    background: #f8fafc !important;
   }
 }

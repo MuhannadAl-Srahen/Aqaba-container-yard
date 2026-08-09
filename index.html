@@ -6,6 +6,21 @@
     <meta name="theme-color" content="#0f2547" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>ساحة العقبة</title>
+    <script>
+      // Before the first paint: a dark screen must never flash white while
+      // React boots. 'system' (or nothing stored) follows the device.
+      (function () {
+        try {
+          var saved = localStorage.getItem('yard-theme');
+          var dark =
+            saved === 'dark' ||
+            (saved !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (dark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* private mode: the light theme is a fine default */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
