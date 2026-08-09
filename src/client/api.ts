@@ -2,17 +2,21 @@ import type {
   ApiError,
   BlockConfig,
   ContainerDto,
-  ContainerStatus,
   DailyReportRow,
   ErrorCode,
   GateReportRow,
-  LocationState,
   LogReportRow,
+  MeDto,
   MovementDto,
+  Permission,
   Position,
+  StandingReportRow,
+  UserDto,
   YardConfig,
   YardStateDto,
 } from '../shared/types';
+import type { ColumnShape } from '../shared/geometry';
+import { daysBetween } from '../shared/dates';
 import { AR } from './ar';
 
 /**
@@ -55,10 +59,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // The body was not JSON; fall through to the generic failure below.
     }
     if (body !== null && typeof body.code === 'string') {
-      const by = body.details?.['by'];
+      const free = body.details?.['free'];
+      const need = body.details?.['need'];
       const arabic =
-        typeof by === 'string'
-          ? AR.errorWithBy(body.code, by)
+        body.code === 'LOCATION_FULL' && typeof free === 'number' && typeof need === 'number'
+          ? AR.errorFull(free, need)
           : (AR.errors[body.code] ?? AR.networkError);
       throw new ApiFailure(body.code, arabic, body.details);
     }
@@ -72,20 +77,21 @@ export interface BootDto {
   firstRun: boolean;
   authorized: boolean;
   yardConfigured: boolean;
+  /** The employees the sign-in screen offers as buttons. */
+  staff: Array<{ id: number; name: string }>;
 }
 
-/** The first-run shape: two halves the server lays out for the owner. */
+/** The first-run shape: two columns the server lays out for the owner. */
 export interface SetupShape {
-  twenty: { rows: number; cols: number };
-  forty: { rows: number; cols: number };
+  twenty: ColumnShape;
+  forty: ColumnShape;
 }
 
 /**
  * A layout block on its way to the server: existing keep ids, new ones have
- * none. The wire deliberately carries no `state` — the layout save must
- * never overwrite operational states (the server strips strays regardless).
+ * none.
  */
-export type BlockDraft = Omit<BlockConfig, 'id' | 'state'> & { readonly id?: number };
+export type BlockDraft = Omit<BlockConfig, 'id'> & { readonly id?: number };
 
 export const api = {
   boot: (): Promise<BootDto> => request('/api/boot'),
@@ -96,10 +102,35 @@ export const api = {
   saveYard: (blocks: readonly BlockDraft[]): Promise<YardConfig> =>
     request('/api/yard', { method: 'PUT', body: JSON.stringify({ blocks }) }),
 
+  /** The owner's door. */
   login: (password: string): Promise<{ ok: boolean }> =>
     request('/api/login', { method: 'POST', body: JSON.stringify({ password }) }),
 
+  /** An employee's door: their name from the picker, then their PIN. */
+  loginAs: (userId: number, pin: string): Promise<{ ok: boolean }> =>
+    request('/api/login', { method: 'POST', body: JSON.stringify({ userId, pin }) }),
+
   logout: (): Promise<{ ok: boolean }> => request('/api/logout', { method: 'POST' }),
+
+  me: (): Promise<MeDto> => request('/api/me'),
+
+  users: (): Promise<{ users: UserDto[] }> => request('/api/users'),
+
+  addUser: (input: {
+    name: string;
+    pin: string;
+    permissions: readonly Permission[];
+  }): Promise<UserDto> => request('/api/users', { method: 'POST', body: JSON.stringify(input) }),
+
+  /** Send a `pin` only to replace it; leave it out to keep the current one. */
+  editUser: (
+    id: number,
+    input: { name: string; permissions: readonly Permission[]; pin?: string },
+  ): Promise<UserDto> =>
+    request(`/api/users/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
+
+  removeUser: (id: number): Promise<{ ok: boolean }> =>
+    request(`/api/users/${String(id)}`, { method: 'DELETE' }),
 
   state: (): Promise<YardStateDto> => request('/api/state'),
 
@@ -107,10 +138,10 @@ export const api = {
     number: string;
     size: 20 | 40;
     customer: string;
-    cargo: 'EMPTY' | 'LADEN';
     notes: string;
     position: Position;
     truck: string;
+    seal: string;
     driver: string;
     weight: string;
   }): Promise<ContainerDto> =>
@@ -122,7 +153,10 @@ export const api = {
       body: JSON.stringify({ to }),
     }),
 
-  exit: (id: number, gate: { truck: string; driver: string }): Promise<ContainerDto> =>
+  exit: (
+    id: number,
+    gate: { truck: string; seal: string; driver: string },
+  ): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}/exit`, {
       method: 'POST',
       body: JSON.stringify(gate),
@@ -138,6 +172,9 @@ export const api = {
       `/api/reports/daily?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
     ),
 
+  /** A snapshot of what is standing right now — no range, it is «الآن». */
+  reportStanding: (): Promise<{ rows: StandingReportRow[] }> => request('/api/reports/standing'),
+
   reportLog: (fromIso: string, toIso: string): Promise<{ rows: LogReportRow[] }> =>
     request(
       `/api/reports/log?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
@@ -151,14 +188,6 @@ export const api = {
     request(
       `/api/reports/truck?truck=${encodeURIComponent(truck)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
     ),
-
-  /** DEVELOPMENT ONLY: wipe containers, movements and card counters. */
-  devReset: (): Promise<{ ok: boolean }> =>
-    request('/api/dev/reset', { method: 'POST', body: JSON.stringify({}) }),
-
-  /** DEVELOPMENT ONLY: wipe, then fill the current yard with demo data. */
-  devSeed: (): Promise<{ ok: boolean; containers: number }> =>
-    request('/api/dev/seed', { method: 'POST', body: JSON.stringify({}) }),
 
   /** The sheet as a server-printed PDF file. */
   reportPdf: async (title: string, html: string, landscape: boolean): Promise<Blob> => {
@@ -178,33 +207,9 @@ export const api = {
 
   edit: (
     id: number,
-    input: {
-      number: string;
-      customer: string;
-      cargo: 'EMPTY' | 'LADEN';
-      size: 20 | 40;
-      notes: string;
-    },
+    input: { number: string; customer: string; size: 20 | 40; notes: string },
   ): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
-
-  setStatus: (id: number, status: ContainerStatus): Promise<ContainerDto> =>
-    request(`/api/containers/${String(id)}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ status }),
-    }),
-
-  setSlotState: (
-    slot: { block: number; row: number; col: number },
-    state: LocationState,
-  ): Promise<{ slotStates: Record<string, LocationState> }> =>
-    request('/api/slots/state', { method: 'PUT', body: JSON.stringify({ ...slot, state }) }),
-
-  setBlockState: (id: number, state: LocationState): Promise<YardConfig> =>
-    request(`/api/blocks/${String(id)}/state`, {
-      method: 'PUT',
-      body: JSON.stringify({ state }),
-    }),
 
   remove: (id: number): Promise<{ ok: boolean }> =>
     request(`/api/containers/${String(id)}`, { method: 'DELETE' }),
@@ -252,8 +257,10 @@ export function formatDate(iso: string): string {
   return `${formatDateOnly(iso)}، ${formatTimeOnly(iso)}`;
 }
 
+/**
+ * Calendar days in the yard. The counting itself lives in `shared/dates` so
+ * the screen and the register can never disagree about what a day is.
+ */
 export function dwellDays(enteredAt: string, until?: string): number {
-  const end = until === undefined ? Date.now() : new Date(until).getTime();
-  const days = Math.floor((end - new Date(enteredAt).getTime()) / 86_400_000);
-  return Math.max(0, days);
+  return daysBetween(enteredAt, until ?? new Date());
 }
