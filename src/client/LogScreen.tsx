@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { LogReportRow, Position } from '../shared/types';
-import { CONTAINER_STATUSES } from '../shared/types';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Toast } from './ui';
@@ -52,6 +51,7 @@ function logModel(rows: readonly LogReportRow[], label: (position: Position) => 
     AR.colCompany,
     AR.colFrom,
     AR.colTo,
+    AR.colUser,
     AR.colNote,
   ];
   const body = rows.map((row, index) => {
@@ -67,6 +67,7 @@ function logModel(rows: readonly LogReportRow[], label: (position: Position) => 
       cellWrap(row.customer),
       cellLtr(row.from === null ? dash : label(row.from)),
       cellLtr(row.to === null ? dash : label(row.to)),
+      cellText(row.user),
       noteParts.length === 0 ? cellText(dash) : cellWrap(noteParts.join(' — ')),
     ];
   });
@@ -137,19 +138,6 @@ export function LogScreen(props: {
     if (parsed === null) return;
     setBusyRow(index);
 
-    // A status change travels its own route, so its revert does too — the
-    // before-value is validated by hand against the closed vocabulary.
-    if (parsed.keys.length === 1 && parsed.keys[0] === 'status') {
-      const wasStatus = CONTAINER_STATUSES.find((s) => s === parsed.before['status']);
-      api
-        .setStatus(row.containerId, wasStatus ?? 'NORMAL')
-        .then(() => {
-          finish(AR.revertedDone);
-        })
-        .catch(fail);
-      return;
-    }
-
     api
       .detail(row.containerId)
       .then(({ container }) => {
@@ -158,10 +146,6 @@ export function LogScreen(props: {
           number: typeof before['number'] === 'string' ? before['number'] : container.number,
           customer:
             typeof before['customer'] === 'string' ? before['customer'] : container.customer,
-          cargo:
-            before['cargo'] === 'EMPTY' || before['cargo'] === 'LADEN'
-              ? before['cargo']
-              : container.cargo,
           size: before['size'] === 20 || before['size'] === 40 ? before['size'] : container.size,
           notes: typeof before['notes'] === 'string' ? before['notes'] : container.notes,
         });

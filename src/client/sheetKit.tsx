@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
+import { ThemePicker } from './ThemePicker';
 import { Button } from './ui';
 
 /**
@@ -77,12 +78,20 @@ const esc = (s: string): string =>
 
 /** The standalone sheet document — what the PDF printer and Excel both read. */
 export function sheetHtml(title: string, period: string, model: TableModel): string {
+  // The paper sheet is ruled by the same shares as the screen, so what the
+  // owner reviews on the screen is exactly what comes out of the printer.
+  const colGroup = `<colgroup>${columnShares(model, false)
+    .map((share) => `<col style="width:${share}">`)
+    .join('')}</colgroup>`;
   const headRow = `<tr>${model.head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>`;
   const bodyRows = model.body
     .map(
       (row) =>
         `<tr>${row
-          .map((c) => `<td${c.ltr === true ? ' class="ltr"' : ''}>${esc(c.text)}</td>`)
+          .map(
+            (c) =>
+              `<td${c.ltr === true ? ' class="ltr"' : c.wrap === true ? ' class="free"' : ''}>${esc(c.text)}</td>`,
+          )
           .join('')}</tr>`,
     )
     .join('');
@@ -99,23 +108,34 @@ export function sheetHtml(title: string, period: string, model: TableModel): str
           .join('')}</tr></tfoot>`;
   return (
     `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>` +
-    `body{font-family:'Cairo','Segoe UI',Tahoma,sans-serif;margin:0;color:#0f172a}` +
-    `.head{text-align:center;border-bottom:2.5px solid #1e293b;padding-bottom:8px;margin-bottom:14px}` +
+    `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}` +
+    `body{font-family:'Cairo','Segoe UI',Tahoma,sans-serif;margin:0;color:#0f172a;` +
+    `font-variant-numeric:lining-nums}` +
+    `.head{text-align:center;border-bottom:2.5px solid #1e293b;padding-bottom:8px;margin-bottom:12px}` +
     `.site{color:#64748b;font-size:12px;margin:0 0 2px}` +
     `h1{font-size:19px;margin:0}` +
     `.period{font-size:12px;color:#475569;margin:4px 0 0}` +
-    `table{width:100%;border-collapse:collapse;font-size:10.5px;border:2px solid #334155}` +
-    `th,td{border:1px solid #94a3b8;padding:3.5px 6px;text-align:right}` +
-    `th{background:#e2e8f0;border-bottom:2px solid #334155;font-weight:700;white-space:nowrap}` +
+    // A fixed layout divides the page evenly instead of letting one long
+    // company name starve every other column.
+    `table{width:100%;border-collapse:collapse;font-size:10px;border:2px solid #334155;` +
+    `table-layout:fixed}` +
+    `th,td{border:1px solid #94a3b8;padding:3px 5px;text-align:right;vertical-align:middle;` +
+    `overflow-wrap:break-word;word-break:normal}` +
+    `th{background:#e2e8f0;border-bottom:2px solid #334155;font-weight:700;line-height:1.35;` +
+    `text-align:center}` +
     `tbody tr:nth-child(even) td{background:#f8fafc}` +
     `td.ltr{direction:ltr;white-space:nowrap}` +
+    // Free text is the only thing allowed to grow tall, and it breaks
+    // between words — never through the middle of one.
+    `td.free{line-height:1.5}` +
     `tfoot td{border-top:2px solid #334155;font-weight:700;background:#e2e8f0}` +
-    `thead{display:table-header-group}tr{break-inside:avoid}` +
-    `.printed{margin-top:10px;font-size:9.5px;color:#94a3b8;text-align:left;direction:ltr}` +
+    `thead{display:table-header-group}tfoot{display:table-footer-group}` +
+    `tr{break-inside:avoid;page-break-inside:avoid}` +
+    `.printed{margin-top:8px;font-size:9px;color:#94a3b8;text-align:left;direction:ltr}` +
     `</style></head><body>` +
     `<div class="head"><p class="site">${esc(AR.appName)}</p><h1>${esc(title)}</h1>` +
     `<p class="period">${esc(period)}</p></div>` +
-    `<table><thead>${headRow}</thead><tbody>${bodyRows}</tbody>${footerRow}</table>` +
+    `<table>${colGroup}<thead>${headRow}</thead><tbody>${bodyRows}</tbody>${footerRow}</table>` +
     `<p class="printed">${dateFormat.format(new Date())}</p>` +
     `</body></html>`
   );
@@ -130,8 +150,45 @@ export function downloadBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-const cellBase = 'border border-slate-300 px-2.5 py-1.5 text-sm';
+const cellBase = 'border border-rule px-2 py-1.5 text-[13px] align-middle';
+/**
+ * Free text — a company's full name, a note about a dented door — breaks
+ * BETWEEN words: the old `wrap-anywhere` told the browser that one letter
+ * was a legal column width, so «شركة النورس للشحن والتفريغ» came out sawn
+ * through the middle of a word.
+ */
+const cellFree = ' break-words leading-6';
 const PAGE_SIZES = [20, 50, 80] as const;
+
+/** The longest unbreakable run in a heading — headings wrap, words do not. */
+function longestWord(text: string): number {
+  return text.split(' ').reduce((longest, word) => Math.max(longest, word.length), 0);
+}
+
+/**
+ * Every column's share of the sheet, decided once from what it actually
+ * carries. With `table-layout: fixed` these shares are the whole story: the
+ * register always fits its page exactly, so no column is ever sliced off at
+ * the far edge and no word is broken to buy room for the next column.
+ */
+function columnShares(model: TableModel, hasActions: boolean): string[] {
+  const weights = model.head.map((heading, index) => {
+    let widest = longestWord(heading);
+    let free = false;
+    for (const row of model.body) {
+      const cell = row[index];
+      if (cell === undefined) continue;
+      if (cell.wrap === true) free = true;
+      widest = Math.max(widest, cell.text.length);
+    }
+    // Free text gets room to breathe; everything else gets exactly the width
+    // of the longest thing under it, and neither may run away with the page.
+    return free ? Math.min(Math.max(widest, 14), 26) : Math.min(widest + 2, 14);
+  });
+  if (hasActions) weights.push(7);
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  return weights.map((weight) => `${((weight / total) * 100).toFixed(3)}%`);
+}
 
 /**
  * A whole register screen: title row with the caller's tabs, a filter row
@@ -149,6 +206,12 @@ export function SheetScreen(props: {
   tabs?: ReactNode;
   extraFilters?: ReactNode;
   emptyText?: string | undefined;
+  /**
+   * A snapshot register (what is standing right now) has no range to pick.
+   * Give the line that stands in place of «من … إلى …» on the paper, and the
+   * date inputs disappear.
+   */
+  rangeless?: string | undefined;
   /** Screen-only per-row actions (undo buttons and the like); never printed. */
   actions?: { header: string; render: (rowIndex: number) => ReactNode } | undefined;
   onBack: () => void;
@@ -165,10 +228,12 @@ export function SheetScreen(props: {
   }, [props.sheetTitle, model.body.length, pageSize]);
   const current = Math.min(page, pages - 1);
 
-  const periodText = `${AR.rangeFrom} ${props.from.split('-').reverse().join('/')} ${AR.rangeTo} ${props.to
-    .split('-')
-    .reverse()
-    .join('/')}`;
+  const periodText =
+    props.rangeless ??
+    `${AR.rangeFrom} ${props.from.split('-').reverse().join('/')} ${AR.rangeTo} ${props.to
+      .split('-')
+      .reverse()
+      .join('/')}`;
   const hasRows = model.body.length > 0;
 
   const exportExcel = (): void => {
@@ -195,17 +260,19 @@ export function SheetScreen(props: {
   };
 
   const footer = model.footer;
+  const shares = columnShares(model, props.actions !== undefined);
 
   return (
-    <div className="flex h-dvh flex-col bg-slate-100">
+    <div className="flex h-dvh flex-col bg-canvas">
       {/* Registers print sideways: the sheets are wide. */}
       <style>{'@media print { @page { size: A4 landscape; margin: 9mm; } }'}</style>
 
-      <header className="print-hidden z-10 space-y-2.5 border-b border-slate-200 bg-white px-3 py-2.5 shadow-sm lg:px-5">
+      <header className="print-hidden z-10 space-y-2.5 border-b border-line bg-surface px-3 py-2.5 shadow-sm lg:px-5">
         <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-base font-extrabold text-slate-900">{props.screenTitle}</h1>
+          <h1 className="text-base font-extrabold text-ink">{props.screenTitle}</h1>
           {props.tabs}
-          <div className="ms-auto">
+          <div className="ms-auto flex items-center gap-2">
+            <ThemePicker />
             <Button kind="quiet" onClick={props.onBack}>
               {AR.backToMap}
             </Button>
@@ -213,33 +280,39 @@ export function SheetScreen(props: {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          <label className="flex items-center gap-1.5 text-sm">
-            <span className="font-semibold text-slate-600">{AR.rangeFrom}</span>
-            <input
-              type="date"
-              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-              value={props.from}
-              onChange={(event) => {
-                props.onFrom(event.target.value);
-              }}
-            />
-          </label>
-          <label className="flex items-center gap-1.5 text-sm">
-            <span className="font-semibold text-slate-600">{AR.rangeTo}</span>
-            <input
-              type="date"
-              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
-              value={props.to}
-              onChange={(event) => {
-                props.onTo(event.target.value);
-              }}
-            />
-          </label>
+          {props.rangeless === undefined ? (
+            <>
+              <label className="flex items-center gap-1.5 text-sm">
+                <span className="font-semibold text-muted">{AR.rangeFrom}</span>
+                <input
+                  type="date"
+                  className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
+                  value={props.from}
+                  onChange={(event) => {
+                    props.onFrom(event.target.value);
+                  }}
+                />
+              </label>
+              <label className="flex items-center gap-1.5 text-sm">
+                <span className="font-semibold text-muted">{AR.rangeTo}</span>
+                <input
+                  type="date"
+                  className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
+                  value={props.to}
+                  onChange={(event) => {
+                    props.onTo(event.target.value);
+                  }}
+                />
+              </label>
+            </>
+          ) : (
+            <span className="text-sm font-semibold text-muted">{props.rangeless}</span>
+          )}
           {props.extraFilters}
           <label className="flex items-center gap-1.5 text-sm">
-            <span className="font-semibold text-slate-600">{AR.perPage}</span>
+            <span className="font-semibold text-muted">{AR.perPage}</span>
             <select
-              className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
+              className="rounded-lg border border-line-strong px-2 py-1.5 text-sm"
               value={pageSize}
               onChange={(event) => {
                 setPageSize(Number(event.target.value));
@@ -273,35 +346,43 @@ export function SheetScreen(props: {
       </header>
 
       <main className="flex-1 overflow-auto p-4 lg:p-6">
-        <div className="print-area report-sheet mx-auto max-w-6xl rounded-2xl bg-white p-5 shadow-sm lg:p-8">
-          <div className="mb-5 border-b-2 border-slate-800 pb-3 text-center">
-            <p className="text-sm font-semibold text-slate-500">{AR.appName}</p>
-            <h2 className="text-xl font-extrabold text-slate-900">{props.sheetTitle}</h2>
-            <p className="mt-1 text-sm text-slate-600">{periodText}</p>
+        <div className="print-area report-sheet mx-auto max-w-[1700px] rounded-2xl bg-surface p-5 shadow-sm lg:p-8">
+          <div className="mb-5 border-b-2 border-rule-strong pb-3 text-center">
+            <p className="text-sm font-semibold text-muted">{AR.appName}</p>
+            <h2 className="text-xl font-extrabold text-ink">{props.sheetTitle}</h2>
+            <p className="mt-1 text-sm text-muted">{periodText}</p>
           </div>
 
           {!hasRows ? (
-            <p className="py-12 text-center text-sm text-slate-400">
+            <p className="py-12 text-center text-sm text-faint">
               {props.emptyText ?? AR.reportEmpty}
             </p>
           ) : (
             <>
-              {/* The whole width always fits: cells wrap instead of the sheet
-                  scrolling sideways. Print gets every row; the screen pages. */}
-              <table className="w-full border-collapse border-2 border-slate-700">
+              {/* On screen a wide register keeps its columns readable and
+                  scrolls sideways if it must; on paper the page decides the
+                  width and every column comes back in. Print gets every row;
+                  the screen pages. */}
+              <div className="sheet-scroll overflow-x-auto">
+              <table className="w-full min-w-[880px] table-fixed border-collapse border-2 border-rule-strong">
+                <colgroup>
+                  {shares.map((share, index) => (
+                    <col key={index} style={{ width: share }} />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr>
                     {model.head.map((heading) => (
                       <th
                         key={heading}
-                        className={`${cellBase} border-b-2 border-b-slate-700 bg-slate-100 font-bold`}
+                        className={`${cellBase} border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`}
                       >
                         {heading}
                       </th>
                     ))}
                     {props.actions !== undefined && (
                       <th
-                        className={`${cellBase} print-hidden border-b-2 border-b-slate-700 bg-slate-100 font-bold`}
+                        className={`${cellBase} print-hidden border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`}
                       >
                         {props.actions.header}
                       </th>
@@ -318,7 +399,7 @@ export function SheetScreen(props: {
                       <tr
                         key={rowIndex}
                         className={
-                          (onPage ? '' : 'hidden print:table-row ') + 'odd:bg-white even:bg-slate-50'
+                          (onPage ? '' : 'hidden print:table-row ') + 'odd:bg-surface even:bg-sunken'
                         }
                       >
                         {row.map((cell, cellIndex) => (
@@ -327,7 +408,7 @@ export function SheetScreen(props: {
                             className={
                               cellBase +
                               (cell.ltr === true ? ' whitespace-nowrap' : '') +
-                              (cell.wrap === true ? ' wrap-anywhere' : '') +
+                              (cell.wrap === true ? cellFree : '') +
                               (cell.onClick !== undefined
                                 ? ' cursor-pointer font-semibold text-blue-700 underline decoration-dotted hover:text-blue-900'
                                 : '')
@@ -349,7 +430,7 @@ export function SheetScreen(props: {
                 </tbody>
                 {footer !== null && (
                   <tfoot>
-                    <tr className="bg-slate-100">
+                    <tr className="bg-sunken">
                       {footer.map((cell, cellIndex) => (
                         <td
                           key={cellIndex}
@@ -358,7 +439,7 @@ export function SheetScreen(props: {
                               ? model.head.length - footer.length + 1
                               : 1
                           }
-                          className={`${cellBase} border-t-2 border-t-slate-700 font-bold`}
+                          className={`${cellBase} border-t-2 border-t-rule-strong font-bold text-ink`}
                         >
                           {cell.text}
                         </td>
@@ -367,6 +448,7 @@ export function SheetScreen(props: {
                   </tfoot>
                 )}
               </table>
+              </div>
 
               {pages > 1 && (
                 <div className="print-hidden mt-3 flex items-center justify-center gap-2">
@@ -379,7 +461,7 @@ export function SheetScreen(props: {
                   >
                     {AR.pagePrev}
                   </Button>
-                  <span className="text-sm font-semibold text-slate-600">
+                  <span className="text-sm font-semibold text-muted">
                     {AR.pageOf(current + 1, pages)}
                   </span>
                   <Button
@@ -396,7 +478,7 @@ export function SheetScreen(props: {
             </>
           )}
 
-          <p className="mt-4 text-end text-xs text-slate-400">
+          <p className="mt-4 text-end text-xs text-faint">
             {AR.printedAt} <span dir="ltr">{dateFormat.format(new Date())}</span>
           </p>
         </div>

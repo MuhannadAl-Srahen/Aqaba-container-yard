@@ -1,6 +1,11 @@
-import { useMemo, useState, type ReactElement } from 'react';
+import { useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { DailyReportRow, GateReportRow, Position } from '../shared/types';
+import type {
+  DailyReportRow,
+  GateReportRow,
+  Position,
+  StandingReportRow,
+} from '../shared/types';
 import { AR } from './ar';
 import { api } from './api';
 import {
@@ -23,7 +28,7 @@ import {
  * the per-truck sheet. The operations log lives on its own screen.
  */
 
-type Tab = 'in' | 'out' | 'daily' | 'truck';
+type Tab = 'in' | 'out' | 'standing' | 'daily' | 'truck';
 
 function gateModel(
   rows: readonly GateReportRow[],
@@ -40,11 +45,14 @@ function gateModel(
     AR.colTruck,
     out ? AR.colCardOut : AR.colCardIn,
     AR.colNumber,
+    AR.colSeal,
     AR.colWeight,
     AR.colSize,
     AR.colSlot,
     AR.colCompany,
     ...(out ? [AR.colDwell] : []),
+    AR.colUser,
+    AR.colNotes,
   ];
   const body = rows.map((row, index) => [
     cellText(String(index + 1)),
@@ -61,16 +69,53 @@ function gateModel(
         },
     cellLtr(row.card === null ? dash : String(row.card)),
     cellLtr(row.number),
+    cellLtr(row.seal === '' ? dash : row.seal),
     cellLtr(row.weight === '' ? dash : row.weight),
     cellText(String(row.size)),
     cellLtr(row.position === null ? dash : label(row.position)),
     cellWrap(row.customer),
-    ...(out ? [cellText(row.dwellDays === null ? dash : String(row.dwellDays))] : []),
+    ...(out ? [cellText(row.dwellDays === null ? dash : AR.daysCount(row.dwellDays))] : []),
+    cellText(row.user),
+    cellWrap(row.notes === '' ? dash : row.notes),
   ]);
   const footer =
     rows.length === 0
       ? null
       : [cellText(AR.totalRow), cellText(AR.movementsCount(rows.length))];
+  return { head, body, footer };
+}
+
+/** كشف الحاويات بالساحة — what is standing now, oldest first. */
+function standingModel(
+  rows: readonly StandingReportRow[],
+  label: (position: Position) => string,
+): TableModel {
+  const head = [
+    AR.colSeq,
+    AR.colNumber,
+    AR.colSlot,
+    AR.colSize,
+    AR.colSeal,
+    AR.colCompany,
+    AR.colDate,
+    AR.colDwell,
+    AR.colUser,
+    AR.colNotes,
+  ];
+  const body = rows.map((row, index) => [
+    cellText(String(index + 1)),
+    cellLtr(row.number),
+    cellLtr(row.position === null ? dash : label(row.position)),
+    cellText(String(row.size)),
+    cellLtr(row.seal === '' ? dash : row.seal),
+    cellWrap(row.customer),
+    cellLtr(dateFormat.format(new Date(row.enteredAt))),
+    cellText(AR.daysCount(row.dwellDays)),
+    cellText(row.user),
+    cellWrap(row.notes === '' ? dash : row.notes),
+  ]);
+  const footer =
+    rows.length === 0 ? null : [cellText(AR.totalRow), cellText(AR.standingCount(rows.length))];
   return { head, body, footer };
 }
 
@@ -85,20 +130,24 @@ function truckModel(
     AR.colDate,
     AR.colTime,
     AR.colNumber,
+    AR.colSeal,
     AR.colWeight,
     AR.colSize,
     AR.colSlot,
     AR.colCompany,
+    AR.colUser,
   ];
   const body = rows.map((row, index) => [
     cellText(String(index + 1)),
     cellText(row.statement === 'IN' ? AR.statementIn : AR.statementOut),
     ...stampCells(new Date(row.at)),
     cellLtr(row.number),
+    cellLtr(row.seal === '' ? dash : row.seal),
     cellLtr(row.weight === '' ? dash : row.weight),
     cellText(String(row.size)),
     cellLtr(row.position === null ? dash : label(row.position)),
     cellWrap(row.customer),
+    cellText(row.user),
   ]);
   const footer =
     rows.length === 0
@@ -139,12 +188,15 @@ function dailyModel(rows: readonly DailyReportRow[]): TableModel {
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['in', AR.reportIn],
   ['out', AR.reportOut],
+  ['standing', AR.reportStanding],
   ['daily', AR.reportDaily],
   ['truck', AR.reportTruck],
 ];
 
 export function ReportsScreen(props: {
   label: (position: Position) => string;
+  /** Reprint a gate card straight from the row it is on. */
+  onCard: (kind: 'in' | 'out', containerId: number) => void;
   onBack: () => void;
 }): ReactElement {
   const [tab, setTab] = useState<Tab>('in');
@@ -171,6 +223,11 @@ export function ReportsScreen(props: {
     queryFn: () => api.reportTruck(truck.trim(), fromIso, toIso),
     enabled: valid && tab === 'truck' && truckReady,
   });
+  const standing = useQuery({
+    queryKey: ['report-standing'],
+    queryFn: api.reportStanding,
+    enabled: tab === 'standing',
+  });
 
   const baseTitle = TABS.find(([key]) => key === tab)?.[1] ?? '';
   const title = tab === 'truck' && truckReady ? `${baseTitle} ${truck.trim()}` : baseTitle;
@@ -184,12 +241,41 @@ export function ReportsScreen(props: {
       case 'in':
       case 'out':
         return gateModel(gate.data?.rows ?? [], tab === 'out', props.label, openTruck);
+      case 'standing':
+        return standingModel(standing.data?.rows ?? [], props.label);
       case 'daily':
         return dailyModel(daily.data?.rows ?? []);
       case 'truck':
         return truckModel(truckReport.data?.rows ?? [], props.label);
     }
-  }, [tab, gate.data, daily.data, truckReport.data, props.label]);
+  }, [tab, gate.data, standing.data, daily.data, truckReport.data, props.label]);
+
+  // A register row carries its own card: no hunting the exact number down in
+  // the search box to reprint the paper the driver already lost.
+  const cardActions =
+    tab === 'in' || tab === 'out' || tab === 'standing'
+      ? {
+          header: AR.actionColumn,
+          render: (rowIndex: number): ReactNode => {
+            const containerId =
+              tab === 'standing'
+                ? standing.data?.rows[rowIndex]?.containerId
+                : gate.data?.rows[rowIndex]?.containerId;
+            if (containerId === undefined) return null;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  props.onCard(tab === 'out' ? 'out' : 'in', containerId);
+                }}
+                className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200"
+              >
+                {AR.cardAction}
+              </button>
+            );
+          },
+        }
+      : undefined;
 
   return (
     <SheetScreen
@@ -201,6 +287,8 @@ export function ReportsScreen(props: {
       onFrom={setFrom}
       onTo={setTo}
       onBack={props.onBack}
+      actions={cardActions}
+      rangeless={tab === 'standing' ? AR.standingNow : undefined}
       emptyText={tab === 'truck' && !truckReady ? AR.truckPrompt : undefined}
       tabs={
         <div className="flex flex-wrap gap-1">
@@ -214,8 +302,8 @@ export function ReportsScreen(props: {
               className={
                 'rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ' +
                 (tab === key
-                  ? 'bg-slate-800 text-white shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+                  ? 'bg-slate-800 text-white shadow-sm dark:bg-slate-200 dark:text-slate-900'
+                  : 'bg-sunken text-muted hover:bg-line')
               }
             >
               {tabLabel}
@@ -228,7 +316,7 @@ export function ReportsScreen(props: {
           <input
             dir="ltr"
             placeholder={AR.colTruck}
-            className="w-36 rounded-lg border border-slate-300 px-2.5 py-1.5 text-start text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+            className="w-36 rounded-lg border border-line-strong px-2.5 py-1.5 text-start text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
             value={truck}
             onChange={(event) => {
               setTruck(event.target.value);
