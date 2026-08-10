@@ -1,36 +1,48 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ContainerDto, LocationState, Position } from '../shared/types';
-import { GROUND_TIER, LOCATION_STATES, MIXED_SIZE } from '../shared/types';
-import { positionKey, sameSlot, slotKey } from '../shared/address';
-import { blockOf, canPlace, type SlotStates } from '../shared/rules';
+import type { BlockConfig, ContainerDto, Permission, Position } from '../shared/types';
+import { MIXED_SIZE } from '../shared/types';
+import { positionKey, samePosition } from '../shared/address';
+import { blockOf, canPlace, locationCapacity } from '../shared/rules';
 import { blockTakes } from '../shared/geometry';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
-import { YardMap, computeLayout, type ViewTier } from './YardMap';
+import { YardMap, computeLayout } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard } from './PrintCard';
 import {
-  buildStacks,
+  buildLoads,
+  countLocation,
   labelerFrom,
   legalTargets,
+  placesUsed,
   searchMatches,
+  smallestPlaces,
   summarizeBlock,
   toStanding,
-  type SlotStack,
+  yardFreeSpace,
 } from './mapModel';
 import { usePanZoom } from './usePanZoom';
 import { GateInSheet } from './GateInSheet';
 import { ContainerCard } from './ContainerCard';
 import { YardEditor } from './YardEditor';
+import { UsersScreen } from './UsersScreen';
+import { ThemePicker } from './ThemePicker';
 import { Button, Confirm, Toast, useEscape } from './ui';
 
 /** Below this zoom a cell is a few pixels — hover feedback means nothing. */
 const HOVER_MIN_SCALE = 0.5;
 
-/** Stable empty record so memo deps hold still while the state loads. */
-const NO_SLOT_STATES: SlotStates = {};
+const EMPTY_LOAD: readonly ContainerDto[] = [];
+
+/** The Arabic sentence for a rule refusal the client saw first. */
+function refusalText(refusal: { code: string; free?: number; need?: number }): string {
+  if (refusal.code === 'LOCATION_FULL' && refusal.free !== undefined && refusal.need !== undefined) {
+    return AR.errorFull(refusal.free, refusal.need);
+  }
+  return AR.errors[refusal.code as keyof typeof AR.errors];
+}
 
 /**
  * The one screen. The yard drawing is the interface: receiving, moving and
@@ -38,26 +50,31 @@ const NO_SLOT_STATES: SlotStates = {};
  */
 export function YardScreen(props: { onUnauthorized: () => void }): ReactElement {
   const queryClient = useQueryClient();
-  const [tier, setTier] = useState<ViewTier>(GROUND_TIER);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<ContainerDto | null>(null);
+  const [openAt, setOpenAt] = useState<Position | null>(null);
   const [gateInAt, setGateInAt] = useState<Position | null>(null);
   const [moving, setMoving] = useState<ContainerDto | null>(null);
   const [confirmMove, setConfirmMove] = useState<{ container: ContainerDto; to: Position } | null>(
     null,
   );
-  const [stackChoice, setStackChoice] = useState<SlotStack | null>(null);
   const [editing, setEditing] = useState(false);
   const [reporting, setReporting] = useState(false);
   const [logView, setLogView] = useState(false);
-  const [confirmReset, setConfirmReset] = useState(false);
-  const [confirmSeed, setConfirmSeed] = useState(false);
   const [printCard, setPrintCard] = useState<{ kind: 'in' | 'out'; container: ContainerDto } | null>(
     null,
   );
-  const [slotStateAt, setSlotStateAt] = useState<Position | null>(null);
+  const [usersView, setUsersView] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // Who is working: the header, the sheets and the card only offer what this
+  // person is allowed to do. The server is still the one that refuses.
+  const meQuery = useQuery({ queryKey: ['me'], queryFn: api.me });
+  const me = meQuery.data ?? null;
+  const isOwner = me?.owner ?? false;
+  const may = (permission: Permission): boolean =>
+    isOwner || (me?.permissions.includes(permission) ?? false);
 
   const state = useQuery({
     queryKey: ['state'],
@@ -66,11 +83,18 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     refetchOnWindowFocus: true,
   });
 
+  // A dead session sends us back to the door exactly once. The latch matters:
+  // the bounce clears the cache, which re-renders this screen, and without it
+  // a lingering 401 would fire the bounce again on every render.
+  const { onUnauthorized } = props;
+  const bounced = useRef(false);
   useEffect(() => {
+    if (bounced.current) return;
     if (state.error instanceof ApiFailure && state.error.code === 'UNAUTHORIZED') {
-      props.onUnauthorized();
+      bounced.current = true;
+      onUnauthorized();
     }
-  }, [state.error, props]);
+  }, [state.error, onUnauthorized]);
 
   useEffect(() => {
     if (toast === null) return;
@@ -84,18 +108,17 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   const yard = state.data?.yard ?? null;
   const containers = useMemo(() => state.data?.containers ?? [], [state.data]);
-  const stacks = useMemo(() => buildStacks(containers), [containers]);
+  const loads = useMemo(() => buildLoads(containers), [containers]);
   const layout = useMemo(() => (yard === null ? null : computeLayout(yard)), [yard]);
   const label = useMemo(() => labelerFrom(state.data?.blockNames ?? {}), [state.data]);
-  const slotStates = state.data?.slotStates ?? NO_SLOT_STATES;
 
   const matches = useMemo(() => searchMatches(containers, search), [containers, search]);
   const searchActive = search.trim() !== '';
 
   const targets = useMemo(() => {
     if (yard === null || moving === null) return null;
-    return legalTargets(yard, containers, slotStates, moving.size, moving.id);
-  }, [yard, containers, slotStates, moving]);
+    return legalTargets(yard, containers, moving.size, moving.id);
+  }, [yard, containers, moving]);
 
   // Out-of-yard hits come from the server: the map query only carries who is standing.
   const remote = useQuery({
@@ -107,6 +130,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     () => (remote.data?.results ?? []).filter((c) => c.position === null),
     [remote.data],
   );
+  /** The standing hits, so the search can say WHERE each one is. */
+  const standingResults = useMemo(
+    () => containers.filter((container) => matches.has(container.id)),
+    [containers, matches],
+  );
 
   const pz = usePanZoom(layout?.width ?? 0, layout?.height ?? 0);
   const { wasDrag } = pz;
@@ -117,15 +145,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     void queryClient.invalidateQueries({ queryKey: ['search'] });
     setToast(message);
     setSelected(null);
+    setOpenAt(null);
     setGateInAt(null);
     setMoving(null);
     setConfirmMove(null);
-    setStackChoice(null);
-    setSlotStateAt(null);
     setBusy(false);
   };
 
-  const handleCell = (position: Position, stack: SlotStack): void => {
+  const handleCell = (position: Position): void => {
     if (yard === null) return;
 
     if (moving !== null) {
@@ -134,26 +161,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         return;
       }
       // Not a green target: say why in words instead of ignoring the tap.
-      if (
-        moving.position !== null &&
-        sameSlot(moving.position, position) &&
-        moving.position.tier === position.tier
-      ) {
+      if (moving.position !== null && samePosition(moving.position, position)) {
         setToast(AR.errors.SAME_SLOT);
         return;
       }
-      const refusal = canPlace(
-        yard,
-        toStanding(containers),
-        slotStates,
-        moving.size,
-        position,
-        moving.id,
-      );
+      const refusal = canPlace(yard, toStanding(containers), moving.size, position, moving.id);
       if (refusal !== null) {
-        setToast(
-          'by' in refusal ? AR.errorWithBy(refusal.code, refusal.by) : AR.errors[refusal.code],
-        );
+        setToast(refusalText(refusal));
         return;
       }
       // Legal by the fresh rules but missing from the (≤15 s old) target
@@ -162,49 +176,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       return;
     }
 
-    const occupant = position.tier === GROUND_TIER ? stack.ground : stack.upper;
-
-    // One overlay at a time: tapping a new cell closes whatever was open,
-    // never stacks a second sheet behind the first.
+    // One overlay at a time: tapping a cell closes whatever was open, never
+    // stacks a second sheet behind the first.
     setSelected(null);
     setGateInAt(null);
-    setStackChoice(null);
-    setSlotStateAt(null);
-
-    // Two containers on this ground: ask which one is meant. In the الكل
-    // view both halves are visible separately, so the tap is unambiguous.
-    if (
-      tier !== 'ALL' &&
-      position.tier === GROUND_TIER &&
-      stack.ground !== undefined &&
-      stack.upper !== undefined
-    ) {
-      setStackChoice(stack);
-      return;
-    }
-
-    if (occupant !== undefined) {
-      setSelected(occupant);
-      return;
-    }
-
-    // An empty position: start a gate-in there, or say in words why not.
-    // In a mixed block any size probes the same support/occupancy rules.
-    const block = blockOf(yard, position.block);
-    if (block === null) return;
-    const probeSize = block.size === MIXED_SIZE ? 20 : block.size;
-    const refusal = canPlace(yard, toStanding(containers), slotStates, probeSize, position);
-    if (refusal !== null) {
-      // A blocked location opens its state sheet instead of a dead end —
-      // otherwise صيانة could be set and never cleared from the map.
-      if (refusal.code === 'LOCATION_MAINTENANCE' || refusal.code === 'LOCATION_CLOSED') {
-        setSlotStateAt(position);
-        return;
-      }
-      setToast('by' in refusal ? AR.errorWithBy(refusal.code, refusal.by) : AR.errors[refusal.code]);
-      return;
-    }
-    setGateInAt(position);
+    setOpenAt(position);
   };
 
   const commitMove = (): void => {
@@ -222,40 +198,51 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       });
   };
 
-  const stackOf = (container: ContainerDto): { above: ContainerDto | null; below: ContainerDto | null } => {
-    if (container.position === null) return { above: null, below: null };
-    const stack = stacks.get(slotKey(container.position));
-    if (stack === undefined) return { above: null, below: null };
-    if (container.position.tier === GROUND_TIER) {
-      return { above: stack.upper ?? null, below: null };
-    }
-    return { above: null, below: stack.ground ?? null };
+  /** Everything else standing in this container's own location. */
+  const siblingsOf = (container: ContainerDto): readonly ContainerDto[] => {
+    if (container.position === null) return EMPTY_LOAD;
+    const load = loads.get(positionKey(container.position)) ?? EMPTY_LOAD;
+    return load.filter((other) => other.id !== container.id);
+  };
+
+  /** Places still open where this container stands, itself not counted. */
+  const roomAt = (position: Position): number => {
+    if (yard === null) return 0;
+    const block = blockOf(yard, position.block);
+    if (block === null) return 0;
+    return locationCapacity(block) - placesUsed(loads.get(positionKey(position)));
   };
 
   const freeLabels = useMemo(() => {
     const labels = new Map<number, string>();
     if (yard !== null) {
       for (const block of yard.blocks) {
-        // While a move is placing, a block the container's size can never
+        // While a move is placing, a column the container's size can never
         // enter says so where its free count usually stands — otherwise an
         // all-grey area reads as a mystery, not a size policy.
-        const base =
-          moving !== null && !blockTakes(block.size, moving.size)
-            ? AR.blockNoSize(moving.size)
-            : ((): string => {
-                const summary = summarizeBlock(block, stacks);
-                return AR.freeOf(summary.freeGround, summary.totalGround);
-              })();
-        // An area under a state announces it beside the free count.
+        if (moving !== null && !blockTakes(block.size, moving.size)) {
+          labels.set(block.id, AR.blockNoSize(moving.size));
+          continue;
+        }
+        // Both halves, because the owner reads the column header to answer
+        // «شو المليان وشو الفاضي» in one look.
+        const summary = summarizeBlock(block, loads);
         labels.set(
           block.id,
-          block.state === 'NORMAL' ? base : `${AR.locationStateName[block.state]} — ${base}`,
+          AR.fullAndFree(summary.totalPlaces - summary.freePlaces, summary.freePlaces),
         );
       }
     }
     return labels;
-  }, [yard, stacks, moving]);
+  }, [yard, loads, moving]);
 
+  // «قديش باقي» — the whole yard's remaining room, 40s apart from 20s.
+  const freeSpace = useMemo(
+    () => (yard === null ? null : yardFreeSpace(yard, loads)),
+    [yard, loads],
+  );
+
+  const openBlock = openAt === null || yard === null ? null : blockOf(yard, openAt.block);
   const gateInBlock = gateInAt === null || yard === null ? null : blockOf(yard, gateInAt.block);
 
   // The map is memoized against pan/zoom frames; its props must hold still.
@@ -263,9 +250,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const handleCellRef = useRef(handleCell);
   handleCellRef.current = handleCell;
   const onCellClick = useCallback(
-    (position: Position, stack: SlotStack) => {
+    (position: Position) => {
       if (wasDrag()) return;
-      handleCellRef.current(position, stack);
+      handleCellRef.current(position);
     },
     [wasDrag],
   );
@@ -276,17 +263,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         ? null
         : {
             yard,
-            stacks,
-            tier,
+            loads,
             selectedId: selected?.id ?? null,
             matches,
             searchActive,
             targets,
             movingId: moving?.id ?? null,
-            slotStates,
             onCellClick,
           },
-    [yard, stacks, tier, selected, matches, searchActive, targets, moving, slotStates, onCellClick],
+    [yard, loads, selected, matches, searchActive, targets, moving, onCellClick],
   );
 
   if (editing && yard !== null) {
@@ -294,7 +279,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <YardEditor
         yard={yard}
         containers={containers}
-        slotStates={slotStates}
         onSaved={(message) => {
           setEditing(false);
           void queryClient.invalidateQueries({ queryKey: ['state'] });
@@ -307,10 +291,27 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     );
   }
 
+  if (usersView && isOwner) {
+    return (
+      <UsersScreen
+        onBack={() => {
+          setUsersView(false);
+        }}
+      />
+    );
+  }
+
   if (reporting) {
     return (
       <ReportsScreen
         label={label}
+        onCard={(kind, containerId) => {
+          // Straight from the register row to the paper — no hunting the
+          // exact number down in the search box first.
+          void api.detail(containerId).then(({ container }) => {
+            setPrintCard({ kind, container });
+          });
+        }}
         onBack={() => {
           setReporting(false);
         }}
@@ -330,11 +331,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-slate-100">
-      <header className="z-10 border-b border-slate-200 bg-white px-3 py-2 shadow-sm lg:px-5">
+    <div className="flex h-dvh flex-col bg-canvas">
+      <header className="z-10 border-b border-line bg-surface px-3 py-2 shadow-sm lg:px-5">
         <div className="flex flex-wrap items-center gap-2 lg:gap-4">
-          <h1 className="text-base font-extrabold text-slate-900 lg:text-lg">{AR.appName}</h1>
-          <span className="hidden text-xs font-medium text-slate-400 lg:block">
+          <h1 className="text-base font-extrabold text-ink lg:text-lg">{AR.appName}</h1>
+          <span className="hidden text-xs font-medium text-faint lg:block">
             {AR.inYardCount(containers.length)}
           </span>
 
@@ -342,8 +343,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             <div className="relative w-full max-w-md">
               <input
                 className={
-                  'w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-2 text-sm ' +
-                  'outline-none focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-200'
+                  'w-full rounded-xl border border-line-strong bg-sunken px-3.5 py-2 text-sm ' +
+                  'outline-none focus:border-blue-500 focus:bg-surface focus:ring-2 focus:ring-blue-200'
                 }
                 placeholder={AR.searchPlaceholder}
                 value={search}
@@ -358,29 +359,62 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                   onClick={() => {
                     setSearch('');
                   }}
-                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 text-slate-400 hover:text-slate-700"
+                  className="absolute end-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 text-faint hover:text-ink"
                 >
                   ✕
                 </button>
               )}
-              {searchActive && departedResults.length > 0 && (
-                <div className="absolute top-full z-20 mt-1 w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
-                  <p className="bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-500">
-                    {AR.searchOutTitle}
-                  </p>
-                  {departedResults.slice(0, 6).map((container) => (
+              {/* A search must answer «وين هي» in words, not only by lighting
+                  a cell somewhere off screen: the standing hits come first,
+                  each with its own location. */}
+              {searchActive && (standingResults.length > 0 || departedResults.length > 0) && (
+                <div className="absolute top-full z-20 mt-1 max-h-80 w-full overflow-y-auto rounded-xl border border-line bg-surface shadow-lg">
+                  {standingResults.length > 0 && (
+                    <p className="bg-sunken px-3 py-1.5 text-xs font-bold text-muted">
+                      {AR.searchInTitle}
+                    </p>
+                  )}
+                  {standingResults.slice(0, 8).map((container) => (
                     <button
                       key={container.id}
                       type="button"
-                      className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-slate-50"
+                      className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-sunken"
                       onClick={() => {
                         setSelected(container);
                       }}
                     >
-                      <span className="font-mono font-semibold" dir="ltr">
+                      <span className="font-mono font-semibold text-ink" dir="ltr">
                         {container.number}
                       </span>
-                      <span className="text-xs text-slate-500">{container.customer}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-xs text-muted">{container.customer}</span>
+                        <span
+                          className="shrink-0 rounded-md bg-blue-700 px-1.5 py-0.5 font-mono text-xs font-bold text-white"
+                          dir="ltr"
+                        >
+                          {container.position === null ? '—' : label(container.position)}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                  {departedResults.length > 0 && (
+                    <p className="bg-sunken px-3 py-1.5 text-xs font-bold text-muted">
+                      {AR.searchOutTitle}
+                    </p>
+                  )}
+                  {departedResults.slice(0, 6).map((container) => (
+                    <button
+                      key={container.id}
+                      type="button"
+                      className="flex w-full items-center justify-between px-3 py-2 text-sm hover:bg-sunken"
+                      onClick={() => {
+                        setSelected(container);
+                      }}
+                    >
+                      <span className="font-mono font-semibold text-ink" dir="ltr">
+                        {container.number}
+                      </span>
+                      <span className="text-xs text-muted">{container.customer}</span>
                     </button>
                   ))}
                 </div>
@@ -393,64 +427,51 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             )}
           </div>
 
+          {/* Only what this person may actually do reaches the header. The
+              server refuses the rest regardless — this is just courtesy. */}
           <div className="ms-auto flex items-center gap-1.5">
-            <div className="flex overflow-hidden rounded-xl border border-slate-300">
-              {([1, 2, 'ALL'] as const).map((level) => (
-                <button
-                  key={level}
-                  type="button"
+            <ThemePicker />
+            {may('REPORTS') && (
+              <>
+                <Button
+                  kind="quiet"
                   onClick={() => {
-                    setTier(level);
+                    setReporting(true);
                   }}
-                  className={
-                    'px-3 py-1.5 text-sm font-semibold transition-colors ' +
-                    (tier === level ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-100')
-                  }
                 >
-                  {level === 1 ? AR.tierGround : level === 2 ? AR.tierUpper : AR.tierAll}
-                </button>
-              ))}
-            </div>
-            <Button
-              kind="quiet"
-              onClick={() => {
-                setReporting(true);
-              }}
-            >
-              {AR.reports}
-            </Button>
-            <Button
-              kind="quiet"
-              onClick={() => {
-                setLogView(true);
-              }}
-            >
-              {AR.logButton}
-            </Button>
-            <Button
-              kind="quiet"
-              onClick={() => {
-                setEditing(true);
-              }}
-            >
-              {AR.editYard}
-            </Button>
-            <Button
-              kind="danger"
-              onClick={() => {
-                setConfirmReset(true);
-              }}
-            >
-              {AR.devReset}
-            </Button>
-            <Button
-              kind="danger"
-              onClick={() => {
-                setConfirmSeed(true);
-              }}
-            >
-              {AR.devSeed}
-            </Button>
+                  {AR.reports}
+                </Button>
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setLogView(true);
+                  }}
+                >
+                  {AR.logButton}
+                </Button>
+              </>
+            )}
+            {isOwner && (
+              <>
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setEditing(true);
+                  }}
+                >
+                  {AR.editYard}
+                </Button>
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setUsersView(true);
+                  }}
+                >
+                  {AR.usersButton}
+                </Button>
+              </>
+            )}
+            <span className="hidden text-xs font-bold text-muted lg:block">{me?.name}</span>
             <Button
               kind="quiet"
               onClick={() => {
@@ -462,36 +483,34 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           </div>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-          <LegendChip color="#1d4ed8" label={AR.legendLaden} />
-          <LegendChip color="#bfdbfe" label={AR.legendEmpty} />
-          <LegendChip color="#475569" label={AR.legendStacked} layered />
-          <LegendChip color="#f8fafc" label={AR.legendFree} dashed />
-          {moving !== null && <LegendChip color="#dcfce7" label={AR.legendTarget} border="#16a34a" />}
-          {/* Condition chips appear only when the condition exists somewhere. */}
-          {containers.some((c) => c.status === 'DAMAGED') && (
-            <LegendChip color="#dc2626" label={AR.containerStatusName.DAMAGED} />
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
+          <LegendChip color="var(--yard-free)" label={AR.legendFree} dashed />
+          <LegendChip
+            color="var(--yard-partial)"
+            label={AR.legendPartial}
+            border="var(--yard-partial-border)"
+          />
+          <LegendChip color="var(--yard-full)" label={AR.legendFull} />
+          {moving !== null && (
+            <LegendChip
+              color="var(--yard-target)"
+              label={AR.legendTarget}
+              border="var(--yard-target-border)"
+            />
           )}
-          {containers.some((c) => c.status === 'HOLD') && (
-            <LegendChip color="#0f172a" label={AR.containerStatusName.HOLD} />
+          {containers.some((c) => c.notes !== '') && (
+            <LegendChip color="var(--yard-match)" label={AR.legendNoted} dot />
           )}
-          {containers.some((c) => c.status === 'REPAIR') && (
-            <LegendChip color="#7c3aed" label={AR.containerStatusName.REPAIR} />
-          )}
-          {containers.some((c) => c.status === 'INSPECT') && (
-            <LegendChip color="#f59e0b" label={AR.containerStatusName.INSPECT} />
-          )}
-          {(Object.values(slotStates).includes('MAINTENANCE') ||
-            (yard?.blocks.some((b) => b.state === 'MAINTENANCE') ?? false)) && (
-            <LegendChip color="#e2e8f0" label={AR.locationStateName.MAINTENANCE} border="#94a3b8" />
-          )}
-          {(Object.values(slotStates).includes('RESERVED') ||
-            (yard?.blocks.some((b) => b.state === 'RESERVED') ?? false)) && (
-            <LegendChip color="#fef9c3" label={AR.locationStateName.RESERVED} border="#ca8a04" />
-          )}
-          {(Object.values(slotStates).includes('CLOSED') ||
-            (yard?.blocks.some((b) => b.state === 'CLOSED') ?? false)) && (
-            <LegendChip color="#fecaca" label={AR.locationStateName.CLOSED} border="#b91c1c" />
+
+          {/* «قديش باقي» — kept apart by size, because a free place in a 40
+              column is no use to a 20 standing at the gate. */}
+          {freeSpace !== null && (
+            <span className="ms-auto flex flex-wrap items-center gap-1.5">
+              <span className="font-semibold text-muted">{AR.freeTitle}</span>
+              <FreeChip label={AR.freeForty(freeSpace.forty)} />
+              <FreeChip label={AR.freeTwenty(freeSpace.twenty)} />
+              {freeSpace.mixed > 0 && <FreeChip label={AR.freeMixed(freeSpace.mixed)} />}
+            </span>
           )}
         </div>
       </header>
@@ -555,7 +574,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               type="button"
               aria-label={label_}
               onClick={action}
-              className="h-10 w-10 rounded-xl border border-slate-200 bg-white text-lg font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+              className="h-10 w-10 rounded-xl border border-line bg-surface text-lg font-bold text-ink shadow-sm hover:bg-sunken"
             >
               {glyph}
             </button>
@@ -563,52 +582,37 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         </div>
       </main>
 
+      {openAt !== null && openBlock !== null && (
+        <LocationSheet
+          block={openBlock}
+          locationText={label(openAt)}
+          load={loads.get(positionKey(openAt)) ?? EMPTY_LOAD}
+          canGateIn={may('GATE_IN')}
+          onPick={(container) => {
+            setOpenAt(null);
+            setSelected(container);
+          }}
+          onAdd={() => {
+            const position = openAt;
+            setOpenAt(null);
+            setGateInAt(position);
+          }}
+          onClose={() => {
+            setOpenAt(null);
+          }}
+        />
+      )}
+
       {gateInAt !== null && gateInBlock !== null && state.data !== undefined && (
         <GateInSheet
           position={gateInAt}
           blockSize={gateInBlock.size}
           positionText={label(gateInAt)}
-          slotState={
-            slotStates[slotKey(gateInAt)] ??
-            (gateInBlock.state === 'RESERVED' ? 'RESERVED' : 'NORMAL')
-          }
+          freePlaces={roomAt(gateInAt)}
           customers={state.data.customers}
           onDone={refresh}
-          onEditSlotState={() => {
-            const position = gateInAt;
-            setGateInAt(null);
-            setSlotStateAt(position);
-          }}
           onClose={() => {
             setGateInAt(null);
-          }}
-        />
-      )}
-
-      {slotStateAt !== null && yard !== null && (
-        <SlotStateSheet
-          slotText={label(slotStateAt)}
-          slotState={slotStates[slotKey(slotStateAt)] ?? 'NORMAL'}
-          blockState={blockOf(yard, slotStateAt.block)?.state ?? 'NORMAL'}
-          busy={busy}
-          onSet={(nextState, scope) => {
-            setBusy(true);
-            const slot = slotStateAt;
-            const work =
-              scope === 'slot'
-                ? api.setSlotState({ block: slot.block, row: slot.row, col: slot.col }, nextState)
-                : api.setBlockState(slot.block, nextState);
-            work
-              .then(() => {
-                refresh(AR.slotStateSaved);
-              })
-              .catch((failure: unknown) => {
-                setBusy(false);
-                setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
-              });
-          }}
-          onClose={() => {
-            setSlotStateAt(null);
           }}
         />
       )}
@@ -616,14 +620,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {selected !== null && (
         <ContainerCard
           container={selected}
-          above={stackOf(selected).above}
-          below={stackOf(selected).below}
+          siblings={siblingsOf(selected)}
+          roomHere={selected.position === null ? 0 : roomAt(selected.position)}
+          may={may}
           label={label}
           onStartMove={(container) => {
             setSelected(null);
             setMoving(container);
           }}
-          onStackOnTop={(position) => {
+          onAddHere={(position) => {
             setSelected(null);
             setGateInAt(position);
           }}
@@ -652,73 +657,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         />
       )}
 
-      {stackChoice !== null && (
-        <StackChooser
-          stack={stackChoice}
-          onPick={(container) => {
-            setStackChoice(null);
-            setSelected(container);
-          }}
-          onClose={() => {
-            setStackChoice(null);
-          }}
-        />
-      )}
-
-      {confirmReset && (
-        <Confirm
-          title={AR.devResetTitle}
-          body={AR.devResetBody}
-          confirmLabel={AR.devReset}
-          danger
-          busy={busy}
-          onConfirm={() => {
-            setBusy(true);
-            api
-              .devReset()
-              .then(() => {
-                setConfirmReset(false);
-                refresh(AR.devResetDone);
-              })
-              .catch((failure: unknown) => {
-                setBusy(false);
-                setConfirmReset(false);
-                setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
-              });
-          }}
-          onCancel={() => {
-            setConfirmReset(false);
-          }}
-        />
-      )}
-
-      {confirmSeed && (
-        <Confirm
-          title={AR.devSeedTitle}
-          body={AR.devSeedBody}
-          confirmLabel={AR.devSeed}
-          danger
-          busy={busy}
-          onConfirm={() => {
-            setBusy(true);
-            api
-              .devSeed()
-              .then(() => {
-                setConfirmSeed(false);
-                refresh(AR.devSeedDone);
-              })
-              .catch((failure: unknown) => {
-                setBusy(false);
-                setConfirmSeed(false);
-                setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
-              });
-          }}
-          onCancel={() => {
-            setConfirmSeed(false);
-          }}
-        />
-      )}
-
       {confirmMove !== null && (
         <Confirm
           title={AR.confirmMoveTitle}
@@ -737,35 +675,25 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   );
 }
 
-/** Two containers share the tapped ground — a clear pick, not a hidden toggle. */
-function StackChooser(props: {
-  stack: SlotStack;
+/**
+ * What is inside one location, which is the whole question the map cannot
+ * answer on its own: how full it is, who is in it, and the way to add one
+ * more while there is room.
+ */
+function LocationSheet(props: {
+  block: BlockConfig;
+  locationText: string;
+  load: readonly ContainerDto[];
+  /** Hide the gate-in button from whoever may not receive containers. */
+  canGateIn: boolean;
   onPick: (container: ContainerDto) => void;
+  onAdd: () => void;
   onClose: () => void;
 }): ReactElement {
   useEscape(props.onClose);
-  const { ground, upper } = props.stack;
-  const choice = (
-    container: ContainerDto | undefined,
-    title: string,
-  ): ReactElement | null =>
-    container === undefined ? null : (
-      <button
-        type="button"
-        className={
-          'flex w-full items-center justify-between rounded-xl border border-slate-200 px-4 py-3 ' +
-          'text-sm hover:border-blue-400 hover:bg-blue-50'
-        }
-        onClick={() => {
-          props.onPick(container);
-        }}
-      >
-        <span className="font-bold text-slate-700">{title}</span>
-        <span className="font-mono font-semibold text-slate-900" dir="ltr">
-          {container.number}
-        </span>
-      </button>
-    );
+  const count = countLocation(props.block, props.load);
+  const room = locationCapacity(props.block) - placesUsed(props.load);
+  const canAdd = room >= smallestPlaces(props.block);
 
   return (
     <div
@@ -773,129 +701,130 @@ function StackChooser(props: {
       onClick={props.onClose}
     >
       <div
-        className="w-full max-w-sm space-y-2 rounded-2xl bg-white p-5 shadow-2xl"
+        className="max-h-[85dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
         onClick={(event) => {
           event.stopPropagation();
         }}
       >
-        <h3 className="mb-3 text-base font-bold text-slate-900">{AR.stackChooserTitle}</h3>
-        {choice(upper, AR.stackUpperChoice)}
-        {choice(ground, AR.stackGroundChoice)}
+        <div className="flex items-baseline justify-between gap-3">
+          <h3 className="font-mono text-lg font-extrabold text-ink" dir="ltr">
+            {props.locationText}
+          </h3>
+          <span
+            className={
+              'rounded-lg px-2 py-0.5 text-sm font-bold ' +
+              (count.full ? 'bg-blue-800 text-white' : 'bg-sunken text-muted')
+            }
+          >
+            {count.full ? AR.locationFull : AR.locationHas(count.used, count.total)}
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-faint">
+          {AR.blockShape(
+            props.block.placesPerTier / (props.block.size === 40 ? 2 : 1),
+            props.block.tiers,
+            props.block.size === MIXED_SIZE,
+          )}
+        </p>
+
+        <div className="mt-3 space-y-1.5">
+          {props.load.length === 0 && (
+            <p className="rounded-xl bg-sunken px-4 py-6 text-center text-sm text-faint">
+              {AR.locationHas(0, count.total)}
+            </p>
+          )}
+          {props.load.map((container) => (
+            <button
+              key={container.id}
+              type="button"
+              className={
+                'flex w-full items-center justify-between gap-3 rounded-xl border border-line ' +
+                'px-3.5 py-2.5 text-start hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40'
+              }
+              onClick={() => {
+                props.onPick(container);
+              }}
+            >
+              <span className="min-w-0">
+                <span className="block font-mono text-sm font-bold text-ink" dir="ltr">
+                  {container.number}
+                </span>
+                <span className="block truncate text-xs text-muted">{container.customer}</span>
+                {/* The note is where the condition lives now, so a couple of
+                    lines of it ride along under the number. */}
+                {container.notes !== '' && (
+                  <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-amber-700 dark:text-amber-400">
+                    {container.notes}
+                  </span>
+                )}
+              </span>
+              <span className="flex shrink-0 items-center gap-1.5 text-xs">
+                <span className="rounded-md bg-sunken px-1.5 py-0.5 font-semibold text-muted">
+                  {container.size}
+                </span>
+                {container.sealIn !== '' && (
+                  <span
+                    className="rounded-md bg-slate-800 px-1.5 py-0.5 font-mono font-semibold text-white"
+                    dir="ltr"
+                  >
+                    {container.sealIn}
+                  </span>
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
+          {props.canGateIn && (
+            <Button kind="primary" disabled={!canAdd} onClick={props.onAdd}>
+              {AR.locationAdd}
+            </Button>
+          )}
+          {props.canGateIn && !canAdd && (
+            <span className="text-xs text-faint">{AR.locationAddBlocked}</span>
+          )}
+          <span className="ms-auto">
+            <Button kind="quiet" onClick={props.onClose}>
+              {AR.close}
+            </Button>
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-/**
- * The location-state sheet: opened from an empty slot (via the gate-in card
- * or by tapping a blocked slot) — sets the slot's own state or, with the
- * scope toggle, the whole area's.
- */
-function SlotStateSheet(props: {
-  slotText: string;
-  slotState: LocationState;
-  blockState: LocationState;
-  busy: boolean;
-  onSet: (state: LocationState, scope: 'slot' | 'block') => void;
-  onClose: () => void;
-}): ReactElement {
-  const [scope, setScope] = useState<'slot' | 'block'>('slot');
-  useEscape(props.onClose);
-  const current = scope === 'slot' ? props.slotState : props.blockState;
-
+/** One size's remaining room, sized to be read across the office. */
+function FreeChip(props: { label: string }): ReactElement {
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-      onClick={props.onClose}
-    >
-      <div
-        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl"
-        onClick={(event) => {
-          event.stopPropagation();
-        }}
-      >
-        <h3 className="text-base font-bold text-slate-900">{AR.slotStateTitle}</h3>
-        <p className="mt-1 text-sm font-semibold text-slate-500" dir="ltr">
-          {props.slotText}
-        </p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {(['slot', 'block'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => {
-                setScope(option);
-              }}
-              className={
-                'rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ' +
-                (scope === option
-                  ? 'border-slate-700 bg-slate-700 text-white'
-                  : 'border-slate-300 bg-white text-slate-600 hover:border-slate-500')
-              }
-            >
-              {option === 'slot' ? AR.slotStateScopeSlot : AR.slotStateScopeBlock}
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {LOCATION_STATES.map((option) => (
-            <button
-              key={option}
-              type="button"
-              disabled={props.busy || option === current}
-              onClick={() => {
-                props.onSet(option, scope);
-              }}
-              className={
-                'rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ' +
-                (option === current
-                  ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-slate-300 bg-white text-slate-600 hover:border-blue-400')
-              }
-            >
-              {AR.locationStateName[option]}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
+    <span className="rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-800 dark:bg-blue-950 dark:text-blue-200">
+      {props.label}
+    </span>
   );
 }
 
 function LegendChip(props: {
   color: string;
   label: string;
-  layered?: boolean;
   dashed?: boolean;
+  dot?: boolean;
   border?: string;
 }): ReactElement {
   return (
     <span className="flex items-center gap-1.5">
-      {props.layered === true ? (
-        <span className="relative inline-block h-3.5 w-4">
-          <span
-            className="absolute bottom-0 start-0 inline-block h-3 w-3.5 rounded-sm"
-            style={{ backgroundColor: '#93c5fd' }}
-          />
-          <span
-            className="absolute end-0 top-0 inline-block h-3 w-3.5 rounded-sm"
-            style={{ backgroundColor: props.color }}
-          />
-        </span>
-      ) : (
-        <span
-          className="inline-block h-3 w-4 rounded-sm"
-          style={{
-            backgroundColor: props.color,
-            border:
-              props.border !== undefined
-                ? `1.5px solid ${props.border}`
-                : props.dashed === true
-                  ? '1.5px dashed #cbd5e1'
-                  : undefined,
-          }}
-        />
-      )}
+      <span
+        className={props.dot === true ? 'inline-block h-2.5 w-2.5 rounded-full' : 'inline-block h-3 w-4 rounded-sm'}
+        style={{
+          backgroundColor: props.color,
+          border:
+            props.border !== undefined
+              ? `1.5px solid ${props.border}`
+              : props.dashed === true
+                ? '1.5px dashed #cbd5e1'
+                : undefined,
+        }}
+      />
       {props.label}
     </span>
   );

@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useCallback, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { AR } from './ar';
@@ -7,8 +7,9 @@ import { SetupScreen } from './SetupScreen';
 import { YardScreen } from './YardScreen';
 
 /**
- * Three states, decided by the server: first run → setup; no session → login;
- * otherwise the yard. There is no routing — the yard IS the application.
+ * Three states, decided by the server: first run → setup; no session → the
+ * sign-in; otherwise the yard. There is no routing — the yard IS the
+ * application.
  */
 export default function App(): ReactElement {
   const queryClient = useQueryClient();
@@ -17,15 +18,22 @@ export default function App(): ReactElement {
 
   const boot = useQuery({ queryKey: ['boot'], queryFn: api.boot });
 
-  const reboot = (): void => {
-    void queryClient.invalidateQueries();
+  /**
+   * Somebody just signed in or out, and it may not be the same person.
+   * Everything in the cache — who I am, what the yard holds, and any 401 left
+   * behind by the session that just ended — belongs to the previous session,
+   * so it is thrown away rather than merely marked stale: a kept answer would
+   * decide the next screen. Stable identity, because the screens hold onto it.
+   */
+  const reboot = useCallback((): void => {
+    void queryClient.resetQueries();
     setEpoch((n) => n + 1);
-  };
+  }, [queryClient]);
 
   if (boot.data === undefined) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-slate-100">
-        <p className="text-sm font-semibold text-slate-400">
+      <div className="flex min-h-dvh items-center justify-center bg-canvas">
+        <p className="text-sm font-semibold text-faint">
           {boot.isError ? AR.networkError : AR.loading}
         </p>
       </div>
@@ -33,6 +41,6 @@ export default function App(): ReactElement {
   }
 
   if (boot.data.firstRun) return <SetupScreen onDone={reboot} />;
-  if (!boot.data.authorized) return <LoginScreen onDone={reboot} />;
+  if (!boot.data.authorized) return <LoginScreen staff={boot.data.staff} onDone={reboot} />;
   return <YardScreen onUnauthorized={reboot} />;
 }
