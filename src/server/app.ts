@@ -1,6 +1,8 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import type { DatabaseSync } from 'node:sqlite';
+import { mkdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 
 import type { Browser, BrowserType } from 'playwright-core';
@@ -15,24 +17,14 @@ import type {
   Permission,
   Position,
   StandingReportRow,
-  YardConfig,
   YardStateDto,
 } from '../shared/types';
-import {
-  MAX_BLOCKS,
-  MAX_BLOCK_NAME,
-  MAX_LOCATIONS,
-  MAX_PLACES_PER_TIER,
-  MAX_TIERS,
-  OWNER_ID,
-  PERMISSIONS,
-} from '../shared/types';
+import { OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
 import { ammanDay, daysBetween } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
-import type { RuleRefusal } from '../shared/rules';
-import { canPlace, overfilledByLayout, strandedByLayout } from '../shared/rules';
-import { positionLabel, samePosition } from '../shared/address';
-import { blockTakes, defaultLayout, overlappingPairs } from '../shared/geometry';
+import type { Refusal as RuleRefusal } from '../shared/rules';
+import { canMove, canPlace, canRemove } from '../shared/rules';
+import { ASEZA } from '../shared/asezaLayout';
 import {
   SESSION_COOKIE,
   hasPassword,
@@ -64,59 +56,25 @@ const refuse = (status: number, code: ErrorCode, details?: ApiError['details']):
   throw new Refusal(status, details === undefined ? { code } : { code, details });
 };
 
-/** A rule refusal with whatever numbers its Arabic sentence interpolates. */
+/** A rule refusal, carrying the other container's number when one is involved. */
 const refuseRule = (refusal: RuleRefusal): never =>
-  refuse(
-    409,
-    refusal.code,
-    refusal.code === 'LOCATION_FULL' ? { free: refusal.free, need: refusal.need } : undefined,
-  );
+  refuse(409, refusal.code, refusal.other === undefined ? undefined : { other: refusal.other });
 
+/** The official five-part slot. The yard digit derives from the zone. */
 const positionSchema = z.object({
-  block: z.number().int().min(1),
-  row: z.number().int().min(1),
-});
-
-const columnShapeSchema = z.object({
-  rows: z.number().int().min(1).max(MAX_LOCATIONS),
-  placesPerTier: z.number().int().min(1).max(MAX_PLACES_PER_TIER),
-  tiers: z.number().int().min(1).max(MAX_TIERS),
-});
-
-/** The simple first-run shape: two columns, laid out by defaultLayout. */
-const setupYardSchema = z.object({
-  twenty: columnShapeSchema,
-  forty: columnShapeSchema,
-});
-
-const blockSchema = z
-  .object({
-    /** Present for an existing block; absent for one the editor just added. */
-    id: z.number().int().min(1).optional(),
-    name: z.string().trim().min(1).max(MAX_BLOCK_NAME),
-    /** 0 = مختلط: the column takes either container size. */
-    size: z.union([z.literal(20), z.literal(40), z.literal(0)]),
-    rows: z.number().int().min(1).max(MAX_LOCATIONS),
-    /** Twenty-foot places per tier — a 40 fills two of them. */
-    placesPerTier: z.number().int().min(1).max(MAX_PLACES_PER_TIER),
-    tiers: z.number().int().min(1).max(MAX_TIERS),
-    x: z.number().finite().min(-50000).max(50000),
-    y: z.number().finite().min(-50000).max(50000),
-    // Any whole degree: the owner turns columns freely with the mouse.
-    angle: z.number().int().min(0).max(359),
-  })
-  // A 40-only column is counted in whole 40s by the editor, so an odd number
-  // of places would round-trip as a half container the owner never typed.
-  .refine((block) => block.size !== 40 || block.placesPerTier % 2 === 0);
-
-const layoutSchema = z.object({
-  blocks: z.array(blockSchema).min(1).max(MAX_BLOCKS),
+  zone: z.enum(ZONES),
+  bay: z.number().int().min(1).max(60),
+  stack: z.number().int().min(1).max(10),
+  tier: z.enum(TIERS),
 });
 
 const gateInSchema = z.object({
   number: z.string().trim().min(1).max(20),
   size: z.union([z.literal(20), z.literal(40)]),
+  /** اسم المالك — the container's owner. */
   customer: z.string().trim().min(1).max(120),
+  /** رقم البوليصة — optional by the owner's call; a blank is «بدون بوليصة». */
+  bill: z.string().trim().max(40).default(''),
   notes: z.string().trim().max(2000),
   position: positionSchema,
   /** The truck and the seal — the owner made both mandatory paperwork. */
@@ -136,6 +94,7 @@ const gateOutSchema = z.object({
 const editSchema = z.object({
   number: z.string().trim().min(1).max(20),
   customer: z.string().trim().min(1).max(120),
+  bill: z.string().trim().max(40).default(''),
   size: z.union([z.literal(20), z.literal(40)]),
   notes: z.string().trim().max(2000),
 });
@@ -239,14 +198,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return id;
   };
 
-  const requireYard = (): ReturnType<typeof store.getYard> & object => {
-    const yard = store.getYard(db);
-    if (yard === null) refuse(409, 'NOT_SETUP');
-    // The refusal above throws; this narrows for the type checker.
-    if (yard === null) throw new Error('unreachable');
-    return yard;
-  };
-
   const sendSession = (reply: FastifyReply, userId: number): void => {
     reply.setCookie(SESSION_COOKIE, issueSession(db, userId, Date.now()), {
       path: '/',
@@ -280,7 +231,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return {
       firstRun: !hasPassword(db),
       authorized: isAuthorized(request),
-      yardConfigured: store.getYard(db) !== null,
       staff: store.listUsers(db).map((user) => ({ id: user.id, name: user.name })),
     };
   });
@@ -288,19 +238,19 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   /** Who is signed in and what the screen may offer them. */
   app.get('/api/me', (request): MeDto => requireAuth(request));
 
-  /** First run only: password + yard shape in one step, then signed in. */
+  /**
+   * First run: the owner's password and nothing else. The yard itself needs
+   * no setting up — it is the official ASEZA layout, compiled in.
+   */
   app.post('/api/setup', (request, reply) => {
     if (hasPassword(db)) refuse(409, 'ALREADY_SETUP');
     const body = parseOrRefuse(
-      z.object({ password: z.string().min(6).max(200), yard: setupYardSchema }),
+      z.object({ password: z.string().min(6).max(200) }),
       request.body,
     );
 
     transaction(db, () => {
       setPassword(db, body.password);
-      for (const block of defaultLayout(body.yard.twenty, body.yard.forty)) {
-        store.insertBlock(db, block);
-      }
     });
     sendSession(reply, OWNER_ID);
     return { ok: true };
@@ -392,97 +342,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   app.get('/api/state', (request): YardStateDto => {
     requireAuth(request);
-    const yard = requireYard();
     return {
-      yard,
       containers: store.listInYard(db),
       customers: store.listCustomers(db),
-      blockNames: store.listBlockNames(db),
     };
-  });
-
-  /**
-   * The whole layout in one atomic save: columns move, turn, grow, get
-   * renamed, appear or disappear together. Growth and movement are free; a
-   * change may never strand a standing container, overfill a location, nor
-   * stack two columns on the same ground.
-   */
-  app.put('/api/yard', (request) => {
-    requireOwner(request);
-    const current = requireYard();
-    const body = parseOrRefuse(layoutSchema, request.body);
-
-    return transaction(db, () => {
-      const liveIds = new Set(current.blocks.map((block) => block.id));
-      const seenIds = new Set<number>();
-      const seenNames = new Set<string>();
-      for (const block of body.blocks) {
-        if (block.id !== undefined) {
-          if (!liveIds.has(block.id) || seenIds.has(block.id)) refuse(404, 'NOT_FOUND');
-          seenIds.add(block.id);
-        }
-        if (seenNames.has(block.name)) refuse(409, 'NAME_TAKEN', { name: block.name });
-        seenNames.add(block.name);
-      }
-
-      // New blocks get placeholder ids for the checks; nothing stands in them.
-      const proposed: YardConfig = {
-        blocks: body.blocks.map((block, index) => ({ ...block, id: block.id ?? -(index + 1) })),
-      };
-
-      const overlaps = overlappingPairs(proposed.blocks);
-      const firstOverlap = overlaps[0];
-      if (firstOverlap !== undefined) {
-        refuse(409, 'BLOCK_OVERLAP', {
-          names: `${firstOverlap[0].name} × ${firstOverlap[1].name}`,
-        });
-      }
-
-      const standing = store.listStanding(db);
-      const names = store.listBlockNames(db);
-      const nameOf = (id: number): string => names[String(id)] ?? '؟';
-
-      // A block that disappears must be empty.
-      const keptIds = new Set(proposed.blocks.map((block) => block.id));
-      const emptied = standing.find((s) => !keptIds.has(s.position.block));
-      if (emptied !== undefined) {
-        refuse(409, 'BLOCK_NOT_EMPTY', { name: nameOf(emptied.position.block) });
-      }
-
-      const stranded = strandedByLayout(proposed, standing, store.standingSizes(db));
-      if (stranded.length > 0) {
-        refuse(409, 'SHRINK_OCCUPIED', {
-          containers: stranded
-            .map((s) => `${s.number} @ ${positionLabel(nameOf, s.position)}`)
-            .join('، '),
-        });
-      }
-
-      // Cutting places or tiers may leave a location holding more than the
-      // new shape allows — a different fault from stranding, and a different
-      // fix: raise the number back, or empty the location first.
-      const overfilled = overfilledByLayout(proposed, standing);
-      if (overfilled.length > 0) {
-        refuse(409, 'CAPACITY_OCCUPIED', {
-          locations: overfilled.map((position) => positionLabel(nameOf, position)).join('، '),
-        });
-      }
-
-      const at = now();
-      for (const id of liveIds) {
-        if (!keptIds.has(id)) store.softDeleteBlock(db, id, at);
-      }
-      for (const block of body.blocks) {
-        if (block.id !== undefined) store.updateBlock(db, { ...block, id: block.id });
-        else store.insertBlock(db, block);
-      }
-      return store.getYard(db);
-    });
   });
 
   app.post('/api/containers', (request, reply) => {
     const actor = requirePerm(request, 'GATE_IN');
-    const yard = requireYard();
     const body = parseOrRefuse(gateInSchema, request.body);
     const check = checkNumber(body.number);
 
@@ -492,7 +359,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (duplicate !== null) refuse(409, 'NUMBER_IN_YARD', { number: check.normalized });
 
       const standing = store.listStanding(db);
-      const refusal = canPlace(yard, standing, body.size, body.position);
+      const refusal = canPlace(ASEZA, standing, body.size, body.position);
       if (refusal !== null) refuseRule(refusal);
 
       const at = now();
@@ -501,6 +368,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         numberValid: check.valid,
         size: body.size,
         customer: body.customer,
+        bill: body.bill,
         notes: body.notes,
         position: body.position,
         at,
@@ -527,16 +395,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   app.post('/api/containers/:id/move', (request) => {
     const actor = requirePerm(request, 'MOVE');
-    const yard = requireYard();
     const id = idParam(request);
     const body = parseOrRefuse(z.object({ to: positionSchema }), request.body);
 
     return transaction(db, () => {
       const { dto, position } = standingContainer(id);
-      if (samePosition(position, body.to)) refuse(409, 'SAME_SLOT');
-
-      const place = canPlace(yard, store.listStanding(db), dto.size, body.to, id);
-      if (place !== null) refuseRule(place);
+      const standing = store.listStanding(db);
+      const mover = { id, number: dto.number, size: dto.size, position };
+      // The lift AND the landing: buried refuses, then the target's own rules.
+      const refusal = canMove(ASEZA, standing, mover, body.to);
+      if (refusal !== null) refuseRule(refusal);
 
       const at = now();
       store.setPosition(db, id, body.to);
@@ -547,12 +415,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   app.post('/api/containers/:id/exit', (request) => {
     const actor = requirePerm(request, 'GATE_OUT');
-    requireYard();
     const id = idParam(request);
     const gate = parseOrRefuse(gateOutSchema, request.body);
 
     return transaction(db, () => {
-      const { position } = standingContainer(id);
+      const { dto, position } = standingContainer(id);
+      // Zero-mistake tracking cuts both ways: a container with another one
+      // standing on top cannot leave — that one comes down first.
+      const standing = store.listStanding(db);
+      const lift = canRemove(standing, { id, number: dto.number, size: dto.size, position });
+      if (lift !== null) refuseRule(lift);
       const at = now();
       store.markExited(db, id, at, {
         truck: gate.truck,
@@ -586,16 +458,11 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         }
       }
 
-      // A size flip while standing must fit the column the container stands
-      // in, and its location must still have room: a 20 growing into a 40
-      // claims a second place, and paperwork alone cannot create one.
+      // A size flip while standing is physically impossible on the official
+      // grid: the bay's parity IS the size. Move it out or gate it out first,
+      // then fix the paperwork.
       if (body.size !== existing.size && existing.position !== null) {
-        const yard = requireYard();
-        const at = existing.position;
-        const block = yard.blocks.find((b) => b.id === at.block);
-        if (block === undefined || !blockTakes(block.size, body.size)) refuse(409, 'WRONG_ZONE');
-        const grow = canPlace(yard, store.listStanding(db), body.size, at, id);
-        if (grow !== null) refuseRule(grow);
+        if (sizeOfBay(existing.position.bay) !== body.size) refuse(409, 'BAD_SLOT');
       }
 
       const changed: string[] = [];
@@ -612,6 +479,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         changed.push('size');
         before['size'] = existing.size;
       }
+      if (body.bill !== existing.bill) {
+        changed.push('bill');
+        before['bill'] = existing.bill;
+      }
       if (body.notes !== existing.notes) {
         changed.push('notes');
         before['notes'] = existing.notes;
@@ -622,6 +493,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           number: check.normalized,
           numberValid: check.valid,
           customer: body.customer,
+          bill: body.bill,
           size: body.size,
           notes: body.notes,
         });
@@ -645,7 +517,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   /** Undo a deletion: the record returns, standing where it stood if it can. */
   app.post('/api/containers/:id/restore', (request) => {
     const actor = requirePerm(request, 'DELETE');
-    const yard = requireYard();
     const id = idParam(request);
 
     return transaction(db, () => {
@@ -656,7 +527,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       const wasAt = store.lastDeletePosition(db, id);
       if (wasAt !== null) {
-        const refusal = canPlace(yard, store.listStanding(db), existing.size, wasAt);
+        const refusal = canPlace(ASEZA, store.listStanding(db), existing.size, wasAt);
         if (refusal !== null) refuseRule(refusal);
       }
       store.restoreContainer(db, id, wasAt);
@@ -707,6 +578,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         weight: row.weight,
         size: row.size,
         customer: row.customer,
+        bill: row.bill,
         position: row.position,
         seal: row.seal,
         notes: row.notes,
@@ -732,6 +604,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         number: container.number,
         size: container.size,
         customer: container.customer,
+        bill: container.bill,
         position: container.position,
         seal: container.sealIn,
         enteredAt: container.enteredAt,
@@ -772,6 +645,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         weight: row.weight,
         size: row.size,
         customer: row.customer,
+        bill: row.bill,
         position: row.position,
         seal: row.seal,
         notes: row.notes,
@@ -781,6 +655,48 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       return { rows };
     },
   );
+
+  /**
+   * كشف البوليصة: every container travelling under one bill of lading —
+   * the standing ones first with their exact slots, then the departed with
+   * their exit dates. No date range: a bill is a group, not a period.
+   */
+  app.get('/api/reports/bill', (request): { rows: ContainerDto[] } => {
+    requirePerm(request, 'REPORTS');
+    const query = request.query as { number?: string };
+    const bill = (query.number ?? '').trim();
+    if (bill === '' || bill.length > 40) refuse(400, 'VALIDATION');
+    return { rows: store.listByBill(db, bill) };
+  });
+
+  /**
+   * النسخة الاحتياطية بكبسة: a clean snapshot of the whole database, written
+   * beside the live file AND handed back as a download — two copies from one
+   * tap. VACUUM INTO folds the WAL in, so the snapshot is complete and
+   * self-contained. The owner's button alone.
+   */
+  app.post('/api/backup', (request, reply) => {
+    requireOwner(request);
+    const main = (db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>)
+      .find((row) => row.name === 'main');
+    const liveFile = main?.file ?? '';
+    if (liveFile === '') refuse(409, 'NOT_SETUP');
+
+    const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', '-');
+    const dir = path.join(path.dirname(liveFile), 'backups');
+    mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, `yard-${stamp}.db`);
+    db.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`);
+
+    const bytes = readFileSync(target);
+    void reply
+      .type('application/octet-stream')
+      .header(
+        'content-disposition',
+        `attachment; filename*=UTF-8''${encodeURIComponent(path.basename(target))}`,
+      );
+    return bytes;
+  });
 
   /**
    * The report as a real PDF: the client sends the same sheet it shows, the

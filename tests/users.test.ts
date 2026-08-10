@@ -13,12 +13,7 @@ import type { Permission, Position } from '../src/shared/types';
 let app: FastifyInstance;
 let ownerCookie: string;
 
-const YARD = {
-  twenty: { rows: 3, placesPerTier: 4, tiers: 2 },
-  forty: { rows: 2, placesPerTier: 4, tiers: 2 },
-};
-const B20 = 1;
-const at = (block: number, row: number): Position => ({ block, row });
+const at = (bay: number, stack: number): Position => ({ zone: 'B', bay, stack, tier: 'A' });
 
 const cookieOf = (headers: Record<string, unknown>): string => {
   const raw = headers['set-cookie'];
@@ -87,7 +82,7 @@ beforeEach(async () => {
   const response = await app.inject({
     method: 'POST',
     url: '/api/setup',
-    payload: { password: 'yard-secret', yard: YARD },
+    payload: { password: 'yard-secret' },
   });
   if (response.statusCode !== 200) throw new Error('setup failed');
   ownerCookie = cookieOf(response.headers as Record<string, unknown>);
@@ -194,7 +189,7 @@ describe('permissions', () => {
     const received = await call({
       method: 'POST',
       url: '/api/containers',
-      payload: gateInPayload('MSCU1234566', at(B20, 1)),
+      payload: gateInPayload('MSCU1234566', at(1, 1)),
       cookie: nour.cookie,
     });
     expect(received.status).toBe(201);
@@ -211,7 +206,7 @@ describe('permissions', () => {
     expect((out.body as { code: string }).code).toBe('FORBIDDEN');
 
     for (const [method, url, payload] of [
-      ['POST', `/api/containers/${String(id)}/move`, { to: at(B20, 2) }],
+      ['POST', `/api/containers/${String(id)}/move`, { to: at(3, 1) }],
       ['PATCH', `/api/containers/${String(id)}`, { number: 'MSCU1234566', customer: 'x', size: 20, notes: '' }],
       ['DELETE', `/api/containers/${String(id)}`, undefined],
       ['GET', '/api/reports/standing', undefined],
@@ -221,9 +216,9 @@ describe('permissions', () => {
     }
   });
 
-  it('the yard editor and the staff list are the owner alone', async () => {
+  it('the staff list is the owner alone', async () => {
     // Even an employee holding every grantable permission is still not the
-    // owner: these are never a checkbox.
+    // owner: staff management is never a checkbox.
     const ayman = await hire('ايمن', '1111', [
       'GATE_IN',
       'MOVE',
@@ -233,7 +228,6 @@ describe('permissions', () => {
       'REPORTS',
     ]);
     for (const [method, url, payload] of [
-      ['PUT', '/api/yard', { blocks: [] }],
       ['GET', '/api/users', undefined],
       ['POST', '/api/users', { name: 'x', pin: '1234', permissions: [] }],
     ] as const) {
@@ -248,7 +242,7 @@ describe('permissions', () => {
     const received = await call({
       method: 'POST',
       url: '/api/containers',
-      payload: gateInPayload('MSCU1234566', at(B20, 1)),
+      payload: gateInPayload('MSCU1234566', at(1, 1)),
       cookie: ownerCookie,
     });
     expect(received.status).toBe(201);
@@ -261,14 +255,14 @@ describe('the audit trail', () => {
     const received = await call({
       method: 'POST',
       url: '/api/containers',
-      payload: gateInPayload('MSCU1234566', at(B20, 1)),
+      payload: gateInPayload('MSCU1234566', at(1, 1)),
       cookie: wesam.cookie,
     });
     const id = (received.body as { id: number }).id;
     await call({
       method: 'POST',
       url: `/api/containers/${String(id)}/move`,
-      payload: { to: at(B20, 2) },
+      payload: { to: at(3, 1) },
       cookie: ownerCookie,
     });
 
@@ -303,7 +297,7 @@ describe('the audit trail', () => {
     await call({
       method: 'POST',
       url: '/api/containers',
-      payload: gateInPayload('MSCU1234566', at(B20, 1)),
+      payload: gateInPayload('MSCU1234566', at(1, 1)),
       cookie: nour.cookie,
     });
     await call({ method: 'DELETE', url: `/api/users/${String(nour.id)}`, cookie: ownerCookie });
