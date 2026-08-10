@@ -8,6 +8,11 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    // The dev-time decoder runs under plain node: its globals are node's.
+    files: ['tools/**/*.mjs'],
+    languageOptions: { globals: { process: 'readonly', Buffer: 'readonly', console: 'readonly' } },
+  },
+  {
     rules: {
       // Project rules, not style preferences: no `any`, no escape hatches,
       // no dead code left behind.

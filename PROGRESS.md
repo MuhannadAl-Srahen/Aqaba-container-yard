@@ -589,3 +589,102 @@ Verified: 140 tests, typecheck and lint clean, and the whole thing driven in a
 real browser against a copy of the live yard — role switch, both owner
 screens, the registers light and dark, and the generated PDF read back page by
 page.
+
+### الساحة الرسمية — Aseza Yard، تتبع لحد الطابق — schema v9 — 2026-08-10
+
+The owner came back from the authority with the official plan: **Aseza
+Yard**, two yards (Y1: TGS 571, Y2: TGS 110, TOTAL = 681 twenty-foot ground
+slots), the drawing itself in `Aseza yard.xlsx`, and one sentence that
+reversed the whole basket era: «انسى موضوع الونش… بدي دقة التتبع مية بالمية
+وين مكان الحاوية بالزبط الغلط صفررررررر». Everything yard-shaped changed;
+the staff, the seal, the registers machinery and dark mode carried over.
+
+- **The drawing was decoded, not transcribed.** `tools/decode-aseza.mjs`
+  reads the xlsx (a ~40-line ZIP reader over zlib — no new dependency) and
+  emits `src/shared/asezaLayout.ts` as committed pure data. Each zone sheet
+  paints bays as 15-row bands: the band's first row carries the usable stack
+  numbers — one numeric cell = one ground slot — with the bay number in
+  column B below it. The tool REFUSES to write if the tally disagrees with
+  the printed totals. First run caught its own assumption: zone A switches
+  to a 16-row pitch after bay 47, so anchoring on rows ≡ 2 (mod 15) missed
+  bays 49–53 (exactly 30 slots). Re-anchored on the bay numbers themselves:
+  **A=242, B=230, C=54, D=45 → Y1=571 ✓; E=110 ✓** — and the walls the
+  owner described («الحيط ضيق») are in the data: A's first bays lack stacks
+  1–2, E's bay 27 keeps only 6.
+- **The address is the official five-part code** `1-A-03-01-A` — yard
+  derived from the zone (E → 2), odd bay = 20, even bay = a 40 lying across
+  the two odd bays around it, stack 01–10, tiers A/B only. `positionLabel`
+  is pure now — no DB lookup — and every register, card, search result and
+  movement line speaks it.
+- **The physics went into shared rules**: parity IS the size; every covered
+  ground slot must exist; a spanning 40 occupies the same cell of both odd
+  bays; tier B demands support (a 20 only on a 20 — a 40's roof has no
+  middle castings; a 40 on two 20s or on a 40); and **BURIED refuses both
+  exit and move** until the one on top comes down, naming it in the toast.
+  `freeNow` counts real legal landings per size per yard — the header's
+  numbers matched the hand-computed 537/102 on the empty yard.
+- **Schema v9 is a cutover**: containers, movements and the whole blocks
+  table dropped (the owner: «شيل كل الحاويات واشتغل على النظام الجديد
+  تماما»); users, PINs, permissions and the password survive; card serials
+  restart at 1; the old file is snapshotted first via `VACUUM INTO` as
+  `yard.db.pre-v9-backup.db`. The v1→v8 migration ladder was deleted whole.
+  The yard editor, `PUT /api/yard`, setup's yard step and `GET /api/state`'s
+  yard payload all died — the layout ships compiled into both sides.
+- **The map draws the official ground**: five zone strips with the plan's
+  own bay numbers, hatched hangars/buildings/tower/caravan as orientation
+  marks, per-yard free chips, and TEU counts per bay. Tapping a bay opens
+  the new **BaySheet** — stacks across, tier B drawn above tier A, walls
+  hatched «حيط» — where every operation picks its exact slot; an empty cell
+  offers exactly the landings the rules allow, including «حط 40 بالعرض مع
+  الباي المجاور». Gate-in arrives with the slot fixed and the size decided
+  by parity; the size toggle locks while standing.
+- Verified: **97 tests** (layout totals pinned; parity/wall/occupancy/
+  support/burial physics; migration wipe-keep-backup; API flows; users and
+  dates untouched), typecheck and lint clean, and a browser drive end to
+  end — setup with password alone, both yards and hangars on screen, a 20
+  into `1-A-03-08-A`, a second stacked on tier B, the buried one refused
+  with the name on top, a 40 landed as `1-B-02-01-A` painting both bays, search
+  and the entry register speaking full codes. **23/23 green.** The live
+  file, meanwhile, migrated itself under the owner's running dev server —
+  backup written beside it, وسام intact — and the owner had already gated
+  five containers into official slots before the round was even written up.
+
+### الطابق الثالث، البوليصة، والنسخة الاحتياطية — schema v10 — 2026-08-10
+
+Same-day follow-up round, on the owner's list: «ارفع طابق 3 للكل احتياط»,
+a one-tap backup, the bill of lading, and two label changes.
+
+- **Tier C everywhere.** TIERS grew to A/B/C with `tierBelow`/`tierAbove`
+  helpers, and every rule generalized off the literal pair: support checks
+  the tier directly below (20-on-20 only, 40 on two 20s or a 40 — on C like
+  anywhere), burial checks the tier directly above, `freeNow` and the bay
+  capacity sweep TIERS. The bay sheet draws C over B over A; a bay of 10
+  stacks now reads 0/30. Physics proven in tests AND in the browser: a
+  three-high stack went in, and the middle one's exit was refused with
+  «فوقها CCCC3333 — نزّلها الأول».
+- **رقم البوليصة** rides the container end to end: optional at the gate (the
+  owner's call), on the container card, the printed entry card, and as a
+  clickable column on the entry/exit/standing/truck registers. A new
+  **كشف بوليصة** gathers the whole group — standing first with exact slots,
+  departed after with exit dates, footer split 20/40 — and the search box
+  understands bills: typing 3210 lights all its containers on the map and
+  offers «بوليصة 3210 — 4 حاوية» as a doorway straight to that sheet.
+  Tapping the bill number in any register jumps the same way.
+- **Schema v10, non-destructive**: `containers.bill` plus the tier CHECK
+  widened to accept C — a rebuild (SQLite cannot edit a CHECK) that carries
+  every row across, proven by a v9-fixture migration test. Detected from the
+  table's own SQL as always.
+- **النسخة الاحتياطية بكبسة**: POST /api/backup (owner-only) runs
+  `VACUUM INTO data/backups/yard-<stamp>.db` — WAL folded in — and streams
+  the same bytes back as a download. One tap, two copies. The header button
+  sits beside «الموظفين»; the test opens the download and checks the SQLite
+  magic bytes plus the server-side copy.
+- **Labels**: «اسم العميل» became **«اسم المالك»** everywhere (the container's
+  owner — distinct from the yard's المالك in the employee column), and the
+  weight is **بالكغم** on the form, the card and every register.
+
+Verified: **107 tests**, typecheck and lint clean, and a browser drive: the
+three-tier stack, the BURIED refusal by name, the bill doorway from search,
+the bill sheet with its 3-عشرين/1-أربعين footer, the clickable bill cell on
+the entry register, the kg label, and the free chips counting honestly
+(571 − 3 covered grounds = 568 with the roofs balancing out).
