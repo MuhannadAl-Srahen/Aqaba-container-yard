@@ -1,45 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import {
-  positionKey,
-  positionLabel,
-  rowNumber,
-  samePosition,
-  type BlockNamer,
-} from '../src/shared/address';
+import { bayLabel, baySpan, positionKey, positionLabel, samePosition } from '../src/shared/address';
+import type { Position } from '../src/shared/types';
 
-const nameOf: BlockNamer = (id) => (id === 1 ? 'A' : id === 4 ? 'D' : '؟');
-
-describe('labels', () => {
-  it('numbers rows in odd steps, zero-padded, the way the ground is marked', () => {
-    expect(rowNumber(1)).toBe('01');
-    expect(rowNumber(2)).toBe('03');
-    expect(rowNumber(3)).toBe('05');
-    expect(rowNumber(15)).toBe('29');
-    // Past the ninth location the pad stops mattering and never truncates.
-    expect(rowNumber(51)).toBe('101');
+describe('the official five-part code', () => {
+  it('writes the address exactly as the yard says it: يارد-زون-باي-ستاك-طابق', () => {
+    expect(positionLabel({ zone: 'A', bay: 3, stack: 1, tier: 'A' })).toBe('1-A-03-01-A');
+    expect(positionLabel({ zone: 'D', bay: 17, stack: 5, tier: 'B' })).toBe('1-D-17-05-B');
   });
 
-  it('writes the location the way the yard says it: column, then row', () => {
-    expect(positionLabel(nameOf, { block: 1, row: 1 })).toBe('A-01');
-    expect(positionLabel(nameOf, { block: 4, row: 22 })).toBe('D-43');
+  it('derives the yard digit from the zone — E is yard 2, nobody types it', () => {
+    expect(positionLabel({ zone: 'E', bay: 27, stack: 8, tier: 'B' })).toBe('2-E-27-08-B');
+    expect(positionLabel({ zone: 'B', bay: 1, stack: 10, tier: 'A' })).toBe('1-B-01-10-A');
   });
 
-  it('a deleted or unknown column still yields a readable label', () => {
-    expect(positionLabel(nameOf, { block: 99, row: 1 })).toBe('؟-01');
-  });
-});
-
-describe('location identity', () => {
-  it('two positions are the same location only in the same column and row', () => {
-    expect(samePosition({ block: 1, row: 1 }, { block: 1, row: 1 })).toBe(true);
-    expect(samePosition({ block: 1, row: 1 }, { block: 2, row: 1 })).toBe(false);
-    expect(samePosition({ block: 1, row: 1 }, { block: 1, row: 2 })).toBe(false);
+  it('addresses a 40 by the even bay it lies across', () => {
+    expect(positionLabel({ zone: 'A', bay: 2, stack: 4, tier: 'A' })).toBe('1-A-02-04-A');
   });
 
-  it('keys are stable and distinct', () => {
-    expect(positionKey({ block: 1, row: 3 })).toBe(positionKey({ block: 1, row: 3 }));
-    expect(positionKey({ block: 1, row: 3 })).not.toBe(positionKey({ block: 3, row: 1 }));
-    // The separator keeps 1|11 from colliding with 11|1.
-    expect(positionKey({ block: 1, row: 11 })).not.toBe(positionKey({ block: 11, row: 1 }));
+  it('speaks the short bay form for map cells: A-03', () => {
+    expect(bayLabel('A', 3)).toBe('A-03');
+    expect(bayLabel('E', 27)).toBe('E-27');
+  });
+
+  it('spans: a 20 covers its own odd bay, a 40 covers the two around it', () => {
+    expect(baySpan(7)).toEqual([7]);
+    expect(baySpan(8)).toEqual([7, 9]);
+    expect(baySpan(2)).toEqual([1, 3]);
+  });
+
+  it('keys and equality tell slots apart to the tier', () => {
+    const a: Position = { zone: 'A', bay: 3, stack: 1, tier: 'A' };
+    const b: Position = { zone: 'A', bay: 3, stack: 1, tier: 'B' };
+    expect(positionKey(a)).toBe('A|3|1|A');
+    expect(samePosition(a, { ...a })).toBe(true);
+    expect(samePosition(a, b)).toBe(false);
   });
 });

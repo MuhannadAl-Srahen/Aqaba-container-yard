@@ -1,84 +1,101 @@
 /**
  * The one vocabulary both sides speak. The server enforces everything here;
  * the client only mirrors checks for a faster answer on screen.
+ *
+ * Since schema v9 the yard is the official ASEZA yard: the ground truth lives
+ * in `asezaLayout.ts`, generated from the authority's own drawing and locked
+ * by tests to its printed totals (Y1 = 571, Y2 = 110, TOTAL = 681).
  */
 
 /** The two container sizes this yard receives, in feet. */
 export const SIZES = [20, 40] as const;
 export type Size = (typeof SIZES)[number];
 
-/**
- * A container's footprint inside a location, counted in twenty-foot places.
- * A location is two lanes wide and forty feet deep: four 20s fit (two in
- * front, two behind), or two 40s lying along the lanes.
- */
-export const PLACES_20 = 1;
-export const PLACES_40 = 2;
+/** The five zones of the official plan. E stands alone as yard 2. */
+export const ZONES = ['A', 'B', 'C', 'D', 'E'] as const;
+export type Zone = (typeof ZONES)[number];
 
 /**
- * A block's size policy: dedicated to one size, or MIXED_SIZE (wire value 0)
- * where a location takes either size and each container claims its own
- * places. The policy decides who may enter; the places decide how many.
+ * Three tiers: A on the ground, B over it, and C — the reserve floor the
+ * owner asked for («طابق 3 للكل احتياط») — on top of B.
  */
-export const MIXED_SIZE = 0;
-export type BlockSize = Size | typeof MIXED_SIZE;
+export const TIERS = ['A', 'B', 'C'] as const;
+export type Tier = (typeof TIERS)[number];
 
-/**
- * One column of locations, placed freely on the yard canvas. The block's
- * name IS the column letter the yard says out loud — A, B, C… — and its
- * locations are numbered 01, 03, 05 down the column.
- */
-export interface BlockConfig {
-  /** Stable identity; positions and history refer to it. Assigned by the server. */
-  readonly id: number;
-  /** The owner's own name for the column, unique among live blocks. */
-  readonly name: string;
-  readonly size: BlockSize;
-  /** How many locations the column holds. */
-  readonly rows: number;
-  /** Twenty-foot places one location takes per tier. A 40 fills two of them. */
-  readonly placesPerTier: number;
-  /** How high this column stacks. Capacity is placesPerTier × tiers. */
-  readonly tiers: number;
-  /** Top-left corner of the unrotated frame, in yard units. */
-  readonly x: number;
-  readonly y: number;
-  /** Degrees clockwise around the frame's centre, snapped to ANGLE_STEP. */
-  readonly angle: number;
+/** The tier physically under this one; null on the ground. */
+export function tierBelow(tier: Tier): Tier | null {
+  const index = TIERS.indexOf(tier);
+  return index <= 0 ? null : (TIERS[index - 1] ?? null);
 }
 
-export interface YardConfig {
-  readonly blocks: readonly BlockConfig[];
+/** The tier physically above this one; null at the top of the stack. */
+export function tierAbove(tier: Tier): Tier | null {
+  const index = TIERS.indexOf(tier);
+  return index >= TIERS.length - 1 ? null : (TIERS[index + 1] ?? null);
 }
 
-/** Bounds for block shapes — sanity limits of the site, not of the software. */
-export const MAX_LOCATIONS = 60;
-export const MAX_PLACES_PER_TIER = 12;
-export const MAX_TIERS = 6;
-export const MAX_BLOCKS = 30;
-export const MAX_BLOCK_NAME = 40;
-/** What a fresh column starts as, before the owner shapes it. */
-export const DEFAULT_LOCATIONS = 15;
-export const DEFAULT_PLACES_PER_TIER = 4;
-export const DEFAULT_TIERS = 2;
-/** Rotation granularity: every angle on the wire is a multiple of this. */
-export const ANGLE_STEP = 15;
+/** Which yard a zone belongs to — the address digit nobody types by hand. */
+export function yardOf(zone: Zone): 1 | 2 {
+  return zone === 'E' ? 2 : 1;
+}
 
 /**
- * A location on the ground: where a column crosses a row. Nothing finer —
- * the crew fills it like a basket and the register only says which basket.
+ * The bay's parity IS the container size: an odd bay takes a 20-footer; an
+ * even bay is a 40-footer lying across the two odd bays around it (a 40 over
+ * bays 01 and 03 is addressed as bay 02).
+ */
+export function sizeOfBay(bay: number): Size {
+  return bay % 2 === 1 ? 20 : 40;
+}
+
+/**
+ * One exact slot on the official grid: the five-part code the yard writes as
+ * `1-A-03-01-A` — yard (derived from the zone), zone, bay, stack, tier.
+ * Tracking is precise to this slot; «الغلط صفر» was the owner's brief.
  */
 export interface Position {
-  /** The block's id — the column. */
-  readonly block: number;
-  /** 1-based location down the column, written 01, 03, 05… */
-  readonly row: number;
+  readonly zone: Zone;
+  /** Odd for a 20; even for a 40 straddling bay−1 and bay+1. */
+  readonly bay: number;
+  /** 1…10 across the strip; the walls clip some (they are not in the layout). */
+  readonly stack: number;
+  readonly tier: Tier;
+}
+
+/** A rectangle on the yard canvas, in yard units. */
+export interface Rect {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+}
+
+/** One zone as the official drawing defines it. */
+export interface ZoneDef extends Rect {
+  readonly zone: Zone;
+  readonly yard: 1 | 2;
+  /** The odd bay numbers, in drawing order. */
+  readonly bays: readonly number[];
+  /** Usable stacks per odd bay, keyed by the bay number as a string. */
+  readonly stacks: Readonly<Record<string, readonly number[]>>;
+}
+
+/** Orientation marks from the printed plan — nothing stands on them. */
+export type LandmarkKind = 'hangar' | 'building' | 'tower' | 'caravan';
+export interface Landmark extends Rect {
+  readonly kind: LandmarkKind;
+  readonly label: string;
+}
+
+/** The whole official yard: the decoded zones plus the landmarks. */
+export interface YardLayout {
+  readonly zones: readonly ZoneDef[];
+  readonly landmarks: readonly Landmark[];
 }
 
 /**
  * What an employee is allowed to do. The owner holds every one of these plus
- * the three that are never granted: the yard editor, employee management and
- * the development tools.
+ * the two that are never granted: employee management and the reset tools.
  */
 export const PERMISSIONS = ['GATE_IN', 'MOVE', 'GATE_OUT', 'EDIT', 'DELETE', 'REPORTS'] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -106,7 +123,14 @@ export interface ContainerDto {
   /** Number verdict (ISO or the yard's 4+4 form). Advisory only — never refused. */
   readonly numberValid: boolean;
   readonly size: Size;
+  /** اسم المالك — whoever owns the container, not the yard's owner. */
   readonly customer: string;
+  /**
+   * رقم البوليصة — the bill of lading this container travels under. One bill
+   * gathers a group of containers (twenties and forties mixed); blank when
+   * none was recorded.
+   */
+  readonly bill: string;
   /** ISO timestamps, UTC. */
   readonly enteredAt: string;
   readonly exitedAt: string | null;
@@ -140,6 +164,7 @@ export interface GateReportRow {
   readonly weight: string;
   readonly size: Size;
   readonly customer: string;
+  readonly bill: string;
   readonly position: Position | null;
   /** The seal of THIS gate moment — entry's on an IN row, exit's on an OUT. */
   readonly seal: string;
@@ -156,6 +181,7 @@ export interface StandingReportRow {
   readonly number: string;
   readonly size: Size;
   readonly customer: string;
+  readonly bill: string;
   readonly position: Position | null;
   readonly seal: string;
   readonly enteredAt: string;
@@ -203,17 +229,14 @@ export interface MovementDto {
   readonly note: string;
 }
 
-/** Everything the map needs, in one response. */
+/**
+ * Everything the map needs, in one response. The yard's shape is NOT here —
+ * the official layout is compiled into both sides as `ASEZA`.
+ */
 export interface YardStateDto {
-  readonly yard: YardConfig;
   readonly containers: readonly ContainerDto[];
   /** Distinct customer names, for the gate-in suggestions. */
   readonly customers: readonly string[];
-  /**
-   * Names of ALL blocks ever, keyed by id as a string — history mentions
-   * blocks that may have been deleted since, and their names must survive.
-   */
-  readonly blockNames: Readonly<Record<string, string>>;
 }
 
 /**
@@ -229,16 +252,17 @@ export const ERROR_CODES = [
   'ALREADY_SETUP',
   'VALIDATION',
   'NOT_FOUND',
-  'OUT_OF_BOUNDS',
-  'WRONG_ZONE',
-  'LOCATION_FULL',
+  /** The slot does not exist on the official plan (wall, parity, bad zone). */
+  'BAD_SLOT',
+  /** Somebody is already standing exactly there. */
+  'OCCUPIED',
+  /** Tier B with nothing (or the wrong thing) underneath. */
+  'NO_SUPPORT',
+  /** A container with another one standing on top of it. */
+  'BURIED',
+  'SAME_SLOT',
   'NUMBER_IN_YARD',
   'ALREADY_OUT',
-  'SHRINK_OCCUPIED',
-  'CAPACITY_OCCUPIED',
-  'SAME_SLOT',
-  'BLOCK_OVERLAP',
-  'BLOCK_NOT_EMPTY',
   'NAME_TAKEN',
   'NOT_DELETED',
 ] as const;

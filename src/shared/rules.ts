@@ -1,16 +1,17 @@
-import type { BlockConfig, Position, Size, YardConfig } from './types';
-import { PLACES_20, PLACES_40 } from './types';
-import { positionKey } from './address';
-import { blockTakes } from './geometry';
+import type { ErrorCode, Position, Size, Tier, YardLayout, Zone, ZoneDef } from './types';
+import { TIERS, sizeOfBay, tierAbove, tierBelow } from './types';
+import { baySpan, samePosition } from './address';
 
 /**
- * The yard's rules, pure and I/O-free. The server runs these inside its write
- * transaction as the single authority; the client runs the same functions
- * against its snapshot so a refusal is visible before a request is ever sent.
- * One implementation, two callers — they cannot disagree.
+ * The physics of the official grid, pure and shared. The server is the
+ * authority — it re-runs these checks inside its transaction; the client runs
+ * the same ones only so the screen can answer before the network does.
+ *
+ * The ground truth (which slots exist at all) is the decoded ASEZA layout;
+ * these rules never invent a slot the drawing does not show.
  */
 
-/** What a rule check needs to know about one standing container. */
+/** The standing containers as the rules see them. */
 export interface Standing {
   readonly id: number;
   readonly number: string;
@@ -18,152 +19,152 @@ export interface Standing {
   readonly position: Position;
 }
 
-export type RuleRefusal =
-  | { readonly code: 'OUT_OF_BOUNDS' }
-  | { readonly code: 'WRONG_ZONE' }
-  | { readonly code: 'LOCATION_FULL'; readonly free: number; readonly need: number };
-
-/** Twenty-foot places this size claims inside a location. */
-export function placesFor(size: Size): number {
-  return size === 40 ? PLACES_40 : PLACES_20;
+export interface Refusal {
+  readonly code: ErrorCode;
+  /** The other container involved, when one is (occupier, the one on top…). */
+  readonly other?: string;
 }
 
-/** Every place one location holds: what fits per tier, times the tiers. */
-export function locationCapacity(block: Pick<BlockConfig, 'placesPerTier' | 'tiers'>): number {
-  return block.placesPerTier * block.tiers;
+export function zoneOf(layout: YardLayout, zone: Zone): ZoneDef | null {
+  return layout.zones.find((z) => z.zone === zone) ?? null;
 }
 
-export function blockOf(yard: YardConfig, blockId: number): BlockConfig | null {
-  return yard.blocks.find((block) => block.id === blockId) ?? null;
+/** Does this twenty-foot ground slot exist on the official plan? */
+export function slotUsable(layout: YardLayout, zone: Zone, oddBay: number, stack: number): boolean {
+  const def = zoneOf(layout, zone);
+  if (def === null) return false;
+  const stacks = def.stacks[String(oddBay)];
+  return stacks !== undefined && stacks.includes(stack);
 }
 
-/** All live blocks that receive this container size (mixed take both). */
-export function blocksForSize(yard: YardConfig, size: Size): readonly BlockConfig[] {
-  return yard.blocks.filter((block) => blockTakes(block.size, size));
-}
-
-export function isWithinYard(yard: YardConfig, position: Position): boolean {
-  const block = blockOf(yard, position.block);
-  if (block === null) return false;
-  return position.row >= 1 && position.row <= block.rows;
+/** `zone|oddBay|stack|tier` — one twenty-foot cell of air, ground or first floor. */
+function cellKey(zone: Zone, oddBay: number, stack: number, tier: Tier): string {
+  return `${zone}|${String(oddBay)}|${String(stack)}|${tier}`;
 }
 
 /**
- * Places taken per location, keyed by `positionKey`. Callers that probe many
- * locations against the same snapshot (the green-target painter sweeps every
- * location in the yard per repaint) build this once and hand it to
- * `canPlace` instead of paying a full scan per probe.
+ * Who covers which cell. A 20 covers one cell; a 40 at an even bay covers the
+ * same cell of both odd bays it lies across. Built once per check or screen
+ * frame — the yard is 681 ground slots, this is nothing.
  */
-export function buildUsage(standing: readonly Standing[]): ReadonlyMap<string, number> {
-  const usage = new Map<string, number>();
-  for (const s of standing) {
-    const key = positionKey(s.position);
-    usage.set(key, (usage.get(key) ?? 0) + placesFor(s.size));
-  }
-  return usage;
-}
-
-/**
- * Places already taken in a location, with `ignoreId` discounted. Passing the
- * `buildUsage` index built over the SAME standing list and then subtracting
- * the ignored container's places is exactly the filtered sum, so the indexed
- * and scanning paths cannot disagree.
- */
-export function usedPlaces(
-  standing: readonly Standing[],
-  position: Position,
-  ignoreId?: number,
-  usage?: ReadonlyMap<string, number>,
-): number {
-  const isHere = (s: Standing): boolean =>
-    s.position.block === position.block && s.position.row === position.row;
-
-  if (usage === undefined) {
-    let total = 0;
-    for (const s of standing) {
-      if (s.id !== ignoreId && isHere(s)) total += placesFor(s.size);
+export function buildOccupancy(standing: readonly Standing[]): ReadonlyMap<string, Standing> {
+  const map = new Map<string, Standing>();
+  for (const container of standing) {
+    for (const oddBay of baySpan(container.position.bay)) {
+      map.set(
+        cellKey(container.position.zone, oddBay, container.position.stack, container.position.tier),
+        container,
+      );
     }
-    return total;
   }
-
-  const total = usage.get(positionKey(position)) ?? 0;
-  const ignored = standing.find((s) => s.id === ignoreId && isHere(s));
-  return ignored === undefined ? total : total - placesFor(ignored.size);
+  return map;
 }
 
 /**
- * May a container of this size go into this location? `ignoreId` removes the
- * moving container itself from the count — without it, a container shuffled
- * within its own location would be refused by its own body.
+ * May a container of this size land exactly here?
+ *
+ * The checks, in the order a crane driver would hit them:
+ *  - the bay's parity IS the size — a 20 on an odd bay, a 40 on an even one;
+ *  - every ground slot it covers must exist on the plan (walls clip some);
+ *  - nobody may already cover any of its cells;
+ *  - off the ground (tiers B and C alike), every covered odd bay needs
+ *    support on the tier directly below — and a 20 may only sit on a 20:
+ *    a 40's roof has no corner castings in the middle, so a 20 resting on
+ *    half a 40 has nothing to lock into. A 40 on top may rest on two 20s or
+ *    on a 40 — both give it four corners.
  */
 export function canPlace(
-  yard: YardConfig,
+  layout: YardLayout,
   standing: readonly Standing[],
   size: Size,
   position: Position,
   ignoreId?: number,
-  usage?: ReadonlyMap<string, number>,
-): RuleRefusal | null {
-  const block = blockOf(yard, position.block);
-  if (block === null || !isWithinYard(yard, position)) return { code: 'OUT_OF_BOUNDS' };
-  if (!blockTakes(block.size, size)) return { code: 'WRONG_ZONE' };
+  occupancy?: ReadonlyMap<string, Standing>,
+): Refusal | null {
+  if (sizeOfBay(position.bay) !== size) return { code: 'BAD_SLOT' };
+  const span = baySpan(position.bay);
+  for (const oddBay of span) {
+    if (!slotUsable(layout, position.zone, oddBay, position.stack)) return { code: 'BAD_SLOT' };
+  }
 
-  const free = locationCapacity(block) - usedPlaces(standing, position, ignoreId, usage);
-  const need = placesFor(size);
-  if (need > free) return { code: 'LOCATION_FULL', free, need };
+  const cells =
+    occupancy ?? buildOccupancy(ignoreId === undefined ? standing : standing.filter((s) => s.id !== ignoreId));
+  for (const oddBay of span) {
+    const occupier = cells.get(cellKey(position.zone, oddBay, position.stack, position.tier));
+    if (occupier !== undefined && occupier.id !== ignoreId) {
+      return { code: 'OCCUPIED', other: occupier.number };
+    }
+  }
 
+  const floor = tierBelow(position.tier);
+  if (floor !== null) {
+    for (const oddBay of span) {
+      const below = cells.get(cellKey(position.zone, oddBay, position.stack, floor));
+      if (below === undefined || below.id === ignoreId) return { code: 'NO_SUPPORT' };
+      if (size === 20 && below.size === 40) return { code: 'NO_SUPPORT' };
+    }
+  }
   return null;
 }
 
-/*
- * There is no `canLift` any more. Nothing is buried when nothing is tracked
- * by floor, and the yard asked for the administrative hold to go with the
- * rest of the container states: whatever must not leave is written in the
- * notes, and the notes ride along on every register.
- */
-
 /**
- * Containers a proposed layout would strand: whose block disappears, whose
- * location falls off the end of a shortened column, or whose size no longer
- * matches the block's policy. Growth and movement are always safe — a column
- * carries its containers with it wherever it is dragged or turned.
+ * May this container be lifted out (for a move or an exit)? Not while
+ * another one stands on top of it — that one comes down first. The top of
+ * the stack is always free to go.
  */
-export function strandedByLayout(
-  proposed: YardConfig,
+export function canRemove(
   standing: readonly Standing[],
-  sizes: ReadonlyMap<number, Size>,
-): readonly Standing[] {
-  return standing.filter((s) => {
-    const block = blockOf(proposed, s.position.block);
-    if (block === null || !isWithinYard(proposed, s.position)) return true;
-    const size = sizes.get(s.id);
-    return size !== undefined && !blockTakes(block.size, size);
-  });
+  container: Standing,
+  occupancy?: ReadonlyMap<string, Standing>,
+): Refusal | null {
+  const roof = tierAbove(container.position.tier);
+  if (roof === null) return null;
+  const cells = occupancy ?? buildOccupancy(standing);
+  for (const oddBay of baySpan(container.position.bay)) {
+    const above = cells.get(cellKey(container.position.zone, oddBay, container.position.stack, roof));
+    if (above !== undefined) return { code: 'BURIED', other: above.number };
+  }
+  return null;
 }
 
-/**
- * Locations a proposed layout would overfill — capacity or tiers cut below
- * what already stands there. Reported separately from stranding because the
- * fix is different: the owner raises the number back, or empties the location.
- */
-export function overfilledByLayout(
-  proposed: YardConfig,
+/** A move is a lift plus a landing; the same-slot case gets its own word. */
+export function canMove(
+  layout: YardLayout,
   standing: readonly Standing[],
-): readonly Position[] {
-  const used = new Map<string, { position: Position; places: number }>();
-  for (const s of standing) {
-    const key = positionKey(s.position);
-    const entry = used.get(key);
-    if (entry === undefined) used.set(key, { position: s.position, places: placesFor(s.size) });
-    else entry.places += placesFor(s.size);
-  }
+  container: Standing,
+  to: Position,
+): Refusal | null {
+  if (samePosition(container.position, to)) return { code: 'SAME_SLOT' };
+  const lift = canRemove(standing, container);
+  if (lift !== null) return lift;
+  return canPlace(layout, standing, container.size, to, container.id);
+}
 
-  const over: Position[] = [];
-  for (const { position, places } of used.values()) {
-    const block = blockOf(proposed, position.block);
-    // A vanished or shortened column is stranding, not overfilling.
-    if (block === null || !isWithinYard(proposed, position)) continue;
-    if (places > locationCapacity(block)) over.push(position);
+/** «قديش باقي» for one size: how many legal landings exist right now. */
+export interface FreeNow {
+  readonly yard1: { readonly t20: number; readonly t40: number };
+  readonly yard2: { readonly t20: number; readonly t40: number };
+}
+
+export function freeNow(layout: YardLayout, standing: readonly Standing[]): FreeNow {
+  const occupancy = buildOccupancy(standing);
+  const totals = { yard1: { t20: 0, t40: 0 }, yard2: { t20: 0, t40: 0 } };
+  for (const zone of layout.zones) {
+    const bucket = zone.yard === 1 ? totals.yard1 : totals.yard2;
+    const lastBay = zone.bays[zone.bays.length - 1] ?? 0;
+    for (const bay of zone.bays) {
+      for (const stack of zone.stacks[String(bay)] ?? []) {
+        for (const tier of TIERS) {
+          const spot = { zone: zone.zone, bay, stack, tier };
+          if (canPlace(layout, standing, 20, spot, undefined, occupancy) === null) bucket.t20 += 1;
+          // The even bay between this odd bay and the next, inside the zone.
+          if (bay + 2 <= lastBay) {
+            const forty = { zone: zone.zone, bay: bay + 1, stack, tier };
+            if (canPlace(layout, standing, 40, forty, undefined, occupancy) === null) bucket.t40 += 1;
+          }
+        }
+      }
+    }
   }
-  return over;
+  return totals;
 }
