@@ -1,23 +1,27 @@
 import { memo, type ReactElement } from 'react';
-import type { BlockConfig, ContainerDto, Position, YardConfig } from '../shared/types';
-import { positionKey, rowNumber } from '../shared/address';
-import { BLOCK_PAD, CELL_GAP, CELL_H, CELL_W, HEADER_H, TITLE_H, blockFrame, yardBounds } from '../shared/geometry';
+import type { ContainerDto, Landmark, YardLayout, Zone, ZoneDef } from '../shared/types';
 import { AR } from './ar';
-import { countLocation } from './mapModel';
+import { bayKey, countBay, maxStackOf, summarizeZone } from './mapModel';
 
 /**
- * The yard drawn to scale as SVG: one panel per column, translated and
- * rotated to where the owner put it, its locations running down it from 01.
- * A cell says the two things the yard asks of it — which location this is,
- * and how much of it is taken. What stands inside is one tap away.
+ * The official ASEZA yard drawn to scale as SVG: zone strips with their bays
+ * exactly as the authority's plan numbers them, and the hangars, buildings,
+ * tower and caravan standing where the printed map puts them, so the screen
+ * reads like the paper the yard already knows.
+ *
+ * A map cell is one ODD bay — the ground itself. What stands in it (both
+ * tiers, and any 40 reaching over from an even bay) is one tap away.
  */
 
-const OUTER_PAD = 24;
+const OUTER_PAD = 26;
+/** The zone panel's inner metrics — must match the decoder's zone rects. */
+const PAD = 14;
+const TITLE_H = 44;
+const CELL_H = 66;
 
 /**
  * The drawing reads the theme's own variables, so the yard turns dark with
- * the rest of the site and prints light with the rest of the paper — no
- * second palette, no re-render.
+ * the rest of the site and prints light with the rest of the paper.
  */
 const C = {
   panel: 'var(--yard-panel)',
@@ -34,84 +38,67 @@ const C = {
   selected: 'var(--yard-selected)',
   label: 'var(--yard-muted)',
   text: 'var(--yard-text)',
-  title: 'var(--yard-text)',
-  subtitle: 'var(--yard-muted)',
+  landmark: 'var(--yard-landmark)',
+  landmarkLine: 'var(--yard-landmark-line)',
 } as const;
-
-export interface BlockLayout {
-  readonly block: BlockConfig;
-  /** Canvas position of the unrotated frame's top-left corner. */
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
 
 export interface MapLayout {
   readonly width: number;
   readonly height: number;
-  readonly blocks: readonly BlockLayout[];
+  readonly zones: readonly ZoneDef[];
+  readonly landmarks: readonly Landmark[];
 }
 
-/** Canvas geometry: every rotated panel boxed, padded, in one coordinate space. */
-export function computeLayout(yard: YardConfig): MapLayout {
-  const bounds = yardBounds(yard.blocks);
-  const blocks = yard.blocks.map((block) => {
-    const frame = blockFrame(block);
-    return {
-      block,
-      x: block.x - bounds.minX + OUTER_PAD,
-      y: block.y - bounds.minY + OUTER_PAD,
-      width: frame.width,
-      height: frame.height,
-    };
-  });
+/** Canvas geometry: the decoded layout plus breathing room. */
+export function computeLayout(layout: YardLayout): MapLayout {
+  let maxX = 0;
+  let maxY = 0;
+  for (const rect of [...layout.zones, ...layout.landmarks]) {
+    maxX = Math.max(maxX, rect.x + rect.w);
+    maxY = Math.max(maxY, rect.y + rect.h);
+  }
   return {
-    width: bounds.maxX - bounds.minX + OUTER_PAD * 2,
-    height: bounds.maxY - bounds.minY + OUTER_PAD * 2,
-    blocks,
+    width: maxX + OUTER_PAD * 2,
+    height: maxY + OUTER_PAD * 2,
+    zones: layout.zones,
+    landmarks: layout.landmarks,
   };
 }
 
-/** The SVG transform that places a block's local frame onto the canvas. */
-export function blockTransform(layout: BlockLayout): string {
-  const { x, y, width, height, block } = layout;
-  return `translate(${String(x)}, ${String(y)}) rotate(${String(block.angle)}, ${String(width / 2)}, ${String(height / 2)})`;
-}
-
 export interface MapProps {
-  yard: YardConfig;
-  /** What stands in each location, keyed by positionKey. */
+  /** Who covers each odd bay, keyed by `bayKey`. */
   loads: ReadonlyMap<string, readonly ContainerDto[]>;
   selectedId: number | null;
   /** Container ids matching the current search; empty set = no search. */
   matches: ReadonlySet<number>;
   searchActive: boolean;
-  /** When a move or gate-in is placing: locations that may be landed on. */
+  /** While placing: the bays that hold at least one legal landing. */
   targets: ReadonlySet<string> | null;
   movingId: number | null;
-  onCellClick: (position: Position, load: readonly ContainerDto[]) => void;
+  onBayClick: (zone: Zone, bay: number) => void;
 }
 
-/** The per-panel slice of MapProps — everything except the yard itself. */
-type PanelView = Omit<MapProps, 'yard'>;
+function BayCell(props: {
+  zone: ZoneDef;
+  bay: number;
+  index: number;
+  cellW: number;
+  view: MapProps;
+}): ReactElement {
+  const { zone, bay, index, cellW, view } = props;
+  const key = bayKey(zone.zone, bay);
+  const load = view.loads.get(key);
+  const count = countBay(zone, bay, load);
 
-const EMPTY_LOAD: readonly ContainerDto[] = [];
+  const x = PAD + index * cellW;
+  const y = TITLE_H;
 
-function Cell(props: { layout: BlockLayout; row: number; view: PanelView }): ReactElement {
-  const { layout, row, view } = props;
-  const { block } = layout;
-  const position: Position = { block: block.id, row };
-  const load = view.loads.get(positionKey(position)) ?? EMPTY_LOAD;
-  const count = countLocation(block, load);
-
-  const x = BLOCK_PAD;
-  const y = TITLE_H + HEADER_H + (row - 1) * (CELL_H + CELL_GAP);
-
-  const isTarget = view.targets !== null && view.targets.has(positionKey(position));
-  const holdsMoving = view.movingId !== null && load.some((c) => c.id === view.movingId);
-  const holdsSelected = view.selectedId !== null && load.some((c) => c.id === view.selectedId);
-  const holdsMatch = load.some((container) => view.matches.has(container.id));
+  const isTarget = view.targets !== null && view.targets.has(key);
+  const holdsMoving =
+    view.movingId !== null && (load?.some((c) => c.id === view.movingId) ?? false);
+  const holdsSelected =
+    view.selectedId !== null && (load?.some((c) => c.id === view.selectedId) ?? false);
+  const holdsMatch = load?.some((container) => view.matches.has(container.id)) ?? false;
 
   // While searching or placing, everything irrelevant steps back. It dims,
   // it never disappears — the map must stay a picture of the whole place.
@@ -137,21 +124,21 @@ function Cell(props: { layout: BlockLayout; row: number; view: PanelView }): Rea
   const strong = holdsSelected || holdsMoving || holdsMatch || isTarget;
   // A note on any container here earns a dot: the crew writes the dents, the
   // opened locks and the customs holds there, and the map must not hide it.
-  const noted = load.some((container) => container.notes !== '');
+  const noted = load?.some((container) => container.notes !== '') ?? false;
 
   return (
     <g
       className="map-cell"
       opacity={dimmed ? 0.22 : undefined}
       onClick={() => {
-        view.onCellClick(position, load);
+        view.onBayClick(zone.zone, bay);
       }}
     >
       <rect
         className="cell-frame"
-        x={x}
+        x={x + 2}
         y={y}
-        width={CELL_W}
+        width={cellW - 4}
         height={CELL_H}
         rx={5}
         fill={fill}
@@ -159,153 +146,118 @@ function Cell(props: { layout: BlockLayout; row: number; view: PanelView }): Rea
         strokeWidth={strong ? 2.5 : 1.2}
         strokeDasharray={empty && !strong ? '4 3' : undefined}
       />
-      {/* The location's own name, always written left to right. */}
+      {/* The bay's own number, exactly as the plan paints it on the ground. */}
       <text
-        x={x + CELL_W - 9}
-        y={y + CELL_H / 2 + 5}
-        textAnchor="end"
-        fontSize={14}
+        x={x + cellW / 2}
+        y={y + 25}
+        textAnchor="middle"
+        fontSize={15}
         fontWeight={700}
         fill={textColor}
         direction="ltr"
       >
-        {`${block.name}-${rowNumber(row)}`}
+        {String(bay).padStart(2, '0')}
       </text>
       <text
-        x={x + 9}
-        y={y + CELL_H / 2 + 5}
-        textAnchor="start"
-        fontSize={13}
+        x={x + cellW / 2}
+        y={y + 50}
+        textAnchor="middle"
+        fontSize={12}
         fontWeight={600}
         fill={textColor}
         direction="ltr"
       >
         {`${String(count.used)} / ${String(count.total)}`}
       </text>
-      {noted && <circle cx={x + CELL_W / 2} cy={y + 9} r={3.5} fill={C.match} />}
+      {noted && <circle cx={x + cellW / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
     </g>
   );
 }
 
-const BlockPanel = memo(
-  function BlockPanel(props: {
-    layout: BlockLayout;
-    view: PanelView;
-    freeLabel: string;
-    sizeLabel: string;
-    buildLabel: string;
-  }): ReactElement {
-    const { layout, view, freeLabel, sizeLabel, buildLabel } = props;
-    const { block } = layout;
-    const cells: ReactElement[] = [];
-    for (let row = 1; row <= block.rows; row += 1) {
-      cells.push(<Cell key={row} layout={layout} row={row} view={view} />);
-    }
+const ZonePanel = memo(
+  function ZonePanel(props: { zone: ZoneDef; view: MapProps }): ReactElement {
+    const { zone, view } = props;
+    const cellW = (zone.w - PAD * 2) / zone.bays.length;
+    const summary = summarizeZone(zone, view.loads);
 
     return (
-      <g transform={blockTransform(layout)}>
-        <rect
-          width={layout.width}
-          height={layout.height}
-          rx={12}
-          fill={C.panel}
-          stroke={C.panelBorder}
-        />
+      <g transform={`translate(${String(zone.x)}, ${String(zone.y)})`}>
+        <rect width={zone.w} height={zone.h} rx={12} fill={C.panel} stroke={C.panelBorder} />
         {/* Under dir=rtl, text-anchor follows reading order: "start" pins the
             right edge of Arabic text at x, "end" pins its left edge. */}
-        {/* Everything the owner asked to see beside the letter, on three
-            lines so it all stays inside the panel: the size this column
-            takes, how it is built, and the split of full against free. */}
         <text
-          x={layout.width - BLOCK_PAD}
-          y={23}
+          x={zone.w - PAD}
+          y={22}
           textAnchor="start"
-          fontSize={18}
+          fontSize={15}
           fontWeight={700}
-          fill={C.title}
+          fill={C.text}
         >
-          {block.name}
+          {AR.zoneTitle(zone.zone, zone.yard)}
         </text>
-        <text x={BLOCK_PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={600} fill={C.subtitle}>
-          {sizeLabel}
+        <text x={zone.w - PAD} y={TITLE_H - 6} textAnchor="start" fontSize={10.5} fill={C.label}>
+          {AR.zoneBuild(maxStackOf(zone))}
         </text>
-        <text
-          x={layout.width - BLOCK_PAD}
-          y={TITLE_H - 8}
-          textAnchor="start"
-          fontSize={10.5}
-          fill={C.subtitle}
-        >
-          {buildLabel}
+        <text x={PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={700} fill={C.label}>
+          {AR.fullAndFree(summary.usedTeu, summary.totalTeu - summary.usedTeu)}
         </text>
-        <text
-          x={layout.width - BLOCK_PAD}
-          y={TITLE_H + HEADER_H - 9}
-          textAnchor="start"
-          fontSize={11}
-          fontWeight={700}
-          fill={C.subtitle}
-        >
-          {freeLabel}
-        </text>
-        {cells}
+        {zone.bays.map((bay, index) => (
+          <BayCell key={bay} zone={zone} bay={bay} index={index} cellW={cellW} view={view} />
+        ))}
       </g>
     );
   },
-  // Editor drags patch one block per frame; every other panel must skip.
-  // EVERY field of PanelView must appear here — a forgotten one means panels
-  // silently stop repainting when that field changes.
+  // Pan/zoom moves the transformed wrapper; the panels must repaint only when
+  // the data itself changes. EVERY field of MapProps must appear here.
   (prev, next) =>
-    prev.layout.block === next.layout.block &&
-    prev.layout.x === next.layout.x &&
-    prev.layout.y === next.layout.y &&
-    prev.freeLabel === next.freeLabel &&
-    prev.sizeLabel === next.sizeLabel &&
-    prev.buildLabel === next.buildLabel &&
+    prev.zone === next.zone &&
     prev.view.loads === next.view.loads &&
     prev.view.selectedId === next.view.selectedId &&
     prev.view.matches === next.view.matches &&
     prev.view.searchActive === next.view.searchActive &&
     prev.view.targets === next.view.targets &&
     prev.view.movingId === next.view.movingId &&
-    prev.view.onCellClick === next.view.onCellClick,
+    prev.view.onBayClick === next.view.onBayClick,
 );
 
-/** `40 قدم` — which size this column takes, in its own language. */
-export function sizeLabelOf(block: BlockConfig): string {
-  return AR.blockSizeName(block.size);
-}
-
-/** `2 طابق × 4 حاوية` — how one location in this column is built. */
-export function buildLabelOf(block: BlockConfig): string {
-  const per = countLocation(block, undefined);
-  return AR.blockBuild(
-    block.placesPerTier / (block.size === 40 ? 2 : 1),
-    block.tiers,
-    per.inPlaces,
+function LandmarkShape(props: { landmark: Landmark }): ReactElement {
+  const { landmark } = props;
+  return (
+    <g>
+      <rect
+        x={landmark.x}
+        y={landmark.y}
+        width={landmark.w}
+        height={landmark.h}
+        rx={6}
+        fill="url(#landmark-hatch)"
+        stroke={C.landmarkLine}
+        strokeWidth={1.5}
+      />
+      <text
+        x={landmark.x + landmark.w / 2}
+        y={landmark.y + landmark.h / 2 + 4}
+        textAnchor="middle"
+        fontSize={12}
+        fontWeight={700}
+        fill={C.landmarkLine}
+      >
+        {landmark.label}
+      </text>
+    </g>
   );
 }
 
 /**
  * Memoized: panning and zooming only move the transformed wrapper, so the
- * thousands of SVG nodes of a big yard must not re-render per frame. Callers
- * keep `map` referentially stable across view changes.
+ * SVG nodes must not re-render per frame. Callers keep `map` referentially
+ * stable across view changes.
  */
 export const YardMap = memo(function YardMap(props: {
   map: MapProps;
   layout: MapLayout;
-  freeLabels: ReadonlyMap<number, string>;
 }): ReactElement {
-  const { map, layout, freeLabels } = props;
-  const view: PanelView = {
-    loads: map.loads,
-    selectedId: map.selectedId,
-    matches: map.matches,
-    searchActive: map.searchActive,
-    targets: map.targets,
-    movingId: map.movingId,
-    onCellClick: map.onCellClick,
-  };
+  const { map, layout } = props;
   return (
     <svg
       className="yard-map"
@@ -314,16 +266,21 @@ export const YardMap = memo(function YardMap(props: {
       viewBox={`0 0 ${String(layout.width)} ${String(layout.height)}`}
       style={{ display: 'block', userSelect: 'none', overflow: 'visible' }}
     >
-      {layout.blocks.map((blockLayout) => (
-        <BlockPanel
-          key={blockLayout.block.id}
-          layout={blockLayout}
-          view={view}
-          freeLabel={freeLabels.get(blockLayout.block.id) ?? ''}
-          sizeLabel={sizeLabelOf(blockLayout.block)}
-          buildLabel={buildLabelOf(blockLayout.block)}
-        />
-      ))}
+      <defs>
+        {/* The hangars hatch like the printed plan, in the theme's own ink. */}
+        <pattern id="landmark-hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+          <rect width="7" height="7" fill={C.landmark} />
+          <line x1="0" y1="0" x2="0" y2="7" stroke={C.landmarkLine} strokeWidth="1.4" opacity="0.55" />
+        </pattern>
+      </defs>
+      <g transform={`translate(${String(OUTER_PAD)}, ${String(OUTER_PAD)})`}>
+        {layout.landmarks.map((landmark, index) => (
+          <LandmarkShape key={index} landmark={landmark} />
+        ))}
+        {layout.zones.map((zone) => (
+          <ZonePanel key={zone.zone} zone={zone} view={map} />
+        ))}
+      </g>
     </svg>
   );
 });

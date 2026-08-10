@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { LogReportRow, Position } from '../shared/types';
+import type { LogReportRow } from '../shared/types';
+import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Toast } from './ui';
@@ -40,7 +41,7 @@ function parseEditNote(note: string): EditNote | null {
   }
 }
 
-function logModel(rows: readonly LogReportRow[], label: (position: Position) => string): TableModel {
+function logModel(rows: readonly LogReportRow[]): TableModel {
   const head = [
     AR.colSeq,
     AR.colOperation,
@@ -65,8 +66,8 @@ function logModel(rows: readonly LogReportRow[], label: (position: Position) => 
       ...stampCells(new Date(row.at)),
       cellLtr(row.number),
       cellWrap(row.customer),
-      cellLtr(row.from === null ? dash : label(row.from)),
-      cellLtr(row.to === null ? dash : label(row.to)),
+      cellLtr(row.from === null ? dash : positionLabel(row.from)),
+      cellLtr(row.to === null ? dash : positionLabel(row.to)),
       cellText(row.user),
       noteParts.length === 0 ? cellText(dash) : cellWrap(noteParts.join(' — ')),
     ];
@@ -79,7 +80,6 @@ function logModel(rows: readonly LogReportRow[], label: (position: Position) => 
 }
 
 export function LogScreen(props: {
-  label: (position: Position) => string;
   onBack: () => void;
 }): ReactElement {
   const queryClient = useQueryClient();
@@ -108,7 +108,7 @@ export function LogScreen(props: {
   });
   const rows = useMemo(() => log.data?.rows ?? [], [log.data]);
 
-  const model = useMemo<TableModel>(() => logModel(rows, props.label), [rows, props.label]);
+  const model = useMemo<TableModel>(() => logModel(rows), [rows]);
 
   const finish = (message: string): void => {
     void queryClient.invalidateQueries({ queryKey: ['report-log'] });
@@ -146,6 +146,7 @@ export function LogScreen(props: {
           number: typeof before['number'] === 'string' ? before['number'] : container.number,
           customer:
             typeof before['customer'] === 'string' ? before['customer'] : container.customer,
+          bill: typeof before['bill'] === 'string' ? before['bill'] : container.bill,
           size: before['size'] === 20 || before['size'] === 40 ? before['size'] : container.size,
           notes: typeof before['notes'] === 'string' ? before['notes'] : container.notes,
         });

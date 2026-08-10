@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto, MovementDto, Permission, Position } from '../shared/types';
+import type { ContainerDto, MovementDto, Permission } from '../shared/types';
+import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
@@ -49,25 +50,22 @@ function Addr(props: { text: string }): ReactElement {
   );
 }
 
-function MovementRow(props: {
-  movement: MovementDto;
-  label: (p: Position) => string;
-}): ReactElement {
-  const { movement, label } = props;
+function MovementRow(props: { movement: MovementDto }): ReactElement {
+  const { movement } = props;
 
   let detail: ReactElement | null = null;
   switch (movement.type) {
     case 'IN':
-      detail = movement.to === null ? null : <Addr text={label(movement.to)} />;
+      detail = movement.to === null ? null : <Addr text={positionLabel(movement.to)} />;
       break;
     case 'MOVE':
       detail =
         movement.from !== null && movement.to !== null ? (
-          <Addr text={`${label(movement.from)} → ${label(movement.to)}`} />
+          <Addr text={`${positionLabel(movement.from)} → ${positionLabel(movement.to)}`} />
         ) : null;
       break;
     case 'OUT':
-      detail = movement.from === null ? null : <Addr text={label(movement.from)} />;
+      detail = movement.from === null ? null : <Addr text={positionLabel(movement.from)} />;
       break;
     case 'EDIT':
       detail =
@@ -101,17 +99,9 @@ function MovementRow(props: {
 
 export function ContainerCard(props: {
   container: ContainerDto;
-  /** The others sharing this container's location. */
-  siblings: readonly ContainerDto[];
-  /** Twenty-foot places still open in that location. */
-  roomHere: number;
   /** What the signed-in employee is allowed to do. */
   may: (permission: Permission) => boolean;
-  /** Position → spoken address, with the block's name resolved. */
-  label: (position: Position) => string;
   onStartMove: (container: ContainerDto) => void;
-  /** Start a gate-in in this container's own location. */
-  onAddHere: (position: Position) => void;
   /** Open the printable gate card. */
   onPrint: (kind: 'in' | 'out', container: ContainerDto) => void;
   /** The container just left: refresh AND hand over its exit card to print. */
@@ -174,8 +164,9 @@ export function ContainerCard(props: {
           {container.position !== null && (
             <div className="flex justify-between gap-3">
               <dt className="text-muted">{AR.slot}</dt>
-              <dd className="font-semibold text-ink" dir="ltr">
-                {props.label(container.position)}
+              {/* The official code, big and mono — this is what gets radioed. */}
+              <dd className="font-mono text-base font-extrabold text-blue-800 dark:text-blue-300" dir="ltr">
+                {positionLabel(container.position)}
               </dd>
             </div>
           )}
@@ -197,6 +188,14 @@ export function ContainerCard(props: {
               <dt className="text-muted" />
               <dd className="font-semibold text-blue-700">
                 {AR.dwell(dwellDays(container.enteredAt))}
+              </dd>
+            </div>
+          )}
+          {container.bill !== '' && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted">{AR.bill}</dt>
+              <dd className="font-mono font-semibold text-ink" dir="ltr">
+                {container.bill}
               </dd>
             </div>
           )}
@@ -277,28 +276,7 @@ export function ContainerCard(props: {
           )}
         </div>
 
-        {props.siblings.length > 0 && (
-          <p className="text-xs text-muted">{AR.sharingLocation(props.siblings.length)}</p>
-        )}
-
         <ErrorLine message={error} />
-
-        {inYard &&
-          !editing &&
-          container.position !== null &&
-          props.roomHere > 0 &&
-          props.may('GATE_IN') && (
-            <Button
-              full
-              kind="quiet"
-              disabled={busy}
-              onClick={() => {
-                if (container.position !== null) props.onAddHere(container.position);
-              }}
-            >
-              {AR.addToLocation}
-            </Button>
-          )}
 
         {/* Only what this employee may do is offered. The refusal still lives
             on the server; this only keeps dead buttons off the screen. */}
@@ -353,6 +331,7 @@ export function ContainerCard(props: {
         {editing && (
           <EditForm
             container={container}
+            standing={inYard}
             busy={busy}
             onCancel={() => {
               setEditing(false);
@@ -367,7 +346,7 @@ export function ContainerCard(props: {
           <h3 className="mb-2 text-sm font-bold text-ink">{AR.movementsTitle}</h3>
           <ol className="space-y-2 border-s-2 border-line ps-3">
             {(detail.data?.movements ?? []).map((movement) => (
-              <MovementRow key={movement.id} movement={movement} label={props.label} />
+              <MovementRow key={movement.id} movement={movement} />
             ))}
           </ol>
         </div>
@@ -477,12 +456,15 @@ export function ContainerCard(props: {
 
 function EditForm(props: {
   container: ContainerDto;
+  /** While it stands, the bay's parity IS the size — the toggle locks. */
+  standing: boolean;
   busy: boolean;
-  onSave: (input: { number: string; customer: string; size: 20 | 40; notes: string }) => void;
+  onSave: (input: { number: string; customer: string; bill: string; size: 20 | 40; notes: string }) => void;
   onCancel: () => void;
 }): ReactElement {
   const [number, setNumber] = useState(props.container.number);
   const [customer, setCustomer] = useState(props.container.customer);
+  const [bill, setBill] = useState(props.container.bill);
   const [size, setSize] = useState<20 | 40>(props.container.size);
   const [notes, setNotes] = useState(props.container.notes);
 
@@ -509,17 +491,32 @@ function EditForm(props: {
           }}
         />
       </Field>
-      <Field label={AR.cardSize}>
+      <Field label={AR.bill} hint={<span className="text-faint">{AR.billHint}</span>}>
+        <input
+          dir="ltr"
+          className={`${inputClass} text-start font-mono`}
+          value={bill}
+          onChange={(event) => {
+            setBill(event.target.value);
+          }}
+        />
+      </Field>
+      <Field
+        label={AR.cardSize}
+        hint={props.standing ? <span className="text-faint">{AR.sizeLockedStanding}</span> : undefined}
+      >
         <div className="grid grid-cols-2 gap-2">
           {([20, 40] as const).map((option) => (
             <button
               key={option}
               type="button"
+              disabled={props.standing && option !== props.container.size}
               onClick={() => {
                 setSize(option);
               }}
               className={
                 'rounded-xl border px-3 py-2 text-sm font-semibold ' +
+                'disabled:cursor-not-allowed disabled:border-line disabled:bg-sunken disabled:text-faint ' +
                 (size === option
                   ? 'border-blue-600 bg-blue-600 text-white'
                   : 'border-line-strong bg-surface text-muted')
@@ -548,6 +545,7 @@ function EditForm(props: {
             props.onSave({
               number: number.trim(),
               customer: customer.trim(),
+              bill: bill.trim(),
               size,
               notes: notes.trim(),
             });

@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto, Position } from '../shared/types';
+import type { ContainerDto } from '../shared/types';
+import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { api } from './api';
 import { Button, useEscape } from './ui';
@@ -25,7 +26,6 @@ const timeFormat = new Intl.DateTimeFormat('en-GB', {
 export function PrintCard(props: {
   kind: 'in' | 'out';
   container: ContainerDto;
-  label: (position: Position) => string;
   onClose: () => void;
 }): ReactElement {
   const { kind, container } = props;
@@ -110,13 +110,14 @@ export function PrintCard(props: {
 
           {row(AR.cardSize, `${String(container.size)} قدم`)}
           {row(AR.cardCompany, container.customer)}
+          {container.bill !== '' && row(AR.cardBill, container.bill, true)}
           {row(AR.cardTruck, truck === '' ? '—' : truck)}
           {row(AR.cardDriver, driver === '' ? '—' : driver)}
           {row(AR.cardWeight, container.weight === '' ? '—' : container.weight)}
           {/* The seal of THIS gate moment: the one it came under on the entry
               card, the one it leaves under on the exit card. */}
           {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, true)}
-          {row(AR.cardSlot, slot === null ? '—' : props.label(slot), true)}
+          {row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), true)}
           {container.notes !== '' && row(AR.cardNotes, container.notes)}
 
           <div className="flex border-t-2 border-rule-strong">

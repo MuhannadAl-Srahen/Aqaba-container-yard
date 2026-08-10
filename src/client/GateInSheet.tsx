@@ -1,35 +1,27 @@
 import { useState, type ReactElement } from 'react';
-import type { BlockSize, Position, Size } from '../shared/types';
-import { MIXED_SIZE } from '../shared/types';
-import { placesFor } from '../shared/rules';
+import type { Position } from '../shared/types';
+import { sizeOfBay } from '../shared/types';
+import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Button, ErrorLine, Field, Sheet, inputClass } from './ui';
 
 /**
- * The gate-in card. The clerk tapped a location first, so the destination is
- * already decided by WHERE. A sized column decides the size too; in a mixed
- * column the card asks 20 or 40 — and offers 40 only while two places are
- * still open, because a 40 fills two.
+ * The gate-in card. The clerk picked the exact slot on the bay sheet first,
+ * so WHERE is already the full official code — and the bay's parity already
+ * decided the size: odd is a 20, even is a 40 lying across. Nothing here
+ * asks a question the ground has answered.
  */
 export function GateInSheet(props: {
   position: Position;
-  /** The tapped column's policy — the position itself only carries the block id. */
-  blockSize: BlockSize;
-  /** The location spoken: `A-01`. */
-  positionText: string;
-  /** Twenty-foot places still open in that location. */
-  freePlaces: number;
   customers: readonly string[];
   onDone: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
   const [number, setNumber] = useState('');
   const [customer, setCustomer] = useState('');
-  const [chosenSize, setChosenSize] = useState<Size>(
-    props.blockSize === MIXED_SIZE ? 20 : props.blockSize,
-  );
+  const [bill, setBill] = useState('');
   const [truck, setTruck] = useState('');
   const [seal, setSeal] = useState('');
   const [driver, setDriver] = useState('');
@@ -39,11 +31,8 @@ export function GateInSheet(props: {
   const [busy, setBusy] = useState(false);
 
   const check = number.trim() === '' ? null : checkNumber(number);
-  const mixed = props.blockSize === MIXED_SIZE;
-  // A 40 needs two places; if only one is left the card falls back to a 20
-  // rather than letting the clerk fill the form and be refused at the end.
-  const fits = (option: Size): boolean => placesFor(option) <= props.freePlaces;
-  const size = mixed ? (fits(chosenSize) ? chosenSize : 20) : (props.blockSize as Size);
+  const size = sizeOfBay(props.position.bay);
+  const positionText = positionLabel(props.position);
   const ready =
     number.trim() !== '' &&
     customer.trim() !== '' &&
@@ -60,6 +49,7 @@ export function GateInSheet(props: {
         number,
         size,
         customer: customer.trim(),
+        bill: bill.trim(),
         notes: notes.trim(),
         position: props.position,
         truck: truck.trim(),
@@ -68,7 +58,7 @@ export function GateInSheet(props: {
         weight: weight.trim(),
       })
       .then((container) => {
-        props.onDone(AR.gateInDone(container.number, props.positionText));
+        props.onDone(AR.gateInDone(container.number, positionText));
       })
       .catch((failure: unknown) => {
         setError(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
@@ -77,7 +67,7 @@ export function GateInSheet(props: {
   };
 
   return (
-    <Sheet title={mixed ? AR.gateInTitleMixed : AR.gateInTitle(size)} onClose={props.onClose}>
+    <Sheet title={AR.gateInTitle(size)} onClose={props.onClose}>
       <form
         className="space-y-4"
         onSubmit={(event) => {
@@ -87,10 +77,10 @@ export function GateInSheet(props: {
       >
         <div className="flex items-center justify-between gap-3 rounded-xl bg-blue-50 px-3.5 py-2.5 text-sm font-semibold text-blue-900 dark:bg-blue-950 dark:text-blue-100">
           <span>
-            {AR.gateInAt}: <span dir="ltr">{props.positionText}</span>
+            {AR.gateInAt}: <span dir="ltr">{positionText}</span>
           </span>
           <span className="text-xs font-bold text-blue-700 dark:text-blue-300">
-            {AR.freePlaces(props.freePlaces)}
+            {size === 40 ? AR.fortySpans : ''}
           </span>
         </div>
 
@@ -141,16 +131,29 @@ export function GateInSheet(props: {
           </Field>
         </div>
 
-        <Field label={AR.weight}>
-          <input
-            dir="ltr"
-            className={`${inputClass} text-start`}
-            value={weight}
-            onChange={(event) => {
-              setWeight(event.target.value);
-            }}
-          />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={AR.bill} hint={<span className="text-faint">{AR.billHint}</span>}>
+            <input
+              dir="ltr"
+              className={`${inputClass} text-start font-mono`}
+              value={bill}
+              onChange={(event) => {
+                setBill(event.target.value);
+              }}
+            />
+          </Field>
+          <Field label={AR.weight}>
+            <input
+              dir="ltr"
+              inputMode="numeric"
+              className={`${inputClass} text-start`}
+              value={weight}
+              onChange={(event) => {
+                setWeight(event.target.value);
+              }}
+            />
+          </Field>
+        </div>
 
         <Field label={AR.driver}>
           <input
@@ -177,32 +180,6 @@ export function GateInSheet(props: {
             ))}
           </datalist>
         </Field>
-
-        {mixed && (
-          <Field label={AR.cardSize}>
-            <div className="grid grid-cols-2 gap-2">
-              {([20, 40] as const).map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  disabled={!fits(option)}
-                  onClick={() => {
-                    setChosenSize(option);
-                  }}
-                  className={
-                    'rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors ' +
-                    'disabled:cursor-not-allowed disabled:border-line disabled:bg-sunken disabled:text-faint ' +
-                    (size === option
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-line-strong bg-surface text-muted hover:border-blue-400')
-                  }
-                >
-                  {option} قدم
-                </button>
-              ))}
-            </div>
-          </Field>
-        )}
 
         {/* The notes carry the container's condition now — dents, an opened
             lock, a customs hold — so they get room to be written in. */}

@@ -1,9 +1,13 @@
-import type { ErrorCode, Permission } from '../shared/types';
+import type { ErrorCode, Permission, Tier } from '../shared/types';
+import { TIERS } from '../shared/types';
 
 /**
  * Every sentence the user reads, in one file, in the yard's own Jordanian
  * register — the vocabulary the staff already use, not document Arabic.
  * Western digits throughout, by the owner's standing rule.
+ *
+ * The place words are the official plan's own: يارد، زون، باي، ستاك، طابق —
+ * and the full code reads `1-A-03-01-A`.
  */
 
 export const AR = {
@@ -33,8 +37,7 @@ export const AR = {
   usersButton: 'الموظفين',
   usersHint: 'كل موظف إله رمزه وصلاحياته. الرمز محفوظ مشفّر — إذا نساه بتعطيه رمز جديد.',
   usersEmpty: 'ما في موظفين بعد — ضيف أول واحد من تحت.',
-  usersOwnerOnly:
-    'تعديل الساحة وإدارة الموظفين والتصفير للمالك بس — ما بينفتحوا لحدا مهما كانت صلاحياته.',
+  usersOwnerOnly: 'إدارة الموظفين للمالك بس — ما بتنفتح لحدا مهما كانت صلاحياته.',
   userName: 'الاسم',
   userPin: 'الرمز السري',
   userNewPin: 'رمز جديد',
@@ -59,29 +62,24 @@ export const AR = {
   } satisfies Record<Permission, string>,
 
   // ---- first-run setup ----
-  setupTitle: 'أهلًا! خلينا نجهز ساحتك',
-  setupOnce: 'هاي الخطوة مرة وحدة بس. بتقدر تكبّر الساحة بعدين وقت ما بدك.',
+  setupTitle: 'أهلًا! كلمة سر وخلصنا',
+  setupOnce:
+    'الساحة نفسها جاهزة من المخطط الرسمي — ساحة 1 وساحة 2، 681 مكان أرضي. ' +
+    'كل اللي بدنا ياه كلمة سر للمالك.',
   setupPassword: 'كلمة سر للموقع',
   setupPasswordAgain: 'أعدها كمان مرة',
   setupPasswordMismatch: 'الكلمتين مش متطابقتين.',
   setupPasswordShort: 'كلمة السر لازم تكون 6 خانات على الأقل.',
-  zone20Title: 'عمود حاويات 20 قدم',
-  zone40Title: 'عمود حاويات 40 قدم',
-  rowsLabel: 'عدد المواقع بالعمود',
-  setupPreview: 'هيك رح تبين ساحتك:',
-  setupSubmit: 'جهّز الساحة',
+  setupSubmit: 'افتح الساحة',
   setupWorking: 'جارٍ التجهيز…',
 
   // ---- the map screen ----
-  searchPlaceholder: 'دوّر: رقم حاوية أو اسم عميل…',
-  zone20: 'منطقة 20 قدم',
-  zone40: 'منطقة 40 قدم',
-  /** The yard's remaining room, kept apart by the size that can take it. */
-  freeTitle: 'الفاضي بالساحة',
-  freeForty: (n: number): string => `40 قدم: ${String(n)}`,
-  freeTwenty: (n: number): string => `20 قدم: ${String(n)}`,
-  freeMixed: (n: number): string => `مختلط: ${String(n)} مكان`,
-  blockNoSize: (size: number): string => `ما بتاخد مقاس ${String(size)}`,
+  searchPlaceholder: 'دوّر: رقم حاوية، بوليصة، أو اسم المالك…',
+  yardName: (yard: number): string => `ساحة ${String(yard)}`,
+  /** «قديش باقي» per yard: legal landings for each size, right now. */
+  freeOfYard: (yard: number, t20: number, t40: number): string =>
+    `ساحة ${String(yard)} — فاضي لعشرين: ${String(t20)} · لأربعين: ${String(t40)}`,
+  freeTitle: 'الفاضي',
   inYardCount: (n: number): string => `${String(n)} حاوية بالساحة`,
   fit: 'ملء الشاشة',
   zoomIn: 'تكبير',
@@ -89,59 +87,42 @@ export const AR = {
   matches: (n: number): string => (n === 0 ? 'ما في نتائج' : `النتائج: ${String(n)}`),
   clearSearch: 'مسح البحث',
 
-  legendFree: 'موقع فاضي',
+  legendFree: 'باي فاضي',
   legendPartial: 'فيه محل',
   legendFull: 'ممتلئ',
-  legendTarget: 'موقع مسموح',
+  legendTarget: 'بينفع تنحط فيه',
   legendNoted: 'فيه ملاحظة',
 
-  // ---- locations ----
-  /** `2 حاوية بكل طابق × 2 طابق` — how a column's locations are built. */
-  blockShape: (perTier: number, tiers: number, inPlaces: boolean): string =>
-    `${String(perTier)} ${inPlaces ? 'مكان' : 'حاوية'} بكل طابق × ${String(tiers)} طابق`,
-  /** The same fact short enough to sit inside a panel: `2 طابق × 4 حاوية`. */
-  blockBuild: (perTier: number, tiers: number, inPlaces: boolean): string =>
-    `${String(tiers)} طابق × ${String(perTier)} ${inPlaces ? 'مكان' : 'حاوية'}`,
-  /** What the column takes: the size beside its letter on the map. */
-  blockSizeName: (size: number): string => (size === 0 ? 'مختلط' : `${String(size)} قدم`),
-  /** `مليان 6 · فاضي 10` — the split the owner reads at a glance. */
+  // ---- zones and bays ----
+  zoneTitle: (zone: string, yard: number): string => `زون ${zone} · ساحة ${String(yard)}`,
+  /** `ستاكات لحد 10 × 3 طوابق` — how this zone's bays are built. */
+  zoneBuild: (maxStack: number): string =>
+    `ستاكات لحد ${String(maxStack)} × ${String(TIERS.length)} طوابق`,
+  /** `مليان 6 · فاضي 10` — the split the owner reads at a glance (TEU). */
   fullAndFree: (full: number, free: number): string =>
     `مليان ${String(full)} · فاضي ${String(free)}`,
-  locationHas: (used: number, total: number): string =>
-    used === 0 ? 'الموقع فاضي' : `فيه ${String(used)} من ${String(total)}`,
-  locationFull: 'ممتلئ',
-  locationAdd: 'أدخل حاوية هون',
-  locationAddBlocked: 'الموقع ممتلئ — ما في محل.',
-  freePlaces: (n: number): string =>
-    n === 0 ? 'ما في محل' : n === 1 ? 'باقي مكان واحد' : `باقي ${String(n)} أماكن`,
-
-  // ---- the yard editor ----
-  editYard: 'تعديل الساحة',
-  editorHint: 'اسحب المنطقة لتحركها، واختارها لتعدلها. التغيير ما بينحفظ إلا لما تكبس حفظ.',
-  editorSave: 'حفظ الساحة',
-  editorCancel: 'إلغاء التعديل',
-  editorAdd20: 'عمود 20 جديد',
-  editorAdd40: 'عمود 40 جديد',
-  editorAddMixed: 'عمود مختلط جديد',
-  sizeMixed: 'مختلط',
-  sizeMixedBlocked: 'فيه حاويات ما بتناسب هالمقاس.',
-  editorName: 'حرف العمود',
-  editorRows: 'المواقع',
-  editorTiers: 'الطوابق',
-  /** The capacity stepper, worded in the column's own language. */
-  editorCapacity: (size: number): string =>
-    size === 0 ? 'أماكن 20 بكل طابق' : `حاويات ${String(size)} بكل طابق`,
-  editorCapacityLocked: 'في مواقع فيها أكتر من هيك — فضيها قبل ما تصغّر.',
-  editorAngle: 'الزاوية',
-  editorDelete: 'حذف العمود',
-  editorDeleteBlocked: 'فيه حاويات — ما بينحذف.',
-  editorOverlap: 'في أعمدة راكبة على بعض — زحزحها قبل الحفظ.',
-  editorSaved: 'انحفظت الساحة.',
-  editorNewName: (n: number): string => `عمود ${String(n)}`,
+  bayHas: (used: number, total: number): string =>
+    used === 0 ? 'الباي فاضي' : `فيه ${String(used)} من ${String(total)}`,
+  bayFull: 'ممتلئ',
+  tierAName: 'طابق A — الأرض',
+  tierBName: 'طابق B — فوقه',
+  tierCName: 'طابق C — الاحتياط',
+  tierShort: (tier: Tier): string => tier,
+  stackShort: (stack: number): string => String(stack).padStart(2, '0'),
+  /** A stack position the wall swallows — it does not exist on the plan. */
+  slotWall: 'حيط',
+  slotEmpty: 'فاضي',
+  put20Here: 'حط 20 هون',
+  put40With: (otherBay: string): string => `حط 40 بالعرض مع ${otherBay}`,
+  moveHere: 'انقلها لهون',
+  move40With: (otherBay: string): string => `انقلها بالعرض مع ${otherBay}`,
+  fortySpans: 'الأربعين بتاخد البايين — بتنرمز بالرقم الزوجي بيناتهم.',
+  noLandingHere: 'ما بينفع تنحط بهالخانة — شوف خانة ثانية.',
+  size40Chip: '40',
+  size20Chip: '20',
 
   // ---- gate in ----
   gateInTitle: (size: number): string => `إدخال حاوية ${String(size)} قدم`,
-  gateInTitleMixed: 'إدخال حاوية',
   gateInAt: 'على الموقع',
   containerNumber: 'رقم الحاوية',
   numberOk: 'الرقم صح حسب المواصفة.',
@@ -151,15 +132,17 @@ export const AR = {
       ? 'الرقم مش بصيغة الساحة (4 أحرف و4 أرقام) ولا الدولية — رح ينحفظ مع تنبيه.'
       : `الرقم الأخير المتوقع ${String(digit)} — رح ينحفظ مع تنبيه.`,
   truck: 'رقم السيارة',
+  bill: 'رقم البوليصة',
+  billHint: 'اختياري — بوليصة الشحن اللي الحاوية تابعة إلها. إذا ما في، اتركها فاضية.',
   seal: 'رقم الرصاصة',
   sealOut: 'رصاصة الخروج',
   sealHint: 'الرصاصة اللي على باب الحاوية',
   sealWas: (seal: string): string => `دخلت برصاصة ${seal}`,
   sealChanged: 'الرصاصة تغيّرت',
   driver: 'اسم السائق (اختياري)',
-  weight: 'وزن الحاوية (اختياري)',
-  customer: 'العميل',
-  customerHint: 'اكتب الاسم أو اختار من القائمة',
+  weight: 'الوزن بالكغم (اختياري)',
+  customer: 'اسم المالك',
+  customerHint: 'صاحب الحاوية — اكتب الاسم أو اختار من القائمة',
   notes: 'ملاحظات',
   notesHint: 'حالة الحاوية وأي إشي لازم ينذكر: مبعوجة، قفلها مفتوح، عليها حجز…',
   confirmGateIn: 'تأكيد الإدخال',
@@ -171,15 +154,16 @@ export const AR = {
   exitedAt: 'طلعت بتاريخ',
   dwell: (days: number): string =>
     days === 0 ? 'دخلت اليوم' : days === 1 ? 'صارلها يوم' : `صارلها ${String(days)} يوم`,
-  sharingLocation: (n: number): string =>
-    n === 1 ? 'معها حاوية ثانية بنفس الموقع.' : `معها ${String(n)} حاويات بنفس الموقع.`,
-  addToLocation: 'أدخل حاوية بنفس الموقع',
+  onTopOf: (number: string): string => `واقفة فوق ${number}`,
+  underneath: (number: string): string => `فوقها ${number} — بدها تنزل قبلها`,
   numberNotVerified: 'الرقم مش مطابق للمواصفة',
   outOfYard: 'برا الساحة',
   actionMove: 'نقل',
   actionExit: 'إخراج',
   actionEdit: 'تعديل',
   actionDelete: 'سجل غلط؟ احذفه',
+  sizeLockedStanding:
+    'المقاس ما بيتغير وهي واقفة — الفردي للعشرين والزوجي للأربعين. طلعها أو انقلها قبل.',
   movementsTitle: 'الحركات',
   movementIn: 'إدخال',
   movementMove: 'نقل',
@@ -190,7 +174,8 @@ export const AR = {
   editedFields: (note: string): string => {
     const names: Record<string, string> = {
       number: 'الرقم',
-      customer: 'العميل',
+      customer: 'اسم المالك',
+      bill: 'رقم البوليصة',
       size: 'المقاس',
       notes: 'الملاحظات',
     };
@@ -210,7 +195,7 @@ export const AR = {
   cancel: 'إلغاء',
 
   // ---- moving ----
-  movingBanner: (number: string): string => `وين بدك تنقل ${number}؟ اكبس على موقع أخضر.`,
+  movingBanner: (number: string): string => `وين بدك تحط ${number}؟ اكبس على الباي واختار الخانة.`,
   movingCancel: 'إلغاء النقل',
   confirmMoveTitle: 'تأكيد النقل',
   confirmMoveBody: (number: string, to: string): string => `نقل ${number} إلى ${to}؟`,
@@ -231,8 +216,8 @@ export const AR = {
   cardDriver: 'اسم السائق',
   cardTruck: 'رقم السيارة',
   cardSize: 'نوع الحاوية',
-  cardCompany: 'اسم الشركة',
-  cardWeight: 'وزن',
+  cardCompany: 'اسم المالك',
+  cardWeight: 'الوزن (كغم)',
   cardSeal: 'رقم الرصاصة',
   cardSlot: 'الموقع',
   cardNotes: 'ملاحظات',
@@ -262,10 +247,10 @@ export const AR = {
   colCardIn: 'رقم بطاقة دخول',
   colCardOut: 'رقم بطاقة خروج',
   colNumber: 'رقم الحاوية',
-  colWeight: 'وزن الحاوية',
+  colWeight: 'الوزن (كغم)',
   colSize: 'نوع الحاوية',
   colSlot: 'موقع الحاوية',
-  colCompany: 'اسم الشركة',
+  colCompany: 'اسم المالك',
   colSeal: 'رقم الرصاصة',
   colNotes: 'ملاحظات',
   colUser: 'الموظف',
@@ -292,6 +277,20 @@ export const AR = {
   logButton: 'السجل',
   reportTruck: 'كشف سيارة',
   truckPrompt: 'اكتب رقم السيارة وبيطلعلك كل اللي نقلته.',
+  reportBill: 'كشف بوليصة',
+  billPrompt: 'اكتب رقم البوليصة وبيطلعلك كل حاوياتها — الواقف والطالع.',
+  billOf: (bill: string): string => `بوليصة ${bill}`,
+  billNow: 'كل حاويات البوليصة — مش مربوط بفترة',
+  billTotals: (n: number, t20: number, t40: number): string =>
+    `${String(n)} حاوية — ${String(t20)} عشرين · ${String(t40)} أربعين`,
+  colBill: 'رقم البوليصة',
+  cardBill: 'رقم البوليصة',
+  colExitedAt: 'تاريخ الخروج',
+  stillStanding: 'بالساحة',
+  /** The search's doorway into one bill's own sheet. */
+  searchBillRow: (bill: string, count: number): string =>
+    `بوليصة ${bill} — ${String(count)} حاوية`,
+  searchBillTitle: 'بوالص',
   colOperation: 'العملية',
   colFrom: 'من',
   colTo: 'إلى',
@@ -313,6 +312,11 @@ export const AR = {
   revertedDone: 'انرجع التعديل.',
   perPage: 'بكل صفحة',
 
+  // ---- backup ----
+  backup: 'نسخة احتياطية',
+  backupWorking: 'جارٍ تجهيز النسخة…',
+  backupDone: 'انحفظت نسخة عند السيرفر وانتنزلت عليك — خزّنها بمكان أمين.',
+
   // ---- delete ----
   confirmDeleteTitle: 'حذف سجل غلط',
   confirmDeleteBody: (number: string): string =>
@@ -329,27 +333,22 @@ export const AR = {
     UNAUTHORIZED: 'انتهت الجلسة — سجّل دخول من جديد.',
     FORBIDDEN: 'ما إلك صلاحية على هالعملية — راجع المالك.',
     USER_EXISTS: 'في موظف بنفس الاسم — غيّر الاسم.',
-    NOT_SETUP: 'الساحة مش مجهزة بعد.',
+    NOT_SETUP: 'الموقع مش مجهز بعد.',
     ALREADY_SETUP: 'الموقع مجهز من قبل — سجّل دخول عادي.',
     VALIDATION: 'في بيانات ناقصة أو غلط. راجع الخانات.',
     NOT_FOUND: 'السجل مش موجود.',
-    OUT_OF_BOUNDS: 'الموقع خارج حدود الساحة.',
-    WRONG_ZONE: 'كل مقاس بمنطقته: حاوية 20 بمنطقة 20، وحاوية 40 بمنطقة 40.',
-    LOCATION_FULL: 'الموقع ممتلئ — ما في محل.',
+    BAD_SLOT: 'هالخانة مش موجودة بالمخطط — حيط، أو مقاس على باي غلط.',
+    OCCUPIED: 'الخانة مشغولة.',
+    NO_SUPPORT: 'ما في أرضية تحتها — الطابق الثاني بدو حاوية تحته من نفس المقاس.',
+    BURIED: 'فوقها حاوية — نزّلها الأول.',
+    SAME_SLOT: 'هذا نفس مكانها الحالي.',
     NUMBER_IN_YARD: 'هذا الرقم موجود بالساحة هلأ. راجع الأوراق.',
     ALREADY_OUT: 'هاي الحاوية طلعت من الساحة أصلًا.',
-    SHRINK_OCCUPIED: 'ما بينفع التصغير — في حاويات واقفة برا الحدود الجديدة.',
-    CAPACITY_OCCUPIED: 'ما بينفع تصغير السعة — في مواقع فيها أكتر من هيك.',
-    SAME_SLOT: 'هذا نفس موقعها الحالي.',
-    BLOCK_OVERLAP: 'في أعمدة راكبة على بعض — زحزحها شوي.',
-    BLOCK_NOT_EMPTY: 'العمود مش فاضي — طلّع حاوياته قبل ما تحذفه.',
-    NAME_TAKEN: 'في عمود بنفس الاسم — غيّر الاسم.',
+    NAME_TAKEN: 'الاسم مستخدم — غيّره.',
     NOT_DELETED: 'هذا السجل مش محذوف أصلًا.',
   } satisfies Record<ErrorCode, string>,
-  /** LOCATION_FULL says exactly how short the location is. */
-  errorFull: (free: number, need: number): string =>
-    free === 0
-      ? 'الموقع ممتلئ — ما في محل.'
-      : `الموقع ما فيه غير ${String(free)} مكان، والحاوية بدها ${String(need)}.`,
+  /** The refusals that involve another container name it in the sentence. */
+  errorWith: (code: 'BURIED' | 'OCCUPIED', other: string): string =>
+    code === 'BURIED' ? `فوقها ${other} — نزّلها الأول.` : `الخانة مشغولة — واقفة فيها ${other}.`,
   networkError: 'ما قدرنا نوصل للخادم. تأكد من الإنترنت وجرّب كمان مرة.',
 } as const;

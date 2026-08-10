@@ -40,6 +40,9 @@
   --yard-selected: #0284c7;
   --yard-text: #0f172a;
   --yard-muted: #64748b;
+  /* The hangars and buildings hatch like the printed ASEZA plan. */
+  --yard-landmark: #dbeafe;
+  --yard-landmark-line: #3b82f6;
 }
 
 .dark {
@@ -68,6 +71,8 @@
   --yard-selected: #38bdf8;
   --yard-text: #e8eef7;
   --yard-muted: #94a3b8;
+  --yard-landmark: #14243c;
+  --yard-landmark-line: #4a7fd6;
 }
 
 html {
@@ -105,6 +110,17 @@ body {
    nodes, and clicks land on the cell rect exactly as before. */
 .yard-map text {
   pointer-events: none;
+}
+
+/* A stack position the wall swallows — hatched, like the plan's dead ground. */
+.slot-wall {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--color-sunken),
+    var(--color-sunken) 5px,
+    var(--color-line) 5px,
+    var(--color-line) 7px
+  );
 }
 
 /*

@@ -1,13 +1,14 @@
 import { useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type {
+  ContainerDto,
   DailyReportRow,
   GateReportRow,
-  Position,
   StandingReportRow,
 } from '../shared/types';
+import { positionLabel } from '../shared/address';
 import { AR } from './ar';
-import { api } from './api';
+import { api, dwellDays } from './api';
 import {
   SheetScreen,
   ammanToday,
@@ -20,21 +21,34 @@ import {
   monthStart,
   rangeInstants,
   stampCells,
+  type TableCell,
   type TableModel,
 } from './sheetKit';
 
 /**
- * The office's registers: entry and exit movements, the daily summary, and
- * the per-truck sheet. The operations log lives on its own screen.
+ * The office's registers: entry and exit movements, the standing snapshot,
+ * the daily summary, the per-truck sheet and the per-bill sheet. The
+ * operations log lives on its own screen.
  */
 
-type Tab = 'in' | 'out' | 'standing' | 'daily' | 'truck';
+type Tab = 'in' | 'out' | 'standing' | 'daily' | 'truck' | 'bill';
+
+/** The bill cell is a doorway: tap it, get that bill's own sheet. */
+const billCell = (bill: string, onBill: (bill: string) => void): TableCell =>
+  bill === ''
+    ? cellLtr(dash)
+    : {
+        ...cellLtr(bill),
+        onClick: () => {
+          onBill(bill);
+        },
+      };
 
 function gateModel(
   rows: readonly GateReportRow[],
   out: boolean,
-  label: (position: Position) => string,
   onTruck: (truck: string) => void,
+  onBill: (bill: string) => void,
 ): TableModel {
   const head = [
     AR.colSeq,
@@ -45,6 +59,7 @@ function gateModel(
     AR.colTruck,
     out ? AR.colCardOut : AR.colCardIn,
     AR.colNumber,
+    AR.colBill,
     AR.colSeal,
     AR.colWeight,
     AR.colSize,
@@ -69,10 +84,11 @@ function gateModel(
         },
     cellLtr(row.card === null ? dash : String(row.card)),
     cellLtr(row.number),
+    billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),
     cellLtr(row.weight === '' ? dash : row.weight),
     cellText(String(row.size)),
-    cellLtr(row.position === null ? dash : label(row.position)),
+    cellLtr(row.position === null ? dash : positionLabel(row.position)),
     cellWrap(row.customer),
     ...(out ? [cellText(row.dwellDays === null ? dash : AR.daysCount(row.dwellDays))] : []),
     cellText(row.user),
@@ -88,13 +104,14 @@ function gateModel(
 /** كشف الحاويات بالساحة — what is standing now, oldest first. */
 function standingModel(
   rows: readonly StandingReportRow[],
-  label: (position: Position) => string,
+  onBill: (bill: string) => void,
 ): TableModel {
   const head = [
     AR.colSeq,
     AR.colNumber,
     AR.colSlot,
     AR.colSize,
+    AR.colBill,
     AR.colSeal,
     AR.colCompany,
     AR.colDate,
@@ -105,8 +122,9 @@ function standingModel(
   const body = rows.map((row, index) => [
     cellText(String(index + 1)),
     cellLtr(row.number),
-    cellLtr(row.position === null ? dash : label(row.position)),
+    cellLtr(row.position === null ? dash : positionLabel(row.position)),
     cellText(String(row.size)),
+    billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),
     cellWrap(row.customer),
     cellLtr(dateFormat.format(new Date(row.enteredAt))),
@@ -121,7 +139,7 @@ function standingModel(
 
 function truckModel(
   rows: ReadonlyArray<GateReportRow & { statement: 'IN' | 'OUT' }>,
-  label: (position: Position) => string,
+  onBill: (bill: string) => void,
 ): TableModel {
   const head = [
     AR.colSeq,
@@ -130,6 +148,7 @@ function truckModel(
     AR.colDate,
     AR.colTime,
     AR.colNumber,
+    AR.colBill,
     AR.colSeal,
     AR.colWeight,
     AR.colSize,
@@ -142,10 +161,11 @@ function truckModel(
     cellText(row.statement === 'IN' ? AR.statementIn : AR.statementOut),
     ...stampCells(new Date(row.at)),
     cellLtr(row.number),
+    billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),
     cellLtr(row.weight === '' ? dash : row.weight),
     cellText(String(row.size)),
-    cellLtr(row.position === null ? dash : label(row.position)),
+    cellLtr(row.position === null ? dash : positionLabel(row.position)),
     cellWrap(row.customer),
     cellText(row.user),
   ]);
@@ -153,6 +173,48 @@ function truckModel(
     rows.length === 0
       ? null
       : [cellText(AR.totalRow), cellText(AR.movementsCount(rows.length))];
+  return { head, body, footer };
+}
+
+/**
+ * كشف البوليصة: the whole group one bill of lading gathers — the standing
+ * ones first with their exact slots, then the departed with their exit dates.
+ */
+function billModel(rows: readonly ContainerDto[]): TableModel {
+  const head = [
+    AR.colSeq,
+    AR.colNumber,
+    AR.colSize,
+    AR.colSlot,
+    AR.colSeal,
+    AR.colCompany,
+    AR.colEnteredAt,
+    AR.colExitedAt,
+    AR.colDwell,
+    AR.colNotes,
+  ];
+  const body = rows.map((container, index) => [
+    cellText(String(index + 1)),
+    cellLtr(container.number),
+    cellText(String(container.size)),
+    container.position === null
+      ? cellText(dash)
+      : cellLtr(positionLabel(container.position)),
+    cellLtr(container.sealIn === '' ? dash : container.sealIn),
+    cellWrap(container.customer),
+    cellLtr(dateFormat.format(new Date(container.enteredAt))),
+    container.exitedAt === null
+      ? cellText(AR.stillStanding)
+      : cellLtr(dateFormat.format(new Date(container.exitedAt))),
+    cellText(AR.daysCount(dwellDays(container.enteredAt, container.exitedAt ?? undefined))),
+    cellWrap(container.notes === '' ? dash : container.notes),
+  ]);
+  const t20 = rows.filter((row) => row.size === 20).length;
+  const t40 = rows.length - t20;
+  const footer =
+    rows.length === 0
+      ? null
+      : [cellText(AR.totalRow), cellText(AR.billTotals(rows.length, t20, t40))];
   return { head, body, footer };
 }
 
@@ -189,24 +251,28 @@ const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['in', AR.reportIn],
   ['out', AR.reportOut],
   ['standing', AR.reportStanding],
+  ['bill', AR.reportBill],
   ['daily', AR.reportDaily],
   ['truck', AR.reportTruck],
 ];
 
 export function ReportsScreen(props: {
-  label: (position: Position) => string;
+  /** Land straight on one bill's sheet — the search's doorway. */
+  initialBill?: string | undefined;
   /** Reprint a gate card straight from the row it is on. */
   onCard: (kind: 'in' | 'out', containerId: number) => void;
   onBack: () => void;
 }): ReactElement {
-  const [tab, setTab] = useState<Tab>('in');
+  const [tab, setTab] = useState<Tab>(props.initialBill === undefined ? 'in' : 'bill');
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(ammanToday());
   const [truck, setTruck] = useState('');
+  const [bill, setBill] = useState(props.initialBill ?? '');
 
   const { fromIso, toIso } = useMemo(() => rangeInstants(from, to), [from, to]);
   const valid = from !== '' && to !== '' && from <= to;
   const truckReady = truck.trim() !== '';
+  const billReady = bill.trim() !== '';
 
   const gate = useQuery({
     queryKey: ['report-gate', tab, fromIso, toIso],
@@ -228,39 +294,57 @@ export function ReportsScreen(props: {
     queryFn: api.reportStanding,
     enabled: tab === 'standing',
   });
+  const billReport = useQuery({
+    queryKey: ['report-bill', bill.trim()],
+    queryFn: () => api.reportBill(bill.trim()),
+    enabled: tab === 'bill' && billReady,
+  });
 
   const baseTitle = TABS.find(([key]) => key === tab)?.[1] ?? '';
-  const title = tab === 'truck' && truckReady ? `${baseTitle} ${truck.trim()}` : baseTitle;
+  const title =
+    tab === 'truck' && truckReady
+      ? `${baseTitle} ${truck.trim()}`
+      : tab === 'bill' && billReady
+        ? `${baseTitle} ${bill.trim()}`
+        : baseTitle;
 
   const model = useMemo<TableModel>(() => {
     const openTruck = (plate: string): void => {
       setTruck(plate);
       setTab('truck');
     };
+    const openBill = (number: string): void => {
+      setBill(number);
+      setTab('bill');
+    };
     switch (tab) {
       case 'in':
       case 'out':
-        return gateModel(gate.data?.rows ?? [], tab === 'out', props.label, openTruck);
+        return gateModel(gate.data?.rows ?? [], tab === 'out', openTruck, openBill);
       case 'standing':
-        return standingModel(standing.data?.rows ?? [], props.label);
+        return standingModel(standing.data?.rows ?? [], openBill);
       case 'daily':
         return dailyModel(daily.data?.rows ?? []);
       case 'truck':
-        return truckModel(truckReport.data?.rows ?? [], props.label);
+        return truckModel(truckReport.data?.rows ?? [], openBill);
+      case 'bill':
+        return billModel(billReport.data?.rows ?? []);
     }
-  }, [tab, gate.data, standing.data, daily.data, truckReport.data, props.label]);
+  }, [tab, gate.data, standing.data, daily.data, truckReport.data, billReport.data]);
 
   // A register row carries its own card: no hunting the exact number down in
   // the search box to reprint the paper the driver already lost.
   const cardActions =
-    tab === 'in' || tab === 'out' || tab === 'standing'
+    tab === 'in' || tab === 'out' || tab === 'standing' || tab === 'bill'
       ? {
           header: AR.actionColumn,
           render: (rowIndex: number): ReactNode => {
             const containerId =
               tab === 'standing'
                 ? standing.data?.rows[rowIndex]?.containerId
-                : gate.data?.rows[rowIndex]?.containerId;
+                : tab === 'bill'
+                  ? billReport.data?.rows[rowIndex]?.id
+                  : gate.data?.rows[rowIndex]?.containerId;
             if (containerId === undefined) return null;
             return (
               <button
@@ -288,8 +372,16 @@ export function ReportsScreen(props: {
       onTo={setTo}
       onBack={props.onBack}
       actions={cardActions}
-      rangeless={tab === 'standing' ? AR.standingNow : undefined}
-      emptyText={tab === 'truck' && !truckReady ? AR.truckPrompt : undefined}
+      rangeless={
+        tab === 'standing' ? AR.standingNow : tab === 'bill' ? AR.billNow : undefined
+      }
+      emptyText={
+        tab === 'truck' && !truckReady
+          ? AR.truckPrompt
+          : tab === 'bill' && !billReady
+            ? AR.billPrompt
+            : undefined
+      }
       tabs={
         <div className="flex flex-wrap gap-1">
           {TABS.map(([key, tabLabel]) => (
@@ -320,6 +412,16 @@ export function ReportsScreen(props: {
             value={truck}
             onChange={(event) => {
               setTruck(event.target.value);
+            }}
+          />
+        ) : tab === 'bill' ? (
+          <input
+            dir="ltr"
+            placeholder={AR.colBill}
+            className="w-36 rounded-lg border border-line-strong px-2.5 py-1.5 text-start text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+            value={bill}
+            onChange={(event) => {
+              setBill(event.target.value);
             }}
           />
         ) : undefined

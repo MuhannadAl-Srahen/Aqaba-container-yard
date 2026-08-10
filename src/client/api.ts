@@ -1,6 +1,5 @@
 import type {
   ApiError,
-  BlockConfig,
   ContainerDto,
   DailyReportRow,
   ErrorCode,
@@ -12,10 +11,8 @@ import type {
   Position,
   StandingReportRow,
   UserDto,
-  YardConfig,
   YardStateDto,
 } from '../shared/types';
-import type { ColumnShape } from '../shared/geometry';
 import { daysBetween } from '../shared/dates';
 import { AR } from './ar';
 
@@ -59,11 +56,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // The body was not JSON; fall through to the generic failure below.
     }
     if (body !== null && typeof body.code === 'string') {
-      const free = body.details?.['free'];
-      const need = body.details?.['need'];
+      // Refusals that involve another container carry its number, so the
+      // sentence can say WHO is on top or already standing there.
+      const other = body.details?.['other'];
       const arabic =
-        body.code === 'LOCATION_FULL' && typeof free === 'number' && typeof need === 'number'
-          ? AR.errorFull(free, need)
+        (body.code === 'BURIED' || body.code === 'OCCUPIED') && typeof other === 'string'
+          ? AR.errorWith(body.code, other)
           : (AR.errors[body.code] ?? AR.networkError);
       throw new ApiFailure(body.code, arabic, body.details);
     }
@@ -76,31 +74,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface BootDto {
   firstRun: boolean;
   authorized: boolean;
-  yardConfigured: boolean;
   /** The employees the sign-in screen offers as buttons. */
   staff: Array<{ id: number; name: string }>;
 }
 
-/** The first-run shape: two columns the server lays out for the owner. */
-export interface SetupShape {
-  twenty: ColumnShape;
-  forty: ColumnShape;
-}
-
-/**
- * A layout block on its way to the server: existing keep ids, new ones have
- * none.
- */
-export type BlockDraft = Omit<BlockConfig, 'id'> & { readonly id?: number };
-
 export const api = {
   boot: (): Promise<BootDto> => request('/api/boot'),
 
-  setup: (password: string, yard: SetupShape): Promise<{ ok: boolean }> =>
-    request('/api/setup', { method: 'POST', body: JSON.stringify({ password, yard }) }),
-
-  saveYard: (blocks: readonly BlockDraft[]): Promise<YardConfig> =>
-    request('/api/yard', { method: 'PUT', body: JSON.stringify({ blocks }) }),
+  /** First run: the password alone — the yard IS the official layout. */
+  setup: (password: string): Promise<{ ok: boolean }> =>
+    request('/api/setup', { method: 'POST', body: JSON.stringify({ password }) }),
 
   /** The owner's door. */
   login: (password: string): Promise<{ ok: boolean }> =>
@@ -138,6 +121,7 @@ export const api = {
     number: string;
     size: 20 | 40;
     customer: string;
+    bill: string;
     notes: string;
     position: Position;
     truck: string;
@@ -189,6 +173,28 @@ export const api = {
       `/api/reports/truck?truck=${encodeURIComponent(truck)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
     ),
 
+  /** كشف البوليصة: every container under one bill, standing first. */
+  reportBill: (bill: string): Promise<{ rows: ContainerDto[] }> =>
+    request(`/api/reports/bill?number=${encodeURIComponent(bill)}`),
+
+  /**
+   * One tap, two copies: the server writes a dated snapshot beside the live
+   * file and streams the same bytes back for the browser to save.
+   */
+  backup: async (): Promise<{ blob: Blob; filename: string }> => {
+    let response: Response;
+    try {
+      response = await fetch('/api/backup', { method: 'POST' });
+    } catch {
+      throw new ApiFailure('NETWORK', AR.networkError);
+    }
+    if (!response.ok) throw new ApiFailure('NETWORK', AR.networkError);
+    const disposition = response.headers.get('content-disposition') ?? '';
+    const match = /filename\*=UTF-8''([^;]+)/.exec(disposition);
+    const filename = match?.[1] === undefined ? 'yard-backup.db' : decodeURIComponent(match[1]);
+    return { blob: await response.blob(), filename };
+  },
+
   /** The sheet as a server-printed PDF file. */
   reportPdf: async (title: string, html: string, landscape: boolean): Promise<Blob> => {
     let response: Response;
@@ -207,7 +213,7 @@ export const api = {
 
   edit: (
     id: number,
-    input: { number: string; customer: string; size: 20 | 40; notes: string },
+    input: { number: string; customer: string; bill: string; size: 20 | 40; notes: string },
   ): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
 

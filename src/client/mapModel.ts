@@ -1,74 +1,14 @@
-import type { BlockConfig, ContainerDto, Position, Size, YardConfig } from '../shared/types';
-import { MIXED_SIZE, PLACES_20, PLACES_40 } from '../shared/types';
-import { positionKey, positionLabel, type BlockNamer } from '../shared/address';
-import {
-  buildUsage,
-  canPlace,
-  locationCapacity,
-  placesFor,
-  type Standing,
-} from '../shared/rules';
-import { blockTakes } from '../shared/geometry';
+import type { ContainerDto, Position, Size, Tier, YardLayout, Zone, ZoneDef } from '../shared/types';
+import { TIERS } from '../shared/types';
+import { baySpan } from '../shared/address';
+import { buildOccupancy, canPlace, type Standing } from '../shared/rules';
 import { normalizeNumber } from '../shared/iso6346';
 
 /**
  * Pure map arithmetic, kept out of the components so it can be tested without
- * rendering anything.
+ * rendering anything. The grid itself is the official layout; everything here
+ * only counts who stands where on it.
  */
-
-/** What stands in each location, keyed by `positionKey`, in gate-in order. */
-export function buildLoads(
-  containers: readonly ContainerDto[],
-): Map<string, ContainerDto[]> {
-  const loads = new Map<string, ContainerDto[]>();
-  for (const container of containers) {
-    if (container.position === null) continue;
-    const key = positionKey(container.position);
-    const load = loads.get(key);
-    if (load === undefined) loads.set(key, [container]);
-    else load.push(container);
-  }
-  return loads;
-}
-
-/** Places those containers claim together — a 40 counts for two. */
-export function placesUsed(load: readonly ContainerDto[] | undefined): number {
-  if (load === undefined) return 0;
-  return load.reduce((sum, container) => sum + placesFor(container.size), 0);
-}
-
-/** The fewest places anything this column accepts would claim. */
-export function smallestPlaces(block: Pick<BlockConfig, 'size'>): number {
-  return block.size === 40 ? placesFor(40) : placesFor(20);
-}
-
-/**
- * How full a location reads, counted the way its own column speaks: a column
- * dedicated to one size counts containers ("2 of 4 forties"), a mixed one
- * counts twenty-foot places, because there is no single container to count.
- */
-export interface LocationCount {
-  readonly used: number;
-  readonly total: number;
-  /** Mixed columns count places; dedicated ones count containers. */
-  readonly inPlaces: boolean;
-  /** Nothing this column accepts fits any more. */
-  readonly full: boolean;
-}
-
-export function countLocation(
-  block: Pick<BlockConfig, 'size' | 'placesPerTier' | 'tiers'>,
-  load: readonly ContainerDto[] | undefined,
-): LocationCount {
-  const capacity = locationCapacity(block);
-  const places = placesUsed(load);
-  const full = capacity - places < smallestPlaces(block);
-  if (block.size === MIXED_SIZE) {
-    return { used: places, total: capacity, inPlaces: true, full };
-  }
-  const per = placesFor(block.size);
-  return { used: places / per, total: capacity / per, inPlaces: false, full };
-}
 
 export function toStanding(containers: readonly ContainerDto[]): Standing[] {
   const standing: Standing[] = [];
@@ -84,35 +24,189 @@ export function toStanding(containers: readonly ContainerDto[]): Standing[] {
   return standing;
 }
 
+/** `zone|oddBay` — the ground a map cell draws. */
+export const bayKey = (zone: Zone, oddBay: number): string => `${zone}|${String(oddBay)}`;
+
 /**
- * Every location a container of this size may go into right now, keyed
- * `block|row`. Used to paint the green targets in moving mode — the SAME rule
- * functions the server runs, so the paint cannot lie.
+ * Who covers each odd bay, keyed by `bayKey`. A 40 stored at its even bay
+ * appears under BOTH odd bays it lies across — the map paints it on both
+ * cells, and each bay sheet shows it among its own slots.
  */
-export function legalTargets(
-  yard: YardConfig,
+export function buildBayLoads(
+  containers: readonly ContainerDto[],
+): Map<string, ContainerDto[]> {
+  const loads = new Map<string, ContainerDto[]>();
+  for (const container of containers) {
+    if (container.position === null) continue;
+    for (const oddBay of baySpan(container.position.bay)) {
+      const key = bayKey(container.position.zone, oddBay);
+      const load = loads.get(key);
+      if (load === undefined) loads.set(key, [container]);
+      else load.push(container);
+    }
+  }
+  return loads;
+}
+
+/** How full one bay reads: TEU standing over TEU the plan gives it. */
+export interface BayCount {
+  readonly used: number;
+  readonly total: number;
+  readonly full: boolean;
+}
+
+export function countBay(
+  zone: ZoneDef,
+  oddBay: number,
+  load: readonly ContainerDto[] | undefined,
+): BayCount {
+  const total = (zone.stacks[String(oddBay)]?.length ?? 0) * TIERS.length;
+  // A 40 puts one TEU of itself on each odd bay it covers, so per-bay TEU is
+  // simply the number of containers listed under the bay.
+  const used = load?.length ?? 0;
+  return { used, total, full: total > 0 && used >= total };
+}
+
+/** Zone roll-up for the panel header: TEU standing against TEU capacity. */
+export interface ZoneSummary {
+  readonly usedTeu: number;
+  readonly totalTeu: number;
+}
+
+export function summarizeZone(
+  zone: ZoneDef,
+  loads: ReadonlyMap<string, readonly ContainerDto[]>,
+): ZoneSummary {
+  let usedTeu = 0;
+  let totalTeu = 0;
+  for (const bay of zone.bays) {
+    const count = countBay(zone, bay, loads.get(bayKey(zone.zone, bay)));
+    usedTeu += count.used;
+    totalTeu += count.total;
+  }
+  return { usedTeu, totalTeu };
+}
+
+/** The tallest stack this zone reaches anywhere — the bay sheet's grid width. */
+export function maxStackOf(zone: ZoneDef): number {
+  let max = 0;
+  for (const bay of zone.bays) {
+    for (const stack of zone.stacks[String(bay)] ?? []) max = Math.max(max, stack);
+  }
+  return max;
+}
+
+/**
+ * What one slot of a bay sheet shows: the wall, an empty cell, or whoever
+ * stands there (possibly a 40 reaching over from the even bay).
+ */
+export type SlotView =
+  | { readonly kind: 'wall' }
+  | { readonly kind: 'empty' }
+  | { readonly kind: 'taken'; readonly container: ContainerDto };
+
+export function slotView(
+  zone: ZoneDef,
+  oddBay: number,
+  stack: number,
+  tier: Tier,
+  load: readonly ContainerDto[] | undefined,
+): SlotView {
+  const usable = zone.stacks[String(oddBay)]?.includes(stack) ?? false;
+  if (!usable) return { kind: 'wall' };
+  const taken = load?.find(
+    (container) =>
+      container.position !== null &&
+      container.position.stack === stack &&
+      container.position.tier === tier &&
+      baySpan(container.position.bay).includes(oddBay),
+  );
+  return taken === undefined ? { kind: 'empty' } : { kind: 'taken', container: taken };
+}
+
+/**
+ * The landings a container of this size has inside ONE bay's sheet, computed
+ * with the same shared rules the server runs — the paint cannot lie. For a
+ * 40, the landing pairs this odd bay with a neighbour and is addressed by the
+ * even bay between them.
+ */
+export function bayLandings(
+  layout: YardLayout,
+  zone: ZoneDef,
+  oddBay: number,
+  containers: readonly ContainerDto[],
+  size: Size,
+  ignoreId?: number,
+): Position[] {
+  const standing =
+    ignoreId === undefined
+      ? toStanding(containers)
+      : toStanding(containers).filter((s) => s.id !== ignoreId);
+  const occupancy = buildOccupancy(standing);
+  const bays =
+    size === 20
+      ? [oddBay]
+      : [oddBay - 1, oddBay + 1].filter((even) => even >= 2);
+  const landings: Position[] = [];
+  for (const bay of bays) {
+    for (const stack of zone.stacks[String(oddBay)] ?? []) {
+      for (const tier of TIERS) {
+        const position: Position = { zone: zone.zone, bay, stack, tier };
+        if (canPlace(layout, standing, size, position, ignoreId, occupancy) === null) {
+          landings.push(position);
+        }
+      }
+    }
+  }
+  return landings;
+}
+
+/**
+ * The bays worth lighting up while a container is being placed: any bay whose
+ * sheet contains at least one legal landing for it.
+ */
+export function targetBays(
+  layout: YardLayout,
   containers: readonly ContainerDto[],
   size: Size,
   ignoreId?: number,
 ): Set<string> {
-  const standing = toStanding(containers);
-  // One index for the whole sweep — without it every probe rescans standing.
-  const usage = buildUsage(standing);
+  const standing =
+    ignoreId === undefined
+      ? toStanding(containers)
+      : toStanding(containers).filter((s) => s.id !== ignoreId);
+  const occupancy = buildOccupancy(standing);
   const targets = new Set<string>();
-
-  for (const block of yard.blocks) {
-    if (!blockTakes(block.size, size)) continue;
-    for (let row = 1; row <= block.rows; row += 1) {
-      const position: Position = { block: block.id, row };
-      if (canPlace(yard, standing, size, position, ignoreId, usage) === null) {
-        targets.add(positionKey(position));
+  for (const zone of layout.zones) {
+    const lastBay = zone.bays[zone.bays.length - 1] ?? 0;
+    for (const bay of zone.bays) {
+      const stacks = zone.stacks[String(bay)] ?? [];
+      let reachable = false;
+      for (const stack of stacks) {
+        for (const tier of TIERS) {
+          if (size === 20) {
+            if (canPlace(layout, standing, 20, { zone: zone.zone, bay, stack, tier }, ignoreId, occupancy) === null) {
+              reachable = true;
+            }
+          } else {
+            for (const even of [bay - 1, bay + 1]) {
+              if (even < 2 || even > lastBay) continue;
+              if (canPlace(layout, standing, 40, { zone: zone.zone, bay: even, stack, tier }, ignoreId, occupancy) === null) {
+                reachable = true;
+              }
+            }
+          }
+          if (reachable) break;
+        }
+        if (reachable) break;
       }
+      if (reachable) targets.add(bayKey(zone.zone, bay));
     }
   }
   return targets;
 }
 
-/** Container ids whose number or customer matches the query. */
+/** Container ids whose number, owner or bill of lading matches the query. */
 export function searchMatches(
   containers: readonly ContainerDto[],
   query: string,
@@ -127,7 +221,9 @@ export function searchMatches(
   for (const container of containers) {
     if (
       (asNumber.length > 0 && container.number.includes(asNumber)) ||
-      container.customer.toLowerCase().includes(lower)
+      container.customer.toLowerCase().includes(lower) ||
+      // Typing a bill number lights the WHOLE group on the map at once.
+      (container.bill !== '' && container.bill.toLowerCase().includes(lower))
     ) {
       matches.add(container.id);
     }
@@ -135,54 +231,24 @@ export function searchMatches(
   return matches;
 }
 
-export interface BlockSummary {
-  /** Twenty-foot places still open across the whole column. */
-  freePlaces: number;
-  totalPlaces: number;
-}
-
-export function summarizeBlock(
-  block: Pick<BlockConfig, 'id' | 'rows' | 'placesPerTier' | 'tiers'>,
-  loads: ReadonlyMap<string, readonly ContainerDto[]>,
-): BlockSummary {
-  const totalPlaces = block.rows * locationCapacity(block);
-  let used = 0;
-  for (let row = 1; row <= block.rows; row += 1) {
-    used += placesUsed(loads.get(positionKey({ block: block.id, row })));
-  }
-  return { freePlaces: totalPlaces - used, totalPlaces };
-}
-
 /**
- * What is still open in the whole yard, kept apart by the size that can use
- * it — a free place in a 40 column is no use to a 20 waiting at the gate.
- * Counted in CONTAINERS of that size, which is the unit the gate speaks;
- * the mixed reserve is counted in twenty-foot places, since it takes both.
+ * The bills of lading the query touches, with how many containers each
+ * gathers among the results at hand — the search's «بوليصة 3210 — 12 حاوية»
+ * rows, each a doorway to the bill's own sheet.
  */
-export interface YardFreeSpace {
-  readonly forty: number;
-  readonly twenty: number;
-  readonly mixed: number;
-}
-
-export function yardFreeSpace(
-  yard: YardConfig,
-  loads: ReadonlyMap<string, readonly ContainerDto[]>,
-): YardFreeSpace {
-  let forty = 0;
-  let twenty = 0;
-  let mixed = 0;
-  for (const block of yard.blocks) {
-    const free = summarizeBlock(block, loads).freePlaces;
-    if (block.size === 40) forty += Math.floor(free / PLACES_40);
-    else if (block.size === 20) twenty += free / PLACES_20;
-    else mixed += free;
+export function billMatches(
+  containers: readonly ContainerDto[],
+  query: string,
+): Array<{ bill: string; count: number }> {
+  const trimmed = query.trim().toLowerCase();
+  if (trimmed === '') return [];
+  const counts = new Map<string, number>();
+  for (const container of containers) {
+    if (container.bill === '' || !container.bill.toLowerCase().includes(trimmed)) continue;
+    counts.set(container.bill, (counts.get(container.bill) ?? 0) + 1);
   }
-  return { forty, twenty, mixed };
-}
-
-/** A position labeler bound to the state's block names, `؟` for the unknown. */
-export function labelerFrom(blockNames: Readonly<Record<string, string>>): (p: Position) => string {
-  const nameOf: BlockNamer = (id) => blockNames[String(id)] ?? '؟';
-  return (position) => positionLabel(nameOf, position);
+  return [...counts.entries()]
+    .map(([bill, count]) => ({ bill, count }))
+    .sort((a, b) => a.bill.localeCompare(b.bill))
+    .slice(0, 5);
 }
