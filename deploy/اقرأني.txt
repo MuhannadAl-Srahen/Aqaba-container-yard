@@ -9,8 +9,13 @@
 
 2) جوّا المجلد: زر يمين على install.ps1 ← Run with PowerShell.
    إذا طلب صلاحيات مسؤول (Administrator) اقبل.
-   إذا ما اشتغل: افتح PowerShell كمسؤول والصق:
-     powershell -ExecutionPolicy Bypass -File "%USERPROFILE%\Desktop\AqabaYard-Setup\install.ps1"
+
+   إذا ما اشتغل (النافذة بتفتح وبتسكر فوراً، أو الخيار مش موجود):
+     أ. اضغط Start واكتب PowerShell ← زر يمين عليه ← Run as administrator
+     ب. اكتب بالنافذة الزرقاء (مع مسافة بالآخر ولا تضغط Enter):
+          powershell -ExecutionPolicy Bypass -File
+     ج. اسحب ملف install.ps1 من المجلد وأفلته جوّا النافذة
+        (بينكتب مساره لحاله) ← هسا اضغط Enter.
 
 3) استنى يخلص (بينزّل Node و Tailscale إذا مش موجودين — كم دقيقة).
 
