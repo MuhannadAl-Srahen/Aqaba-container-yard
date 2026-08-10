@@ -1,193 +1,161 @@
 import { describe, expect, it } from 'vitest';
 import type { Standing } from '../src/shared/rules';
 import {
-  buildOccupancy,
-  canLift,
+  buildUsage,
   canPlace,
-  containerAbove,
+  locationCapacity,
+  overfilledByLayout,
+  placesFor,
   strandedByLayout,
+  usedPlaces,
 } from '../src/shared/rules';
-import type { Position, Size, Tier, YardConfig } from '../src/shared/types';
-import { GROUND_TIER, MAX_TIER } from '../src/shared/types';
-import type { SlotStates } from '../src/shared/rules';
-import { slotKey } from '../src/shared/address';
+import type { Position, Size, YardConfig } from '../src/shared/types';
 
 const B20 = 1;
 const B40 = 2;
+const MIX = 9;
 
-/** No slot carries a state — the everyday yard. */
-const NO_STATES: SlotStates = {};
-
+/**
+ * Three columns, all with locations of four twenty-foot places over two
+ * tiers — eight places each: eight 20s, or four 40s, or any mix that adds up.
+ */
 const yard: YardConfig = {
   blocks: [
-    { id: B20, name: 'منطقة 20', size: 20, rows: 3, cols: 5, x: 0, y: 0, angle: 0, state: 'NORMAL' },
-    { id: B40, name: 'منطقة 40', size: 40, rows: 2, cols: 4, x: 0, y: 300, angle: 0, state: 'NORMAL' },
+    { id: B20, name: 'A', size: 20, rows: 3, placesPerTier: 4, tiers: 2, x: 0, y: 0, angle: 0 },
+    { id: B40, name: 'B', size: 40, rows: 2, placesPerTier: 4, tiers: 2, x: 300, y: 0, angle: 0 },
+    { id: MIX, name: 'R', size: 0, rows: 2, placesPerTier: 4, tiers: 2, x: 600, y: 0, angle: 0 },
   ],
 };
 
-const at = (block: number, row: number, col: number, tier: 1 | 2): Position => ({
-  block,
-  row,
-  col,
-  tier,
-});
+const at = (block: number, row: number): Position => ({ block, row });
 
-const standing = (
-  ...list: Array<[id: number, number: string, pos: Position, size?: 20 | 40]>
-): Standing[] =>
-  list.map(([id, number, position, size]) => ({
-    id,
-    number,
+let nextId = 1;
+const standing = (...list: Array<[pos: Position, size?: Size, number?: string]>): Standing[] =>
+  list.map(([position, size, number]) => ({
+    id: nextId++,
+    number: number ?? `BOX${String(nextId)}`,
     size: size ?? 20,
-    status: 'NORMAL',
     position,
   }));
 
+/** Fill a location with `count` containers of one size. */
+const fill = (position: Position, count: number, size: Size): Standing[] =>
+  standing(...Array.from({ length: count }, () => [position, size] as [Position, Size]));
+
+describe('capacity', () => {
+  it('a 40 claims two places, a 20 one', () => {
+    expect(placesFor(20)).toBe(1);
+    expect(placesFor(40)).toBe(2);
+  });
+
+  it('a location holds its places per tier, times its tiers', () => {
+    expect(locationCapacity({ placesPerTier: 4, tiers: 2 })).toBe(8);
+    expect(locationCapacity({ placesPerTier: 4, tiers: 1 })).toBe(4);
+    expect(locationCapacity({ placesPerTier: 6, tiers: 3 })).toBe(18);
+  });
+
+  it('counts only what stands in the location asked about', () => {
+    const s = [...fill(at(B20, 1), 2, 20), ...fill(at(B20, 2), 1, 20)];
+    expect(usedPlaces(s, at(B20, 1))).toBe(2);
+    expect(usedPlaces(s, at(B20, 2))).toBe(1);
+    expect(usedPlaces(s, at(B20, 3))).toBe(0);
+  });
+});
+
 describe('placement', () => {
-  it('accepts an empty ground slot in the right block', () => {
-    expect(canPlace(yard, [], NO_STATES, 20, at(B20, 1, 1, 1))).toBeNull();
-    expect(canPlace(yard, [], NO_STATES, 40, at(B40, 2, 4, 1))).toBeNull();
+  it('accepts an empty location in a column of the right size', () => {
+    expect(canPlace(yard, [], 20, at(B20, 1))).toBeNull();
+    expect(canPlace(yard, [], 40, at(B40, 2))).toBeNull();
   });
 
-  it('refuses a position outside the configured yard', () => {
-    expect(canPlace(yard, [], NO_STATES, 20, at(B20, 4, 1, 1))?.code).toBe('OUT_OF_BOUNDS');
-    expect(canPlace(yard, [], NO_STATES, 20, at(B20, 1, 6, 1))?.code).toBe('OUT_OF_BOUNDS');
-    expect(canPlace(yard, [], NO_STATES, 40, at(B40, 3, 1, 1))?.code).toBe('OUT_OF_BOUNDS');
-    expect(canPlace(yard, [], NO_STATES, 20, at(99, 1, 1, 1))?.code).toBe('OUT_OF_BOUNDS');
+  it('refuses a location past the end of the column', () => {
+    expect(canPlace(yard, [], 20, at(B20, 4))?.code).toBe('OUT_OF_BOUNDS');
+    expect(canPlace(yard, [], 20, at(B20, 0))?.code).toBe('OUT_OF_BOUNDS');
+    expect(canPlace(yard, [], 40, at(B40, 3))?.code).toBe('OUT_OF_BOUNDS');
+    expect(canPlace(yard, [], 20, at(99, 1))?.code).toBe('OUT_OF_BOUNDS');
   });
 
-  it('keeps each size in its own block', () => {
-    expect(canPlace(yard, [], NO_STATES, 20, at(B40, 1, 1, 1))?.code).toBe('WRONG_ZONE');
-    expect(canPlace(yard, [], NO_STATES, 40, at(B20, 1, 1, 1))?.code).toBe('WRONG_ZONE');
+  it('keeps each size in its own column', () => {
+    expect(canPlace(yard, [], 20, at(B40, 1))?.code).toBe('WRONG_ZONE');
+    expect(canPlace(yard, [], 40, at(B20, 1))?.code).toBe('WRONG_ZONE');
   });
 
-  it('a mixed block takes both sizes', () => {
-    const withMixed: YardConfig = {
-      blocks: [
-        ...yard.blocks,
-        { id: 9, name: 'م', size: 0, rows: 2, cols: 2, x: 900, y: 0, angle: 0, state: 'NORMAL' },
-      ],
-    };
-    expect(canPlace(withMixed, [], NO_STATES, 20, at(9, 1, 1, 1))).toBeNull();
-    expect(canPlace(withMixed, [], NO_STATES, 40, at(9, 1, 2, 1))).toBeNull();
+  it('a mixed column takes both sizes', () => {
+    expect(canPlace(yard, [], 20, at(MIX, 1))).toBeNull();
+    expect(canPlace(yard, [], 40, at(MIX, 1))).toBeNull();
   });
 
-  it('a 40 never stacks on a 20; the other way round is allowed', () => {
-    const withMixed: YardConfig = {
-      blocks: [
-        ...yard.blocks,
-        { id: 9, name: 'م', size: 0, rows: 2, cols: 2, x: 900, y: 0, angle: 0, state: 'NORMAL' },
-      ],
-    };
-    const s = standing(
-      [1, 'MSCU1234566', at(9, 1, 1, 1), 20],
-      [2, 'TGHU1234560', at(9, 2, 1, 1), 40],
-    );
-    const refused = canPlace(withMixed, s, NO_STATES, 40, at(9, 1, 1, 2));
-    expect(refused?.code).toBe('BAD_STACK');
-    expect(canPlace(withMixed, s, NO_STATES, 20, at(9, 2, 1, 2))).toBeNull();
-    expect(canPlace(withMixed, s, NO_STATES, 40, at(9, 2, 1, 2))).toBeNull();
+  it('eight 20s fill a location of eight places; the ninth is refused', () => {
+    const s = fill(at(B20, 1), 8, 20);
+    const refusal = canPlace(yard, s, 20, at(B20, 1));
+    expect(refusal?.code).toBe('LOCATION_FULL');
+    expect(refusal !== null && 'free' in refusal ? refusal.free : -1).toBe(0);
+    // Its neighbours are untouched.
+    expect(canPlace(yard, s, 20, at(B20, 2))).toBeNull();
   });
 
-  it('refuses a taken slot and names the occupant', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    const refusal = canPlace(yard, s, NO_STATES, 20, at(B20, 1, 1, 1));
-    expect(refusal?.code).toBe('SLOT_TAKEN');
-    expect(refusal !== null && 'by' in refusal ? refusal.by : '').toBe('MSCU1234566');
+  it('four 40s fill the same location, because each takes two places', () => {
+    const s = fill(at(B40, 1), 4, 40);
+    expect(canPlace(yard, s, 40, at(B40, 1))?.code).toBe('LOCATION_FULL');
+    expect(canPlace(yard, fill(at(B40, 1), 3, 40), 40, at(B40, 1))).toBeNull();
   });
 
-  it('refuses the first tier over empty ground', () => {
-    expect(canPlace(yard, [], NO_STATES, 20, at(B20, 1, 1, 2))?.code).toBe('NO_SUPPORT');
+  it('a mixed location adds the sizes up: 3×40 + 2×20 is exactly full', () => {
+    const three40s = fill(at(MIX, 1), 3, 40);
+    expect(canPlace(yard, three40s, 20, at(MIX, 1))).toBeNull();
+    const plusTwo20s = [...three40s, ...fill(at(MIX, 1), 2, 20)];
+    expect(canPlace(yard, plusTwo20s, 20, at(MIX, 1))?.code).toBe('LOCATION_FULL');
   });
 
-  it('accepts the first tier over a standing container', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    expect(canPlace(yard, s, NO_STATES, 20, at(B20, 1, 1, 2))).toBeNull();
+  it('one free place takes a 20 but refuses a 40, and says how short it is', () => {
+    const s = fill(at(MIX, 1), 7, 20);
+    expect(canPlace(yard, s, 20, at(MIX, 1))).toBeNull();
+    const refusal = canPlace(yard, s, 40, at(MIX, 1));
+    expect(refusal?.code).toBe('LOCATION_FULL');
+    expect(refusal !== null && 'free' in refusal ? [refusal.free, refusal.need] : []).toEqual([1, 2]);
   });
 
-  it('a moving container is not its own support', () => {
-    // Container 1 stands on the ground; moving IT to the tier above itself
-    // must fail, because once it lifts there is nothing underneath.
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    expect(canPlace(yard, s, NO_STATES, 20, at(B20, 1, 1, 2), 1)?.code).toBe('NO_SUPPORT');
+  it('a moving container does not take up room against itself', () => {
+    const s = fill(at(B20, 1), 8, 20);
+    const self = s[0];
+    if (self === undefined) throw new Error('fixture');
+    // Its own place comes free the moment it lifts, so the same location fits.
+    expect(canPlace(yard, s, 20, at(B20, 1), self.id)).toBeNull();
+    // ...but only its own place: a 40 would still need two.
+    const mixed = fill(at(MIX, 1), 4, 40);
+    const first40 = mixed[0];
+    if (first40 === undefined) throw new Error('fixture');
+    expect(canPlace(yard, mixed, 40, at(MIX, 1), first40.id)).toBeNull();
   });
 
-  it('a moving container does not collide with itself', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    expect(canPlace(yard, s, NO_STATES, 20, at(B20, 1, 1, 1), 1)).toBeNull();
-  });
-});
-
-describe('location states', () => {
-  const withState = (state: 'MAINTENANCE' | 'RESERVED' | 'CLOSED'): SlotStates => ({
-    [slotKey(at(B20, 1, 1, 1))]: state,
-  });
-
-  it('a MAINTENANCE slot refuses both tiers; CLOSED likewise', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    expect(canPlace(yard, [], withState('MAINTENANCE'), 20, at(B20, 1, 1, 1))?.code).toBe(
-      'LOCATION_MAINTENANCE',
-    );
-    // The slot state covers the air above the stayer too.
-    expect(canPlace(yard, s, withState('MAINTENANCE'), 20, at(B20, 1, 1, 2))?.code).toBe(
-      'LOCATION_MAINTENANCE',
-    );
-    expect(canPlace(yard, [], withState('CLOSED'), 20, at(B20, 1, 1, 1))?.code).toBe(
-      'LOCATION_CLOSED',
-    );
-  });
-
-  it('RESERVED places fine — it only paints', () => {
-    expect(canPlace(yard, [], withState('RESERVED'), 20, at(B20, 1, 1, 1))).toBeNull();
-  });
-
-  it('a blocking BLOCK state covers every slot in it, other blocks untouched', () => {
-    const closed: YardConfig = {
-      blocks: yard.blocks.map((b) => (b.id === B20 ? { ...b, state: 'CLOSED' as const } : b)),
-    };
-    expect(canPlace(closed, [], NO_STATES, 20, at(B20, 3, 5, 1))?.code).toBe('LOCATION_CLOSED');
-    expect(canPlace(closed, [], NO_STATES, 40, at(B40, 1, 1, 1))).toBeNull();
-  });
-
-  it('a stayer in a blocked slot may still be lifted out', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    const stayer = s[0];
-    if (stayer === undefined) throw new Error('fixture');
-    expect(canLift(s, stayer)).toBeNull();
-    // ...and may land on a normal slot elsewhere.
-    expect(canPlace(yard, s, withState('MAINTENANCE'), 20, at(B20, 2, 2, 1), 1)).toBeNull();
+  it('a container elsewhere is not discounted from this location', () => {
+    const s = [...fill(at(B20, 1), 8, 20), ...fill(at(B20, 2), 1, 20)];
+    const faraway = s[8];
+    if (faraway === undefined) throw new Error('fixture');
+    expect(canPlace(yard, s, 20, at(B20, 1), faraway.id)?.code).toBe('LOCATION_FULL');
   });
 });
 
-describe('occupancy index', () => {
+describe('usage index', () => {
   it('indexed canPlace answers exactly like the linear scan, everywhere', () => {
-    const withMixed: YardConfig = {
-      blocks: [
-        ...yard.blocks,
-        { id: 9, name: 'م', size: 0, rows: 2, cols: 2, x: 900, y: 0, angle: 0, state: 'NORMAL' },
-      ],
-    };
-    const s = standing(
-      [1, 'MSCU1234566', at(B20, 1, 1, 1)],
-      [2, 'CSQU3054383', at(B20, 1, 1, 2)],
-      [3, 'TGHU1234560', at(B40, 2, 1, 1), 40],
-      [4, 'ABCU7654325', at(9, 1, 2, 1), 20],
-      [5, 'TEST1234567', at(9, 2, 2, 1), 40],
-    );
-    const occupancy = buildOccupancy(s);
+    const s = [
+      ...fill(at(B20, 1), 3, 20),
+      ...fill(at(B20, 2), 8, 20),
+      ...fill(at(B40, 1), 2, 40),
+      ...fill(at(MIX, 1), 1, 40),
+      ...fill(at(MIX, 2), 3, 20),
+    ];
+    const usage = buildUsage(s);
+    const ids = [undefined, s[0]?.id, s[3]?.id, s[11]?.id];
 
-    for (const block of withMixed.blocks) {
-      for (let row = 1; row <= block.rows + 1; row += 1) {
-        for (let col = 1; col <= block.cols + 1; col += 1) {
-          for (let tier = GROUND_TIER; tier <= MAX_TIER; tier += 1) {
-            for (const size of [20, 40] as const) {
-              for (const ignoreId of [undefined, 1, 4]) {
-                const position = at(block.id, row, col, tier as Tier);
-                expect(canPlace(withMixed, s, NO_STATES, size, position, ignoreId, occupancy)).toEqual(
-                  canPlace(withMixed, s, NO_STATES, size, position, ignoreId),
-                );
-              }
-            }
+    for (const block of yard.blocks) {
+      for (let row = 0; row <= block.rows + 1; row += 1) {
+        for (const size of [20, 40] as const) {
+          for (const ignoreId of ids) {
+            const position = at(block.id, row);
+            expect(canPlace(yard, s, size, position, ignoreId, usage)).toEqual(
+              canPlace(yard, s, size, position, ignoreId),
+            );
           }
         }
       }
@@ -195,91 +163,59 @@ describe('occupancy index', () => {
   });
 });
 
-describe('lifting', () => {
-  it('refuses to lift a buried container and names what is on top', () => {
-    const s = standing(
-      [1, 'MSCU1234566', at(B20, 1, 1, 1)],
-      [2, 'CSQU3054383', at(B20, 1, 1, 2)],
-    );
-    const bottom = s[0];
-    if (bottom === undefined) throw new Error('fixture');
-    const refusal = canLift(s, bottom);
-    expect(refusal?.code).toBe('BURIED');
-    expect(refusal !== null && 'by' in refusal ? refusal.by : '').toBe('CSQU3054383');
-  });
-
-  it('lifts a top container freely', () => {
-    const s = standing(
-      [1, 'MSCU1234566', at(B20, 1, 1, 1)],
-      [2, 'CSQU3054383', at(B20, 1, 1, 2)],
-    );
-    const top = s[1];
-    if (top === undefined) throw new Error('fixture');
-    expect(canLift(s, top)).toBeNull();
-    expect(containerAbove(s, top)).toBeNull();
-  });
-
-  it('a held container never lifts, even a free-standing one', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    const held: Standing = { ...(s[0] as Standing), status: 'HOLD' };
-    expect(canLift([held], held)?.code).toBe('CONTAINER_HOLD');
-  });
-
-  it('the hold outranks the stack: a buried held container names the hold', () => {
-    const s = standing(
-      [1, 'MSCU1234566', at(B20, 1, 1, 1)],
-      [2, 'CSQU3054383', at(B20, 1, 1, 2)],
-    );
-    const bottomHeld: Standing = { ...(s[0] as Standing), status: 'HOLD' };
-    expect(canLift([bottomHeld, s[1] as Standing], bottomHeld)?.code).toBe('CONTAINER_HOLD');
-  });
-
-  it('the other conditions leave lifting alone', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    for (const status of ['DAMAGED', 'REPAIR', 'INSPECT'] as const) {
-      const flagged: Standing = { ...(s[0] as Standing), status };
-      expect(canLift([flagged], flagged)).toBeNull();
-    }
-  });
-});
+/*
+ * There is no lifting rule left to test. Nothing is buried in a basket, and
+ * the administrative hold went with the container states — whatever must not
+ * leave is written in the notes and read by whoever signs the paper. The
+ * API suite covers that a full location still lets every one of its
+ * containers walk out.
+ */
 
 describe('layout safety', () => {
-  const sizes = (...list: Array<[id: number, size: Size]>): Map<number, Size> => new Map(list);
+  const sizes = (list: readonly Standing[]): Map<number, Size> =>
+    new Map(list.map((s) => [s.id, s.size]));
 
-  const reshape = (rows: number, cols: number): YardConfig => ({
-    blocks: yard.blocks.map((b) => (b.id === B20 ? { ...b, rows, cols } : b)),
+  const reshape = (patch: Partial<YardConfig['blocks'][number]>): YardConfig => ({
+    blocks: yard.blocks.map((b) => (b.id === B20 ? { ...b, ...patch } : b)),
   });
 
   it('growth, movement and turning strand nothing', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 3, 5, 1)]);
-    const changed: YardConfig = {
-      blocks: yard.blocks.map((b) =>
-        b.id === B20 ? { ...b, rows: 4, cols: 6, x: 500, y: 900, angle: 45 } : b,
-      ),
-    };
-    expect(strandedByLayout(changed, s, sizes([1, 20]))).toHaveLength(0);
+    const s = fill(at(B20, 3), 1, 20);
+    expect(
+      strandedByLayout(reshape({ rows: 5, x: 500, y: 900, angle: 45 }), s, sizes(s)),
+    ).toHaveLength(0);
   });
 
-  it('a shrink names exactly the stranded containers', () => {
-    const s = standing(
-      [1, 'MSCU1234566', at(B20, 3, 5, 1)],
-      [2, 'CSQU3054383', at(B20, 1, 1, 1)],
-    );
-    const stranded = strandedByLayout(reshape(2, 5), s, sizes([1, 20], [2, 20]));
-    expect(stranded.map((x) => x.number)).toEqual(['MSCU1234566']);
+  it('a shorter column names exactly the stranded containers', () => {
+    const deep = fill(at(B20, 3), 1, 20);
+    const shallow = fill(at(B20, 1), 1, 20);
+    const s = [...deep, ...shallow];
+    const stranded = strandedByLayout(reshape({ rows: 2 }), s, sizes(s));
+    expect(stranded.map((x) => x.number)).toEqual(deep.map((x) => x.number));
   });
 
-  it('a vanished block strands its containers', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
+  it('a vanished column strands its containers', () => {
+    const s = fill(at(B20, 1), 1, 20);
     const without: YardConfig = { blocks: yard.blocks.filter((b) => b.id !== B20) };
-    expect(strandedByLayout(without, s, sizes([1, 20]))).toHaveLength(1);
+    expect(strandedByLayout(without, s, sizes(s))).toHaveLength(1);
   });
 
   it('a size change under standing containers strands them', () => {
-    const s = standing([1, 'MSCU1234566', at(B20, 1, 1, 1)]);
-    const swapped: YardConfig = {
-      blocks: yard.blocks.map((b) => (b.id === B20 ? { ...b, size: 40 as const } : b)),
-    };
-    expect(strandedByLayout(swapped, s, sizes([1, 20]))).toHaveLength(1);
+    const s = fill(at(B20, 1), 1, 20);
+    expect(strandedByLayout(reshape({ size: 40 }), s, sizes(s))).toHaveLength(1);
+  });
+
+  it('cutting places or tiers under a full location reports it overfilled', () => {
+    const s = fill(at(B20, 2), 8, 20);
+    expect(overfilledByLayout(reshape({ tiers: 1 }), s)).toEqual([at(B20, 2)]);
+    expect(overfilledByLayout(reshape({ placesPerTier: 3 }), s)).toEqual([at(B20, 2)]);
+    // Exactly enough is not overfilled.
+    expect(overfilledByLayout(reshape({ placesPerTier: 4, tiers: 2 }), s)).toHaveLength(0);
+  });
+
+  it('a stranded location is reported as stranding, not as overfilling', () => {
+    const s = fill(at(B20, 3), 8, 20);
+    expect(overfilledByLayout(reshape({ rows: 2, tiers: 1 }), s)).toHaveLength(0);
+    expect(strandedByLayout(reshape({ rows: 2, tiers: 1 }), s, sizes(s))).toHaveLength(8);
   });
 });

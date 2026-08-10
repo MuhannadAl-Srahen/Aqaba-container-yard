@@ -1,69 +1,41 @@
 import { memo, type ReactElement } from 'react';
-import type {
-  BlockConfig,
-  ContainerDto,
-  LocationState,
-  Position,
-  Tier,
-  YardConfig,
-} from '../shared/types';
-import { GROUND_TIER, MIXED_SIZE } from '../shared/types';
-import { isBlockingState, type SlotStates } from '../shared/rules';
-import { positionKey, slotKey } from '../shared/address';
-import {
-  BLOCK_PAD,
-  CELL_GAP,
-  HEADER_H,
-  TITLE_H,
-  blockFrame,
-  cellSize,
-  yardBounds,
-} from '../shared/geometry';
+import type { BlockConfig, ContainerDto, Position, YardConfig } from '../shared/types';
+import { positionKey, rowNumber } from '../shared/address';
+import { BLOCK_PAD, CELL_GAP, CELL_H, CELL_W, HEADER_H, TITLE_H, blockFrame, yardBounds } from '../shared/geometry';
 import { AR } from './ar';
-import type { SlotStack } from './mapModel';
+import { countLocation } from './mapModel';
 
 /**
- * The yard drawn to scale as SVG: one panel per block, each translated and
- * rotated to where the owner put it, cells positioned with slot 1 at the
- * right edge — the reading start in Arabic. A 40 ft slot is twice as TALL as
- * a 20's because the box lies along the line; a mixed block's slots are
- * 20-shaped and the container itself carries its size.
+ * The yard drawn to scale as SVG: one panel per column, translated and
+ * rotated to where the owner put it, its locations running down it from 01.
+ * A cell says the two things the yard asks of it — which location this is,
+ * and how much of it is taken. What stands inside is one tap away.
  */
 
 const OUTER_PAD = 24;
 
+/**
+ * The drawing reads the theme's own variables, so the yard turns dark with
+ * the rest of the site and prints light with the rest of the paper — no
+ * second palette, no re-render.
+ */
 const C = {
-  panel: '#ffffff',
-  panelBorder: '#e2e8f0',
-  free: '#f8fafc',
-  freeBorder: '#cbd5e1',
-  laden: '#1d4ed8',
-  ladenText: '#ffffff',
-  empty: '#bfdbfe',
-  emptyText: '#173a7a',
-  ghost: '#e2e8f0',
-  under: '#475569',
-  targetFill: '#dcfce7',
-  targetBorder: '#16a34a',
-  match: '#f59e0b',
-  selected: '#0284c7',
-  label: '#94a3b8',
-  title: '#0f172a',
-  subtitle: '#64748b',
-  // Container conditions: the exception paints over the cargo color.
-  damaged: '#dc2626',
-  damagedText: '#ffffff',
-  repair: '#7c3aed',
-  repairText: '#ffffff',
-  inspect: '#f59e0b',
-  inspectText: '#451a03',
-  hold: '#0f172a',
-  // Location states, painted on empty ground.
-  maintBorder: '#94a3b8',
-  reservedFill: '#fef9c3',
-  reservedBorder: '#ca8a04',
-  closedFill: '#fecaca',
-  closedBorder: '#b91c1c',
+  panel: 'var(--yard-panel)',
+  panelBorder: 'var(--yard-panel-border)',
+  free: 'var(--yard-free)',
+  freeBorder: 'var(--yard-free-border)',
+  partial: 'var(--yard-partial)',
+  partialBorder: 'var(--yard-partial-border)',
+  full: 'var(--yard-full)',
+  fullText: 'var(--yard-full-text)',
+  targetFill: 'var(--yard-target)',
+  targetBorder: 'var(--yard-target-border)',
+  match: 'var(--yard-match)',
+  selected: 'var(--yard-selected)',
+  label: 'var(--yard-muted)',
+  text: 'var(--yard-text)',
+  title: 'var(--yard-text)',
+  subtitle: 'var(--yard-muted)',
 } as const;
 
 export interface BlockLayout {
@@ -107,421 +79,110 @@ export function blockTransform(layout: BlockLayout): string {
   return `translate(${String(x)}, ${String(y)}) rotate(${String(block.angle)}, ${String(width / 2)}, ${String(height / 2)})`;
 }
 
-/** What the map shows: one tier, or both side by side (L|H) like the register. */
-export type ViewTier = Tier | 'ALL';
-
 export interface MapProps {
   yard: YardConfig;
-  stacks: ReadonlyMap<string, SlotStack>;
-  tier: ViewTier;
+  /** What stands in each location, keyed by positionKey. */
+  loads: ReadonlyMap<string, readonly ContainerDto[]>;
   selectedId: number | null;
   /** Container ids matching the current search; empty set = no search. */
   matches: ReadonlySet<number>;
   searchActive: boolean;
-  /** When a move or gate-in is placing: positions that may be landed on. */
+  /** When a move or gate-in is placing: locations that may be landed on. */
   targets: ReadonlySet<string> | null;
   movingId: number | null;
-  /** Per-slot location states, non-NORMAL only, keyed by slotKey. */
-  slotStates: SlotStates;
-  onCellClick: (position: Position, stack: SlotStack) => void;
+  onCellClick: (position: Position, load: readonly ContainerDto[]) => void;
 }
 
 /** The per-panel slice of MapProps — everything except the yard itself. */
 type PanelView = Omit<MapProps, 'yard'>;
 
-function containerFill(container: ContainerDto): { fill: string; text: string } {
-  switch (container.status) {
-    case 'DAMAGED':
-      return { fill: C.damaged, text: C.damagedText };
-    case 'REPAIR':
-      return { fill: C.repair, text: C.repairText };
-    case 'INSPECT':
-      return { fill: C.inspect, text: C.inspectText };
-    default:
-      return container.cargo === 'LADEN'
-        ? { fill: C.laden, text: C.ladenText }
-        : { fill: C.empty, text: C.emptyText };
-  }
-}
+const EMPTY_LOAD: readonly ContainerDto[] = [];
 
-/**
- * The location state an empty slot paints: a blocking area state covers all
- * of it; otherwise the slot's own entry, falling back to the area's
- * non-blocking state (RESERVED tints its whole area).
- */
-function effectiveLocationState(
-  block: BlockConfig,
-  slotStates: SlotStates,
-  row: number,
-  col: number,
-): LocationState {
-  if (isBlockingState(block.state)) return block.state;
-  return slotStates[slotKey({ block: block.id, row, col })] ?? block.state;
-}
-
-/** How an EMPTY slot draws under a location state; null = the everyday look. */
-function locationPaint(
-  state: LocationState,
-): { fill: string; stroke: string; solid: boolean } | null {
-  switch (state) {
-    case 'MAINTENANCE':
-      return { fill: 'url(#yard-hatch)', stroke: C.maintBorder, solid: true };
-    case 'CLOSED':
-      return { fill: C.closedFill, stroke: C.closedBorder, solid: true };
-    case 'RESERVED':
-      return { fill: C.reservedFill, stroke: C.reservedBorder, solid: false };
-    default:
-      return null;
-  }
-}
-
-function numberLines(
-  container: ContainerDto,
-  x: number,
-  width: number,
-  y: number,
-  height: number,
-  text: string,
-  compact: boolean,
-): ReactElement[] {
-  const mid = y + height / 2;
-  return [
-    <text
-      key="owner"
-      x={x + width / 2}
-      y={mid - (compact ? 4 : 3)}
-      textAnchor="middle"
-      fontSize={compact ? 9 : 10}
-      fontWeight={700}
-      fill={text}
-      direction="ltr"
-    >
-      {container.number.slice(0, 4)}
-    </text>,
-    <text
-      key="serial"
-      x={x + width / 2}
-      y={mid + (compact ? 7 : 10)}
-      textAnchor="middle"
-      fontSize={compact ? 9.5 : 10.5}
-      fontWeight={600}
-      fill={text}
-      direction="ltr"
-    >
-      {container.number.slice(4)}
-    </text>,
-  ];
-}
-
-/** One half of a split cell in the الكل view: L on the left, H on the right. */
-function HalfCell(props: {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  tier: Tier;
-  position: Position;
-  occupant: ContainerDto | undefined;
-  supported: boolean;
-  locationState: LocationState;
-  view: PanelView;
-  stack: SlotStack;
-}): ReactElement {
-  const { x, y, width, height, position, occupant, supported, view } = props;
-  const isTarget = view.targets !== null && view.targets.has(positionKey(position));
-  const locPaint = occupant === undefined ? locationPaint(props.locationState) : null;
-  const isMovingSource = occupant !== undefined && occupant.id === view.movingId;
-  const isSelected = occupant !== undefined && occupant.id === view.selectedId;
-  const isMatch = occupant !== undefined && view.matches.has(occupant.id);
-
-  let dimmed = false;
-  if (view.searchActive) dimmed = !isMatch;
-  if (view.targets !== null) dimmed = !(isTarget || isMovingSource);
-
-  const palette = occupant === undefined ? null : containerFill(occupant);
-  const stroke =
-    isSelected || isMovingSource
-      ? C.selected
-      : isMatch
-        ? C.match
-        : isTarget
-          ? C.targetBorder
-          : occupant !== undefined && occupant.status === 'HOLD'
-            ? C.hold
-            : null;
-
-  return (
-    <g
-      className="map-cell"
-      opacity={dimmed ? 0.22 : undefined}
-      onClick={() => {
-        view.onCellClick(position, props.stack);
-      }}
-    >
-      <rect
-        className="cell-frame"
-        x={x}
-        y={y}
-        width={width}
-        height={height}
-        rx={4}
-        fill={palette?.fill ?? (isTarget ? C.targetFill : (locPaint?.fill ?? C.free))}
-        stroke={
-          stroke ??
-          (occupant !== undefined
-            ? 'none'
-            : locPaint !== null
-              ? locPaint.stroke
-              : supported
-                ? C.freeBorder
-                : C.ghost)
-        }
-        strokeWidth={stroke !== null ? 2 : 1}
-        strokeDasharray={
-          occupant === undefined && stroke === null && locPaint?.solid !== true ? '3 2' : undefined
-        }
-      />
-      {/* The tier letter only where a container carries it: an empty half's
-          label was ~2px at fit zoom and cost the الكل view ~1800 text nodes.
-          L is always the first half, so empty slots stay unambiguous. */}
-      {occupant !== undefined && (
-        <text
-          x={x + width / 2}
-          y={y + 13}
-          textAnchor="middle"
-          fontSize={8}
-          fontWeight={700}
-          fill={palette?.text ?? C.label}
-          direction="ltr"
-        >
-          {props.tier === GROUND_TIER ? 'L' : 'H'}
-        </text>
-      )}
-      {occupant !== undefined && (
-        <text
-          x={x + width / 2}
-          y={y + height / 2 + 8}
-          textAnchor="middle"
-          fontSize={8.5}
-          fontWeight={600}
-          fill={palette?.text ?? C.label}
-          direction="ltr"
-        >
-          {occupant.number.slice(-4)}
-        </text>
-      )}
-    </g>
-  );
-}
-
-function Cell(props: {
-  layout: BlockLayout;
-  row: number;
-  col: number;
-  stack: SlotStack;
-  view: PanelView;
-}): ReactElement {
-  const { layout, row, col, stack, view } = props;
+function Cell(props: { layout: BlockLayout; row: number; view: PanelView }): ReactElement {
+  const { layout, row, view } = props;
   const { block } = layout;
-  const cell = cellSize(block.size);
-  const x = BLOCK_PAD + (block.cols - col) * (cell.w + CELL_GAP);
-  const y = TITLE_H + HEADER_H + (row - 1) * (cell.h + CELL_GAP);
-  const locationState = effectiveLocationState(block, view.slotStates, row, col);
+  const position: Position = { block: block.id, row };
+  const load = view.loads.get(positionKey(position)) ?? EMPTY_LOAD;
+  const count = countLocation(block, load);
 
-  // The register view: both tiers of the slot side by side, L then H,
-  // exactly like the paper's paired columns.
-  if (view.tier === 'ALL') {
-    const half = (cell.w - 3) / 2;
-    return (
-      <g>
-        <HalfCell
-          x={x}
-          y={y}
-          width={half}
-          height={cell.h}
-          tier={GROUND_TIER}
-          position={{ block: block.id, row, col, tier: GROUND_TIER }}
-          occupant={stack.ground}
-          supported
-          locationState={locationState}
-          view={view}
-          stack={stack}
-        />
-        <HalfCell
-          x={x + half + 3}
-          y={y}
-          width={half}
-          height={cell.h}
-          tier={2}
-          position={{ block: block.id, row, col, tier: 2 }}
-          occupant={stack.upper}
-          supported={stack.ground !== undefined}
-          locationState={locationState}
-          view={view}
-          stack={stack}
-        />
-      </g>
-    );
-  }
-
-  const tier: Tier = view.tier;
-  const occupant = tier === GROUND_TIER ? stack.ground : stack.upper;
-  const groundBelow = stack.ground;
-  const position: Position = { block: block.id, row, col, tier };
+  const x = BLOCK_PAD;
+  const y = TITLE_H + HEADER_H + (row - 1) * (CELL_H + CELL_GAP);
 
   const isTarget = view.targets !== null && view.targets.has(positionKey(position));
-  const isMovingSource = occupant !== undefined && occupant.id === view.movingId;
-  const isSelected =
-    (occupant !== undefined && occupant.id === view.selectedId) ||
-    (tier === GROUND_TIER && stack.upper !== undefined && stack.upper.id === view.selectedId);
-  const isMatch =
-    occupant !== undefined
-      ? view.matches.has(occupant.id) ||
-        (tier === GROUND_TIER && stack.upper !== undefined && view.matches.has(stack.upper.id))
-      : false;
+  const holdsMoving = view.movingId !== null && load.some((c) => c.id === view.movingId);
+  const holdsSelected = view.selectedId !== null && load.some((c) => c.id === view.selectedId);
+  const holdsMatch = load.some((container) => view.matches.has(container.id));
 
   // While searching or placing, everything irrelevant steps back. It dims,
   // it never disappears — the map must stay a picture of the whole place.
   let dimmed = false;
-  if (view.searchActive) dimmed = !isMatch;
-  if (view.targets !== null) dimmed = !(isTarget || isMovingSource);
+  if (view.searchActive) dimmed = !holdsMatch;
+  if (view.targets !== null) dimmed = !(isTarget || holdsMoving);
 
-  const elements: ReactElement[] = [];
-
-  if (occupant === undefined) {
-    // Empty position. On the upper tier, ground support decides how it draws:
-    // landable slots look real, unsupported air is barely there — unless the
-    // location itself carries a state, which paints the ground.
-    const unsupportedAir = tier > GROUND_TIER && groundBelow === undefined;
-    const locPaint = locationPaint(locationState);
-    elements.push(
-      <rect
-        key="frame"
-        className="cell-frame"
-        x={x}
-        y={y}
-        width={cell.w}
-        height={cell.h}
-        rx={5}
-        fill={isTarget ? C.targetFill : (locPaint?.fill ?? C.free)}
-        stroke={
-          isTarget
-            ? C.targetBorder
-            : locPaint !== null
-              ? locPaint.stroke
-              : unsupportedAir
-                ? C.ghost
-                : C.freeBorder
-        }
-        strokeWidth={isTarget ? 2 : 1.2}
-        strokeDasharray={isTarget || locPaint?.solid === true ? undefined : '4 3'}
-      />,
-    );
-  } else if (tier === GROUND_TIER && stack.upper !== undefined) {
-    // A stacked slot in the GROUND view shows the GROUND container in front —
-    // this floor's own picture — while the one standing on it peeks from
-    // behind the top corner, so the stack still reads at a glance.
-    const peek = 7;
-    const upper = stack.upper;
-    const groundPalette = containerFill(occupant);
-    const upperPalette = containerFill(upper);
-    const stroke = isSelected || isMovingSource ? C.selected : isMatch ? C.match : C.under;
-    elements.push(
-      <rect
-        key="upper-card"
-        x={x + peek}
-        y={y}
-        width={cell.w - peek}
-        height={cell.h - peek}
-        rx={5}
-        fill={upperPalette.fill}
-        stroke={C.under}
-        strokeWidth={1}
-      />,
-      <rect
-        key="ground-card"
-        className="cell-frame"
-        x={x}
-        y={y + peek}
-        width={cell.w - peek}
-        height={cell.h - peek}
-        rx={5}
-        fill={groundPalette.fill}
-        stroke={stroke}
-        strokeWidth={stroke === C.under ? 1.2 : 3}
-      />,
-      ...numberLines(occupant, x, cell.w - peek, y + peek, cell.h - peek, groundPalette.text, true),
-    );
-  } else {
-    const palette = containerFill(occupant);
-    const stroke = isSelected || isMovingSource ? C.selected : isMatch ? C.match : 'none';
-    elements.push(
-      <rect
-        key="box"
-        className="cell-frame"
-        x={x}
-        y={y}
-        width={cell.w}
-        height={cell.h}
-        rx={5}
-        fill={palette.fill}
-        stroke={stroke}
-        strokeWidth={stroke === 'none' ? 0 : 3}
-      />,
-      ...numberLines(occupant, x, cell.w, y, cell.h, palette.text, false),
-    );
-  }
-
-  // In a mixed block the slot does not say the size — the container must.
-  const sizeTagFor =
-    block.size === MIXED_SIZE && occupant !== undefined ? occupant : undefined;
-  if (sizeTagFor !== undefined) {
-    elements.push(
-      <g key="size-tag">
-        <rect x={x + 2} y={y + 2} width={16} height={11} rx={3} fill="#0f172a" />
-        <text
-          x={x + 10}
-          y={y + 10.5}
-          textAnchor="middle"
-          fontSize={7.5}
-          fontWeight={700}
-          fill="#ffffff"
-          direction="ltr"
-        >
-          {sizeTagFor.size}
-        </text>
-      </g>,
-    );
-  }
-
-  // A held container keeps its cargo color but wears the hold tag.
-  if (occupant !== undefined && occupant.status === 'HOLD') {
-    elements.push(
-      <g key="hold-tag">
-        <rect x={x + cell.w - 24} y={y + 2} width={22} height={11} rx={3} fill={C.hold} />
-        <text
-          x={x + cell.w - 13}
-          y={y + 10.5}
-          textAnchor="middle"
-          fontSize={7}
-          fontWeight={700}
-          fill="#ffffff"
-        >
-          {AR.holdTag}
-        </text>
-      </g>,
-    );
-  }
+  const empty = count.used === 0;
+  const fill = isTarget ? C.targetFill : empty ? C.free : count.full ? C.full : C.partial;
+  const textColor = count.full && !isTarget ? C.fullText : empty ? C.label : C.text;
+  const stroke =
+    holdsSelected || holdsMoving
+      ? C.selected
+      : holdsMatch
+        ? C.match
+        : isTarget
+          ? C.targetBorder
+          : count.full
+            ? C.full
+            : empty
+              ? C.freeBorder
+              : C.partialBorder;
+  const strong = holdsSelected || holdsMoving || holdsMatch || isTarget;
+  // A note on any container here earns a dot: the crew writes the dents, the
+  // opened locks and the customs holds there, and the map must not hide it.
+  const noted = load.some((container) => container.notes !== '');
 
   return (
     <g
       className="map-cell"
       opacity={dimmed ? 0.22 : undefined}
       onClick={() => {
-        view.onCellClick(position, stack);
+        view.onCellClick(position, load);
       }}
     >
-      {elements}
+      <rect
+        className="cell-frame"
+        x={x}
+        y={y}
+        width={CELL_W}
+        height={CELL_H}
+        rx={5}
+        fill={fill}
+        stroke={stroke}
+        strokeWidth={strong ? 2.5 : 1.2}
+        strokeDasharray={empty && !strong ? '4 3' : undefined}
+      />
+      {/* The location's own name, always written left to right. */}
+      <text
+        x={x + CELL_W - 9}
+        y={y + CELL_H / 2 + 5}
+        textAnchor="end"
+        fontSize={14}
+        fontWeight={700}
+        fill={textColor}
+        direction="ltr"
+      >
+        {`${block.name}-${rowNumber(row)}`}
+      </text>
+      <text
+        x={x + 9}
+        y={y + CELL_H / 2 + 5}
+        textAnchor="start"
+        fontSize={13}
+        fontWeight={600}
+        fill={textColor}
+        direction="ltr"
+      >
+        {`${String(count.used)} / ${String(count.total)}`}
+      </text>
+      {noted && <circle cx={x + CELL_W / 2} cy={y + 9} r={3.5} fill={C.match} />}
     </g>
   );
 }
@@ -531,64 +192,14 @@ const BlockPanel = memo(
     layout: BlockLayout;
     view: PanelView;
     freeLabel: string;
+    sizeLabel: string;
+    buildLabel: string;
   }): ReactElement {
-    const { layout, view, freeLabel } = props;
+    const { layout, view, freeLabel, sizeLabel, buildLabel } = props;
     const { block } = layout;
-    const cell = cellSize(block.size);
     const cells: ReactElement[] = [];
-
     for (let row = 1; row <= block.rows; row += 1) {
-      for (let col = 1; col <= block.cols; col += 1) {
-        const stack =
-          view.stacks.get(`${String(block.id)}|${String(row)}|${String(col)}`) ?? {};
-        cells.push(
-          <Cell
-            key={`${String(row)}-${String(col)}`}
-            layout={layout}
-            row={row}
-            col={col}
-            stack={stack}
-            view={view}
-          />,
-        );
-      }
-    }
-
-    const headers: ReactElement[] = [];
-    // A short name fuses into the register's line label (A1, A2…); a long one
-    // would not fit over a cell, so the plain line number stands in.
-    const lineLabel = (col: number): string =>
-      block.name.length <= 3 ? `${block.name}${String(col)}` : String(col);
-    for (let col = 1; col <= block.cols; col += 1) {
-      headers.push(
-        <text
-          key={`col-${String(col)}`}
-          x={BLOCK_PAD + (block.cols - col) * (cell.w + CELL_GAP) + cell.w / 2}
-          y={TITLE_H + HEADER_H - 7}
-          textAnchor="middle"
-          fontSize={10}
-          fontWeight={700}
-          fill={C.label}
-          direction="ltr"
-        >
-          {lineLabel(col)}
-        </text>,
-      );
-    }
-    for (let row = 1; row <= block.rows; row += 1) {
-      headers.push(
-        <text
-          key={`row-${String(row)}`}
-          x={BLOCK_PAD + block.cols * (cell.w + CELL_GAP) - CELL_GAP + 12}
-          y={TITLE_H + HEADER_H + (row - 1) * (cell.h + CELL_GAP) + cell.h / 2 + 4}
-          textAnchor="end"
-          fontSize={11}
-          fontWeight={600}
-          fill={C.label}
-        >
-          {row}
-        </text>,
-      );
+      cells.push(<Cell key={row} layout={layout} row={row} view={view} />);
     }
 
     return (
@@ -602,20 +213,41 @@ const BlockPanel = memo(
         />
         {/* Under dir=rtl, text-anchor follows reading order: "start" pins the
             right edge of Arabic text at x, "end" pins its left edge. */}
+        {/* Everything the owner asked to see beside the letter, on three
+            lines so it all stays inside the panel: the size this column
+            takes, how it is built, and the split of full against free. */}
         <text
           x={layout.width - BLOCK_PAD}
-          y={26}
+          y={23}
           textAnchor="start"
-          fontSize={15}
+          fontSize={18}
           fontWeight={700}
           fill={C.title}
         >
           {block.name}
         </text>
-        <text x={BLOCK_PAD} y={26} textAnchor="end" fontSize={11.5} fill={C.subtitle}>
+        <text x={BLOCK_PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={600} fill={C.subtitle}>
+          {sizeLabel}
+        </text>
+        <text
+          x={layout.width - BLOCK_PAD}
+          y={TITLE_H - 8}
+          textAnchor="start"
+          fontSize={10.5}
+          fill={C.subtitle}
+        >
+          {buildLabel}
+        </text>
+        <text
+          x={layout.width - BLOCK_PAD}
+          y={TITLE_H + HEADER_H - 9}
+          textAnchor="start"
+          fontSize={11}
+          fontWeight={700}
+          fill={C.subtitle}
+        >
           {freeLabel}
         </text>
-        {headers}
         {cells}
       </g>
     );
@@ -628,16 +260,31 @@ const BlockPanel = memo(
     prev.layout.x === next.layout.x &&
     prev.layout.y === next.layout.y &&
     prev.freeLabel === next.freeLabel &&
-    prev.view.stacks === next.view.stacks &&
-    prev.view.tier === next.view.tier &&
+    prev.sizeLabel === next.sizeLabel &&
+    prev.buildLabel === next.buildLabel &&
+    prev.view.loads === next.view.loads &&
     prev.view.selectedId === next.view.selectedId &&
     prev.view.matches === next.view.matches &&
     prev.view.searchActive === next.view.searchActive &&
     prev.view.targets === next.view.targets &&
     prev.view.movingId === next.view.movingId &&
-    prev.view.slotStates === next.view.slotStates &&
     prev.view.onCellClick === next.view.onCellClick,
 );
+
+/** `40 قدم` — which size this column takes, in its own language. */
+export function sizeLabelOf(block: BlockConfig): string {
+  return AR.blockSizeName(block.size);
+}
+
+/** `2 طابق × 4 حاوية` — how one location in this column is built. */
+export function buildLabelOf(block: BlockConfig): string {
+  const per = countLocation(block, undefined);
+  return AR.blockBuild(
+    block.placesPerTier / (block.size === 40 ? 2 : 1),
+    block.tiers,
+    per.inPlaces,
+  );
+}
 
 /**
  * Memoized: panning and zooming only move the transformed wrapper, so the
@@ -651,14 +298,12 @@ export const YardMap = memo(function YardMap(props: {
 }): ReactElement {
   const { map, layout, freeLabels } = props;
   const view: PanelView = {
-    stacks: map.stacks,
-    tier: map.tier,
+    loads: map.loads,
     selectedId: map.selectedId,
     matches: map.matches,
     searchActive: map.searchActive,
     targets: map.targets,
     movingId: map.movingId,
-    slotStates: map.slotStates,
     onCellClick: map.onCellClick,
   };
   return (
@@ -669,25 +314,14 @@ export const YardMap = memo(function YardMap(props: {
       viewBox={`0 0 ${String(layout.width)} ${String(layout.height)}`}
       style={{ display: 'block', userSelect: 'none', overflow: 'visible' }}
     >
-      <defs>
-        {/* The صيانة hatch: diagonal stripes an empty blocked slot wears. */}
-        <pattern
-          id="yard-hatch"
-          width={6}
-          height={6}
-          patternUnits="userSpaceOnUse"
-          patternTransform="rotate(45)"
-        >
-          <rect width={6} height={6} fill="#e2e8f0" />
-          <line x1={0} y1={0} x2={0} y2={6} stroke="#94a3b8" strokeWidth={2.5} />
-        </pattern>
-      </defs>
       {layout.blocks.map((blockLayout) => (
         <BlockPanel
           key={blockLayout.block.id}
           layout={blockLayout}
           view={view}
           freeLabel={freeLabels.get(blockLayout.block.id) ?? ''}
+          sizeLabel={sizeLabelOf(blockLayout.block)}
+          buildLabel={buildLabelOf(blockLayout.block)}
         />
       ))}
     </svg>

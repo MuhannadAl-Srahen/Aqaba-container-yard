@@ -7,37 +7,36 @@ import { MIXED_SIZE } from './types';
  * are "yard units" — pixels at scale 1.
  */
 
-export const CELL_W = 60;
-export const CELL_H = 34;
-/** A 40 lies ALONG the line, so its slot is twice as tall, plus the gap. */
-export const CELL_H_40 = CELL_H * 2 + 7;
+/**
+ * One location's footprint. The same box in every area: two lanes wide and
+ * forty feet deep, whether it holds two 40s lying along the lanes or four
+ * 20s two-by-two. Wide enough to carry `A-01` and the count side by side.
+ */
+export const CELL_W = 110;
+export const CELL_H = 46;
 export const CELL_GAP = 7;
-export const TITLE_H = 40;
-export const HEADER_H = 20;
-export const LABEL_GUTTER = 26;
+/**
+ * The title block carries two lines — the letter with the size it takes, then
+ * how the column is built. Two lines, because one long line spilled out past
+ * the panel's own edge and read as a drawing mistake. The panel WIDTH is
+ * deliberately unchanged: columns already stand a fixed distance apart in the
+ * owner's drawing, and a wider panel would make them collide.
+ */
+export const TITLE_H = 46;
+/** The strip under the title that says what the column's locations hold. */
+export const HEADER_H = 22;
 export const BLOCK_PAD = 14;
-
-export interface CellSize {
-  readonly w: number;
-  readonly h: number;
-}
-
-/** Slot footprint per block policy; a mixed slot is drawn like a 20's. */
-export function cellSize(size: BlockSize): CellSize {
-  return size === 40 ? { w: CELL_W, h: CELL_H_40 } : { w: CELL_W, h: CELL_H };
-}
 
 export interface Frame {
   readonly width: number;
   readonly height: number;
 }
 
-/** The block's full panel box before rotation — title bar, headers and all. */
-export function blockFrame(block: Pick<BlockConfig, 'size' | 'rows' | 'cols'>): Frame {
-  const cell = cellSize(block.size);
+/** The block's full panel box before rotation — title bar, header and all. */
+export function blockFrame(block: Pick<BlockConfig, 'rows'>): Frame {
   return {
-    width: BLOCK_PAD * 2 + block.cols * (cell.w + CELL_GAP) - CELL_GAP + LABEL_GUTTER,
-    height: TITLE_H + HEADER_H + block.rows * (cell.h + CELL_GAP) - CELL_GAP + BLOCK_PAD,
+    width: BLOCK_PAD * 2 + CELL_W,
+    height: TITLE_H + HEADER_H + block.rows * (CELL_H + CELL_GAP) - CELL_GAP + BLOCK_PAD,
   };
 }
 
@@ -146,41 +145,23 @@ export function yardBounds(blocks: readonly BlockConfig[]): Bounds {
   return { minX, minY, maxX, maxY };
 }
 
+/** What the owner fills in per column on the first run. */
+export interface ColumnShape {
+  readonly rows: number;
+  readonly placesPerTier: number;
+  readonly tiers: number;
+}
+
 /**
- * The first-run shape: one 20 block above one 40 block, right-aligned where
- * reading starts. Setup previews it and the server persists it; the ids here
- * are placeholders the server replaces on insert.
+ * The first-run shape: column A for the 20s beside column B for the 40s,
+ * laid out from the reading-start edge. Setup previews it and the server
+ * persists it; the ids here are placeholders the server replaces on insert.
  */
-export function defaultLayout(
-  twenty: { rows: number; cols: number },
-  forty: { rows: number; cols: number },
-): BlockConfig[] {
-  const frame20 = blockFrame({ size: 20, rows: twenty.rows, cols: twenty.cols });
-  const frame40 = blockFrame({ size: 40, rows: forty.rows, cols: forty.cols });
-  const width = Math.max(frame20.width, frame40.width);
+export function defaultLayout(twenty: ColumnShape, forty: ColumnShape): BlockConfig[] {
+  const frame20 = blockFrame(twenty);
   const margin = 30;
   return [
-    {
-      id: 1,
-      name: 'منطقة 20',
-      size: 20,
-      rows: twenty.rows,
-      cols: twenty.cols,
-      x: width - frame20.width,
-      y: 0,
-      angle: 0,
-      state: 'NORMAL',
-    },
-    {
-      id: 2,
-      name: 'منطقة 40',
-      size: 40,
-      rows: forty.rows,
-      cols: forty.cols,
-      x: width - frame40.width,
-      y: frame20.height + margin,
-      angle: 0,
-      state: 'NORMAL',
-    },
+    { id: 1, name: 'A', size: 20, ...twenty, x: 0, y: 0, angle: 0 },
+    { id: 2, name: 'B', size: 40, ...forty, x: frame20.width + margin, y: 0, angle: 0 },
   ];
 }

@@ -1,19 +1,30 @@
 import { useMemo, useRef, useState, type ReactElement } from 'react';
 import type { BlockConfig, BlockSize, ContainerDto, YardConfig } from '../shared/types';
-import { ANGLE_STEP, MAX_BLOCKS, MAX_ZONE_COLS, MAX_ZONE_ROWS, MIXED_SIZE } from '../shared/types';
-import type { SlotStates } from '../shared/rules';
+import {
+  ANGLE_STEP,
+  DEFAULT_LOCATIONS,
+  DEFAULT_PLACES_PER_TIER,
+  DEFAULT_TIERS,
+  MAX_BLOCKS,
+  MAX_LOCATIONS,
+  MAX_PLACES_PER_TIER,
+  MAX_TIERS,
+  MIXED_SIZE,
+} from '../shared/types';
+import { placesFor } from '../shared/rules';
 import { blockFrame, overlappingPairs, yardBounds } from '../shared/geometry';
 import { AR } from './ar';
 import { ApiFailure, api, type BlockDraft } from './api';
 import { Button, inputClass } from './ui';
 import { YardMap, blockTransform, type MapLayout } from './YardMap';
-import { buildStacks, summarizeBlock } from './mapModel';
+import { buildLoads, summarizeBlock } from './mapModel';
 import { usePanZoom } from './usePanZoom';
 
 /**
- * The yard arranged on the yard itself: drag a block to move it, select it to
- * rename, resize, or turn it in ANGLE_STEP notches. Nothing reaches the
- * server until one atomic save — cancel and the yard never knew.
+ * The yard arranged on the yard itself: drag a column to move it, select it
+ * to rename it, change how many locations it holds, how much each holds, and
+ * turn it in ANGLE_STEP notches. Nothing reaches the server until one atomic
+ * save — cancel and the yard never knew.
  */
 
 const CANVAS_PAD = 60;
@@ -54,8 +65,6 @@ interface RotateState {
 export function YardEditor(props: {
   yard: YardConfig;
   containers: readonly ContainerDto[];
-  /** The live slot states — the editor's map shows the truth. */
-  slotStates: SlotStates;
   onSaved: (message: string) => void;
   onCancel: () => void;
 }): ReactElement {
@@ -67,28 +76,37 @@ export function YardEditor(props: {
   const drag = useRef<DragState | null>(null);
   const rotating = useRef<RotateState | null>(null);
 
-  const stacks = useMemo(() => buildStacks(props.containers), [props.containers]);
+  const loads = useMemo(() => buildLoads(props.containers), [props.containers]);
 
-  /** Blocks that still hold containers cannot shrink below them or be deleted. */
+  /**
+   * What each column already holds, so the steppers cannot cut a location or
+   * a capacity out from under a standing container: `maxRow` is the deepest
+   * location in use, `maxPlaces` the fullest location's places.
+   */
   const occupancy = useMemo(() => {
     const byBlock = new Map<
       number,
-      { maxRow: number; maxCol: number; count: number; has20: boolean; has40: boolean }
+      { maxRow: number; maxPlaces: number; count: number; has20: boolean; has40: boolean }
     >();
+    const perLocation = new Map<string, number>();
     for (const container of props.containers) {
       if (container.position === null) continue;
       const entry = byBlock.get(container.position.block) ?? {
         maxRow: 0,
-        maxCol: 0,
+        maxPlaces: 0,
         count: 0,
         has20: false,
         has40: false,
       };
       entry.maxRow = Math.max(entry.maxRow, container.position.row);
-      entry.maxCol = Math.max(entry.maxCol, container.position.col);
       entry.count += 1;
       if (container.size === 20) entry.has20 = true;
       else entry.has40 = true;
+
+      const key = `${String(container.position.block)}|${String(container.position.row)}`;
+      const places = (perLocation.get(key) ?? 0) + placesFor(container.size);
+      perLocation.set(key, places);
+      entry.maxPlaces = Math.max(entry.maxPlaces, places);
       byBlock.set(container.position.block, entry);
     }
     return byBlock;
@@ -131,11 +149,14 @@ export function YardEditor(props: {
   const freeLabels = useMemo(() => {
     const labels = new Map<number, string>();
     for (const block of draft) {
-      const summary = summarizeBlock(block, stacks);
-      labels.set(block.id, AR.freeOf(summary.freeGround, summary.totalGround));
+      const summary = summarizeBlock(block, loads);
+      labels.set(
+        block.id,
+        AR.fullAndFree(summary.totalPlaces - summary.freePlaces, summary.freePlaces),
+      );
     }
     return labels;
-  }, [draft, stacks]);
+  }, [draft, loads]);
 
   const pz = usePanZoom(canvasWidth, canvasHeight);
 
@@ -144,21 +165,23 @@ export function YardEditor(props: {
   const editorMapProps = useMemo(
     () => ({
       yard: { blocks: draft },
-      stacks,
-      tier: 1 as const,
+      loads,
       selectedId: null,
       matches: NO_MATCHES,
       searchActive: false,
       targets: null,
       movingId: null,
-      slotStates: props.slotStates,
       onCellClick: noopCellClick,
     }),
-    [draft, stacks, props.slotStates],
+    [draft, loads],
   );
 
   const selected = draft.find((block) => block.id === selectedId) ?? null;
   const selectedOccupancy = selected === null ? undefined : occupancy.get(selected.id);
+  /** Places the fullest location of the selected column already holds. */
+  const fullest = selectedOccupancy?.maxPlaces ?? 0;
+  /** Places one container of the column's own size claims — its counting unit. */
+  const unit = selected !== null && selected.size === 40 ? placesFor(40) : placesFor(20);
 
   const patchBlock = (id: number, patch: Partial<BlockConfig>): void => {
     setDraft((blocks) => blocks.map((b) => (b.id === id ? { ...b, ...patch } : b)));
@@ -169,19 +192,20 @@ export function YardEditor(props: {
     const bounds = yardBounds(draft);
     const id = nextTempId.current;
     nextTempId.current -= 1;
-    const shape = { size, rows: size === 40 ? 15 : 30, cols: 2 };
-    const frame = blockFrame(shape);
+    const frame = blockFrame({ rows: DEFAULT_LOCATIONS });
     const block: BlockConfig = {
       id,
-      // The next register letter, like the areas the owner already names.
+      // The next register letter, like the columns the owner already names.
       name: nextLetterName(new Set(draft.map((b) => b.name))),
-      ...shape,
+      size,
+      rows: DEFAULT_LOCATIONS,
+      placesPerTier: DEFAULT_PLACES_PER_TIER,
+      tiers: DEFAULT_TIERS,
       // Below everything, hugging the RIGHT edge — where reading starts, and
       // away from the toolbar that floats at the start side.
       x: bounds.maxX - frame.width,
       y: bounds.maxY + 30,
       angle: 0,
-      state: 'NORMAL',
     };
     setDraft((blocks) => [...blocks, block]);
     setSelectedId(id);
@@ -198,7 +222,8 @@ export function YardEditor(props: {
             name: block.name,
             size: block.size,
             rows: block.rows,
-            cols: block.cols,
+            placesPerTier: block.placesPerTier,
+            tiers: block.tiers,
             x: block.x,
             y: block.y,
             angle: block.angle,
@@ -298,10 +323,10 @@ export function YardEditor(props: {
     apply: (next: number) => void,
   ): ReactElement => (
     <div className="flex items-center gap-1.5">
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
+      <span className="text-xs font-semibold text-muted">{label}</span>
       <button
         type="button"
-        className="h-8 w-8 rounded-lg border border-slate-300 bg-white text-base font-bold text-slate-700 disabled:opacity-30"
+        className="h-8 w-8 rounded-lg border border-line-strong bg-surface text-base font-bold text-ink disabled:opacity-30"
         disabled={value <= min}
         onClick={() => {
           apply(value - 1);
@@ -318,11 +343,11 @@ export function YardEditor(props: {
           const parsed = Number(event.target.value);
           if (Number.isInteger(parsed)) apply(Math.max(min, Math.min(max, parsed)));
         }}
-        className="w-14 rounded-lg border border-slate-300 px-1.5 py-1 text-center text-sm font-bold text-slate-900 outline-none focus:border-blue-500"
+        className="w-14 rounded-lg border border-line-strong px-1.5 py-1 text-center text-sm font-bold text-ink outline-none focus:border-blue-500"
       />
       <button
         type="button"
-        className="h-8 w-8 rounded-lg border border-slate-300 bg-white text-base font-bold text-slate-700 disabled:opacity-30"
+        className="h-8 w-8 rounded-lg border border-line-strong bg-surface text-base font-bold text-ink disabled:opacity-30"
         disabled={value >= max}
         onClick={() => {
           apply(value + 1);
@@ -334,10 +359,10 @@ export function YardEditor(props: {
   );
 
   return (
-    <div className="flex h-dvh flex-col bg-slate-100">
-      <header className="z-10 flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 shadow-sm lg:px-5">
-        <h1 className="text-base font-extrabold text-slate-900">{AR.editYard}</h1>
-        <span className="hidden text-xs text-slate-400 lg:block">{AR.editorHint}</span>
+    <div className="flex h-dvh flex-col bg-canvas">
+      <header className="z-10 flex flex-wrap items-center gap-2 border-b border-line bg-surface px-3 py-2 shadow-sm lg:px-5">
+        <h1 className="text-base font-extrabold text-ink">{AR.editYard}</h1>
+        <span className="hidden text-xs text-faint lg:block">{AR.editorHint}</span>
         <div className="ms-auto flex items-center gap-1.5">
           <Button kind="quiet" disabled={busy || draft.length >= MAX_BLOCKS} onClick={() => { addBlock(20); }}>
             {AR.editorAdd20}
@@ -462,10 +487,10 @@ export function YardEditor(props: {
         </div>
 
         {selected !== null && (
-          <div className="absolute inset-x-2 bottom-2 z-10 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl lg:inset-x-auto lg:end-4 lg:w-[440px]">
+          <div className="absolute inset-x-2 bottom-2 z-10 rounded-2xl border border-line bg-surface p-3 shadow-xl lg:inset-x-auto lg:end-4 lg:w-[440px]">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <label className="flex min-w-40 flex-1 items-center gap-2">
-                <span className="text-xs font-semibold text-slate-500">{AR.editorName}</span>
+                <span className="text-xs font-semibold text-muted">{AR.editorName}</span>
                 <input
                   className={inputClass}
                   value={selected.name}
@@ -475,7 +500,7 @@ export function YardEditor(props: {
                   }}
                 />
               </label>
-              <div className="flex overflow-hidden rounded-lg border border-slate-300">
+              <div className="flex overflow-hidden rounded-lg border border-line-strong">
                 {([20, 40, MIXED_SIZE] as const).map((size) => {
                   // A block may always turn mixed; turning single-size needs
                   // every standing container to fit the new policy.
@@ -490,13 +515,19 @@ export function YardEditor(props: {
                       disabled={!allowed}
                       title={allowed ? undefined : AR.sizeMixedBlocked}
                       onClick={() => {
-                        patchBlock(selected.id, { size });
+                        // A 40 column counts whole 40s, so its places must
+                        // stay even — a 5-place column turning 40 becomes 6.
+                        const places =
+                          size === 40 && selected.placesPerTier % 2 === 1
+                            ? selected.placesPerTier + 1
+                            : selected.placesPerTier;
+                        patchBlock(selected.id, { size, placesPerTier: places });
                       }}
                       className={
                         'px-2.5 py-1 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ' +
                         (selected.size === size
-                          ? 'bg-slate-800 text-white'
-                          : 'bg-white text-slate-600 hover:bg-slate-100')
+                          ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                          : 'bg-surface text-muted hover:bg-sunken')
                       }
                     >
                       {size === MIXED_SIZE ? AR.sizeMixed : `${size} قدم`}
@@ -506,31 +537,55 @@ export function YardEditor(props: {
               </div>
             </div>
             <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-              {stepper(AR.editorRows, selected.rows, Math.max(1, selectedOccupancy?.maxRow ?? 1), MAX_ZONE_ROWS, (rows) => {
-                patchBlock(selected.id, { rows });
-              })}
-              {stepper(AR.editorCols, selected.cols, Math.max(1, selectedOccupancy?.maxCol ?? 1), MAX_ZONE_COLS, (cols) => {
-                patchBlock(selected.id, { cols });
-              })}
+              {stepper(
+                AR.editorRows,
+                selected.rows,
+                Math.max(1, selectedOccupancy?.maxRow ?? 1),
+                MAX_LOCATIONS,
+                (rows) => {
+                  patchBlock(selected.id, { rows });
+                },
+              )}
+              {/* Capacity in the column's own words: whole 40s for a 40
+                  column, whole 20s otherwise. Neither this nor the tiers may
+                  drop below the fullest location already standing in it. */}
+              {stepper(
+                AR.editorCapacity(selected.size),
+                selected.placesPerTier / unit,
+                Math.max(1, Math.ceil(fullest / selected.tiers / unit)),
+                Math.floor(MAX_PLACES_PER_TIER / unit),
+                (perTier) => {
+                  patchBlock(selected.id, { placesPerTier: perTier * unit });
+                },
+              )}
+              {stepper(
+                AR.editorTiers,
+                selected.tiers,
+                Math.max(1, Math.ceil(fullest / selected.placesPerTier)),
+                MAX_TIERS,
+                (tiers) => {
+                  patchBlock(selected.id, { tiers });
+                },
+              )}
               <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-500">{AR.editorAngle}</span>
+                <span className="text-xs font-semibold text-muted">{AR.editorAngle}</span>
                 <button
                   type="button"
                   aria-label="↺"
-                  className="h-8 w-8 rounded-lg border border-slate-300 bg-white text-base text-slate-700"
+                  className="h-8 w-8 rounded-lg border border-line-strong bg-surface text-base text-ink"
                   onClick={() => {
                     patchBlock(selected.id, { angle: (selected.angle + 360 - ANGLE_STEP) % 360 });
                   }}
                 >
                   ↺
                 </button>
-                <span className="w-9 text-center text-sm font-bold text-slate-900" dir="ltr">
+                <span className="w-9 text-center text-sm font-bold text-ink" dir="ltr">
                   {selected.angle}°
                 </span>
                 <button
                   type="button"
                   aria-label="↻"
-                  className="h-8 w-8 rounded-lg border border-slate-300 bg-white text-base text-slate-700"
+                  className="h-8 w-8 rounded-lg border border-line-strong bg-surface text-base text-ink"
                   onClick={() => {
                     patchBlock(selected.id, { angle: (selected.angle + ANGLE_STEP) % 360 });
                   }}
@@ -540,7 +595,7 @@ export function YardEditor(props: {
               </div>
               <div className="ms-auto">
                 {(selectedOccupancy?.count ?? 0) > 0 ? (
-                  <span className="text-xs text-slate-400">{AR.editorDeleteBlocked}</span>
+                  <span className="text-xs text-faint">{AR.editorDeleteBlocked}</span>
                 ) : (
                   <Button
                     kind="danger"

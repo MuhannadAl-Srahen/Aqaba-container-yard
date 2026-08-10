@@ -1,50 +1,30 @@
-import type { Position, Tier } from './types';
-import { GROUND_TIER } from './types';
+import type { Position } from './types';
 
 /**
- * How a position is written and said — the paper register's own notation:
- * `A1-5-H` is area A, line (column) 1, position (row) 5, upper tier. L is
- * the ground, H the one above, exactly as the yard has always written it.
+ * How a location is written and said — the yard's own notation: `A-01` is
+ * column A, row 01. Rows count in odd numbers because every location spans
+ * two twenty-foot bays, exactly as the ground is marked.
  */
 
-export function tierName(tier: Tier): string {
-  return tier === GROUND_TIER ? 'الأرضي' : 'الأول';
-}
-
-/** The register's tier letter: L on the ground, H on top. */
-export function tierLetter(tier: Tier): string {
-  return tier === GROUND_TIER ? 'L' : 'H';
+/** The register's row number: location 1 is 01, location 2 is 03, and on. */
+export function rowNumber(row: number): string {
+  return String(row * 2 - 1).padStart(2, '0');
 }
 
 /** Resolves a block id to its display name, however the caller knows names. */
 export type BlockNamer = (blockId: number) => string;
 
-/** `A1-5` — area name fused with its line number, then the position. */
-export function slotLabel(
-  nameOf: BlockNamer,
-  position: Pick<Position, 'block' | 'row' | 'col'>,
-): string {
-  return `${nameOf(position.block)}${String(position.col)}-${String(position.row)}`;
-}
-
-/** The full written form: `A1-5-H`. */
+/** The full written form: `A-01`. */
 export function positionLabel(nameOf: BlockNamer, position: Position): string {
-  return `${slotLabel(nameOf, position)}-${tierLetter(position.tier)}`;
+  return `${nameOf(position.block)}-${rowNumber(position.row)}`;
 }
 
-/** Two positions naming the same physical slot, ignoring tier. */
-export function sameSlot(
-  a: Pick<Position, 'block' | 'row' | 'col'>,
-  b: Pick<Position, 'block' | 'row' | 'col'>,
-): boolean {
-  return a.block === b.block && a.row === b.row && a.col === b.col;
+/** Two positions naming the same location on the ground. */
+export function samePosition(a: Position, b: Position): boolean {
+  return a.block === b.block && a.row === b.row;
 }
 
 /** A stable string key for map lookups. */
-export function slotKey(position: Pick<Position, 'block' | 'row' | 'col'>): string {
-  return `${position.block}|${position.row}|${position.col}`;
-}
-
 export function positionKey(position: Position): string {
-  return `${slotKey(position)}|${position.tier}`;
+  return `${String(position.block)}|${String(position.row)}`;
 }

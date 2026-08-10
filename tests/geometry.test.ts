@@ -11,28 +11,28 @@ import {
 
 const block = (patch: Partial<BlockConfig>): BlockConfig => ({
   id: 1,
-  name: 'منطقة',
+  name: 'A',
   size: 20,
   rows: 2,
-  cols: 3,
+  placesPerTier: 4,
+  tiers: 2,
   x: 0,
   y: 0,
   angle: 0,
-  state: 'NORMAL',
   ...patch,
 });
 
 describe('frames', () => {
-  it('a 40 slot is taller than a 20 slot — the box lies along the line', () => {
-    const small = blockFrame({ size: 20, rows: 1, cols: 1 });
-    const tall40 = blockFrame({ size: 40, rows: 1, cols: 1 });
-    const taller = blockFrame({ size: 20, rows: 2, cols: 1 });
-    const mixed = blockFrame({ size: 0, rows: 1, cols: 1 });
-    expect(tall40.height).toBeGreaterThan(small.height);
-    expect(tall40.width).toBe(small.width);
-    expect(taller.height).toBeGreaterThan(small.height);
-    expect(mixed.width).toBe(small.width);
-    expect(mixed.height).toBe(small.height);
+  it('a column grows only downwards: every location is the same box', () => {
+    const one = blockFrame({ rows: 1 });
+    const two = blockFrame({ rows: 2 });
+    const ten = blockFrame({ rows: 10 });
+    expect(two.height).toBeGreaterThan(one.height);
+    expect(ten.height).toBeGreaterThan(two.height);
+    // A location is two lanes wide and forty feet deep whatever it holds, so
+    // the panel's width never depends on the column's size or capacity.
+    expect(two.width).toBe(one.width);
+    expect(ten.width).toBe(one.width);
   });
 
   it('an unrotated block has axis-aligned corners at its frame', () => {
@@ -71,12 +71,11 @@ describe('overlap', () => {
   it('rotation is honoured: a turned block clears a corner a box would hit', () => {
     // Diagonal neighbour: their bounding BOXES share the corner area, but at
     // 45° the actual rectangle pulls its corner out of the way.
-    const a = block({ id: 1, rows: 1, cols: 1 });
+    const a = block({ id: 1, rows: 1 });
     const frame = blockFrame(a);
     const diagonal = block({
       id: 2,
       rows: 1,
-      cols: 1,
       x: frame.width - 12,
       y: frame.height - 12,
       angle: 0,
@@ -109,12 +108,18 @@ describe('bounds and the first-run layout', () => {
     }
   });
 
-  it('the default layout never overlaps and puts 20 above 40', () => {
-    const layout = defaultLayout({ rows: 4, cols: 10 }, { rows: 3, cols: 6 });
+  it('the default layout never overlaps and names the columns A and B', () => {
+    const layout = defaultLayout(
+      { rows: 15, placesPerTier: 4, tiers: 2 },
+      { rows: 10, placesPerTier: 4, tiers: 2 },
+    );
     expect(overlappingPairs(layout)).toHaveLength(0);
     const [twenty, forty] = layout;
+    expect([twenty?.name, forty?.name]).toEqual(['A', 'B']);
     expect(twenty?.size).toBe(20);
     expect(forty?.size).toBe(40);
-    expect((twenty?.y ?? 0) < (forty?.y ?? 0)).toBe(true);
+    // Two columns stand side by side, not one under the other.
+    expect(twenty?.y).toBe(forty?.y);
+    expect((twenty?.x ?? 0) < (forty?.x ?? 0)).toBe(true);
   });
 });

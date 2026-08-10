@@ -1,6 +1,12 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import type { YardConfig } from '../shared/types';
-import { MAX_ZONE_COLS, MAX_ZONE_ROWS } from '../shared/types';
+import {
+  DEFAULT_PLACES_PER_TIER,
+  DEFAULT_TIERS,
+  MAX_LOCATIONS,
+  MAX_PLACES_PER_TIER,
+  MAX_TIERS,
+} from '../shared/types';
 import { defaultLayout } from '../shared/geometry';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
@@ -14,22 +20,20 @@ import { YardMap, computeLayout } from './YardMap';
 export function SetupScreen(props: { onDone: () => void }): ReactElement {
   const [password, setPassword] = useState('');
   const [passwordAgain, setPasswordAgain] = useState('');
-  const [twentyRows, setTwentyRows] = useState(4);
-  const [twentyCols, setTwentyCols] = useState(10);
-  const [fortyRows, setFortyRows] = useState(3);
-  const [fortyCols, setFortyCols] = useState(6);
+  const [twenty, setTwenty] = useState({
+    rows: 15,
+    placesPerTier: DEFAULT_PLACES_PER_TIER,
+    tiers: DEFAULT_TIERS,
+  });
+  // A 40 column is entered in whole 40s, so its places are always even.
+  const [forty, setForty] = useState({ rows: 15, placesPerTier: 4, tiers: DEFAULT_TIERS });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // The preview builds the exact two blocks the server will create.
+  // The preview builds the exact two columns the server will create.
   const yard: YardConfig = useMemo(
-    () => ({
-      blocks: defaultLayout(
-        { rows: twentyRows, cols: twentyCols },
-        { rows: fortyRows, cols: fortyCols },
-      ),
-    }),
-    [twentyRows, twentyCols, fortyRows, fortyCols],
+    () => ({ blocks: defaultLayout(twenty, forty) }),
+    [twenty, forty],
   );
 
   const layout = useMemo(() => computeLayout(yard), [yard]);
@@ -44,10 +48,7 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
     setBusy(true);
     setError(null);
     api
-      .setup(password, {
-        twenty: { rows: twentyRows, cols: twentyCols },
-        forty: { rows: fortyRows, cols: fortyCols },
-      })
+      .setup(password, { twenty, forty })
       .then(props.onDone)
       .catch((failure: unknown) => {
         setError(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
@@ -77,11 +78,11 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
   );
 
   return (
-    <div className="min-h-dvh bg-slate-100 p-4 lg:p-8">
+    <div className="min-h-dvh bg-canvas p-4 lg:p-8">
       <div className="mx-auto max-w-3xl space-y-5">
-        <div className="rounded-2xl bg-white p-6 shadow-xl">
-          <h1 className="text-xl font-extrabold text-slate-900">{AR.setupTitle}</h1>
-          <p className="mt-1 text-sm text-slate-500">{AR.setupOnce}</p>
+        <div className="rounded-2xl bg-surface p-6 shadow-xl">
+          <h1 className="text-xl font-extrabold text-ink">{AR.setupTitle}</h1>
+          <p className="mt-1 text-sm text-muted">{AR.setupOnce}</p>
 
           <form
             className="mt-6 space-y-6"
@@ -128,21 +129,39 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
             </div>
 
             <div className="grid gap-5 lg:grid-cols-2">
-              <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
-                <legend className="px-1 text-sm font-bold text-slate-700">{AR.zone20Title}</legend>
-                {dimensionField(AR.rowsLabel, twentyRows, MAX_ZONE_ROWS, setTwentyRows)}
-                {dimensionField(AR.colsLabel, twentyCols, MAX_ZONE_COLS, setTwentyCols)}
-              </fieldset>
-              <fieldset className="space-y-3 rounded-xl border border-slate-200 p-4">
-                <legend className="px-1 text-sm font-bold text-slate-700">{AR.zone40Title}</legend>
-                {dimensionField(AR.rowsLabel, fortyRows, MAX_ZONE_ROWS, setFortyRows)}
-                {dimensionField(AR.colsLabel, fortyCols, MAX_ZONE_COLS, setFortyCols)}
-              </fieldset>
+              {(
+                [
+                  [AR.zone20Title, 20, twenty, setTwenty],
+                  [AR.zone40Title, 40, forty, setForty],
+                ] as const
+              ).map(([title, size, shape, set]) => {
+                // A 40 column is typed in whole 40s and stored in places.
+                const unit = size === 40 ? 2 : 1;
+                return (
+                  <fieldset key={size} className="space-y-3 rounded-xl border border-line p-4">
+                    <legend className="px-1 text-sm font-bold text-ink">{title}</legend>
+                    {dimensionField(AR.rowsLabel, shape.rows, MAX_LOCATIONS, (rows) => {
+                      set({ ...shape, rows });
+                    })}
+                    {dimensionField(
+                      AR.editorCapacity(size),
+                      shape.placesPerTier / unit,
+                      Math.floor(MAX_PLACES_PER_TIER / unit),
+                      (perTier) => {
+                        set({ ...shape, placesPerTier: perTier * unit });
+                      },
+                    )}
+                    {dimensionField(AR.editorTiers, shape.tiers, MAX_TIERS, (tiers) => {
+                      set({ ...shape, tiers });
+                    })}
+                  </fieldset>
+                );
+              })}
             </div>
 
             <div>
-              <p className="mb-2 text-sm font-semibold text-slate-700">{AR.setupPreview}</p>
-              <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 p-2">
+              <p className="mb-2 text-sm font-semibold text-ink">{AR.setupPreview}</p>
+              <div className="overflow-hidden rounded-xl border border-line bg-sunken p-2">
                 <div
                   style={{
                     transform: `scale(${String(previewScale)})`,
@@ -156,14 +175,12 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
                     freeLabels={new Map()}
                     map={{
                       yard,
-                      stacks: new Map(),
-                      tier: 1,
+                      loads: new Map(),
                       selectedId: null,
                       matches: new Set(),
                       searchActive: false,
                       targets: null,
                       movingId: null,
-                      slotStates: {},
                       onCellClick: () => undefined,
                     }}
                   />
