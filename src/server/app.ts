@@ -143,7 +143,11 @@ async function launchSystemBrowser(chromium: BrowserType): Promise<Browser> {
 }
 
 export function buildApp(db: DatabaseSync): FastifyInstance {
-  const app = Fastify({ logger: false });
+  // trustProxy: in production the app sits behind a local tunnel/proxy, so
+  // the real client address arrives in X-Forwarded-For — without this, every
+  // visitor shares 127.0.0.1 and one stranger's failed logins would throttle
+  // the whole yard.
+  const app = Fastify({ logger: false, trustProxy: true });
   void app.register(cookie);
 
   const attempts = new Map<string, { count: number; windowStart: number }>();
