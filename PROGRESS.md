@@ -387,3 +387,205 @@ refusal, before-values in EDIT notes), typecheck/lint clean, full drive
 green — including the auto exit-card and a wheel probe for the editor
 round-trip. Mid-drive discovery: the owner had already turned areas A and J
 mixed on the live yard, so the drive's gate-in waits became policy-agnostic.
+
+### الموقع صار سلة — schema v7 — 2026-08-09
+
+The owner went and stood in the yard. The address model did not survive the
+visit: it promised a precision the crew will never record.
+
+**A location is a basket.** `A-01` — the column's letter and the row's odd
+number, and nothing finer. `(col, tier)` is gone from the coordinate: no
+left/right, no front/back, no floor. Containers are *members* of a location,
+not occupants of a slot in it. The one question the map must answer became
+«كم فيه من كم، ومين جوّاته» — the cell says the count, a tap lists the boxes.
+
+- **Rows count in odd numbers** (01, 03, 05 …) because a location is forty
+  feet long — two twenty-foot bays of the ground's own marking. `rowNumber`
+  is `row * 2 - 1`, zero-padded; the label is computed, never stored.
+- **Capacity replaced geometry.** A location holds `placesPerTier × tiers`
+  twenty-foot places; a 20 claims one, a 40 claims two. Four places per tier
+  is four 20s (two front, two behind) or two 40s — the same box either way,
+  which is why `cellSize` lost its size argument and a panel is now one
+  narrow column. Both numbers are per-column and editable: the owner expects
+  tiers to change and thinks capacity might.
+- **The editor speaks each column's own language.** A 40 column is typed in
+  whole 40s, a 20 column in 20s, a mixed one in places; the wire stores
+  places, and a zod refine keeps a 40 column's count even so the round-trip
+  cannot invent half a container.
+- **Rules that died with the precision they needed**: NO_SUPPORT, BURIED,
+  BAD_STACK, SLOT_TAKEN. `canLift` is now the HOLD check alone. What
+  arrived: LOCATION_FULL (carrying how short the location is) and
+  CAPACITY_OCCUPIED (a layout save cutting places or tiers under a location
+  that already holds more).
+- **Location states are gone entirely** — «المكان مستحيل بنعطب». The
+  `slot_states` table, `blocks.state`, their two endpoints and their sheet
+  all went with them. Container conditions stay; a location that holds one
+  wears a small dot, which is the only thing the cell says beyond its count.
+- **The unique index is gone and could not be replaced.** `idx_one_per_
+  position` guaranteed one container per slot; a capacity is a SUM, not a
+  key, and no index expresses it. Every write already runs inside
+  `transaction()` on a single-process node:sqlite handle, so the
+  read-then-write in `canPlace` is atomic — the shared rule stays the sole
+  authority rather than being duplicated into a trigger that could drift.
+- **Migration v7** rebuilds blocks, containers and movements and drops
+  `slot_states`. `places_per_tier = cols * 2, tiers = 2` is the old worst
+  case exactly (a 40 on every line, both tiers), so nothing standing is ever
+  pushed out. The panel shape changed completely, so live columns are
+  re-laid left to right — the owner drags them into place once. The v1→v2
+  upgrade stopped calling `defaultLayout` and froze its own v2 metrics
+  inline: a migration must draw the old yard the old way, whatever the
+  shared geometry becomes.
+
+Verified: 127/127 tests, typecheck and lint clean.
+
+### الموظفين والرصاصة وكشوفات مضبوطة — schema v8 — 2026-08-10
+
+Four people work this yard now, and the owner wanted to know which of them
+touched what. Alongside that came a review of the registers that turned up two
+real defects — both the sort a spreadsheet would never forgive.
+
+- **Employees, PINs, permissions.** A `users` table (soft-deleted, like
+  blocks — last year's register must still name whoever signed it) and a
+  session token that grew an actor: `userId.expires.signature`, the HMAC
+  taken over the pair so a cookie cannot be edited into somebody else's. The
+  old two-part tokens no longer parse; everyone signs in once more, which is
+  the right thing for the release that introduces accounts. `setPassword`
+  and the PINs share one `hashSecret`/`verifySecret` pair — one storage form
+  for every secret in the system.
+- Six per-user permissions (`GATE_IN, MOVE, GATE_OUT, EDIT, DELETE, REPORTS`)
+  and three things that are **never** a checkbox: the yard editor, the staff
+  list and the dev tools. The client hides what it may not do; the server
+  refuses it. As always, hiding is courtesy and the refusal is the rule.
+- **`movements.user_id`** carries the actor (NULL is the owner, who is not a
+  row in `users`). The entry and exit registers, the standing sheet and the
+  operations log all name the person.
+- **The seal (الرصاصة)**, mandatory both ways. The exit form pre-fills the
+  entry seal, so an actual change is a deliberate edit rather than a typo,
+  and a mismatch flags «الرصاصة تغيّرت» on the card — the door was opened
+  inside the yard.
+- **Cargo left** (every container here is laden) and **every container status
+  left with it** — dents, an opened lock, a customs hold all live in the notes
+  now, which the owner asked for twice. This removed HOLD, the one flag that
+  physically froze a container against move, exit and delete, so `canLift` is
+  gone entirely. The compensation is placement: the notes column now rides on
+  every register and the map dots any location holding one, so the warning is
+  in front of whoever signs the paper.
+
+**Two accuracy defects the owner caught, and one this work caught:**
+
+- **The daily register invented days.** It emitted a row per calendar date in
+  the range whether the yard had worked that day or not — «بحط أيام من عنده».
+  Only days that actually carry a movement get a row now. Driven against a
+  seeded month: 29 rows over a 40-day window, every one of them real.
+- **Dwell was counted with a stopwatch, not a calendar.** Both the server and
+  the client divided elapsed milliseconds by 86 400 000, so a container that
+  came in at 23:30 read «0 يوم» the next morning. New `src/shared/dates.ts`
+  counts Amman calendar days, and both sides call it — the duplicate
+  implementation that let them disagree is gone.
+- **A migration step had quietly stopped being idempotent.** v6 adds
+  `containers.status` and `blocks.state` "when missing", and v7/v8
+  deliberately removed them — so an up-to-date file failed the same test an
+  ancient one fails and grew the columns back on every restart. The live yard
+  file had collected both. Found by running the migration against a copy of
+  it, exactly as the plan's verification step said to. Both v6 steps are now
+  gated on the file being old enough to want them, `dropPhantomColumns`
+  sweeps up files that already drifted, and a test opens the same database
+  four times and demands the schema not move.
+
+- **The standing register** (كشف الحاويات بالساحة): what is in the yard right
+  now, oldest first, with its dwell — and `SheetScreen` grew a `rangeless`
+  mode for it, because a snapshot has no date range to pick.
+- **A card is one tap away.** The gate registers use the same screen-only
+  action column the log uses for استرجاع, so a lost gate card reprints from
+  its own row instead of being hunted by exact container number.
+- **Search answers «وين هي»** in words: standing hits list first, each with
+  its location, above the departed ones.
+- **The column header** says what the owner asked for beside the letter: the
+  size it takes, how high it stacks, and free against total.
+- **Dark mode.** Semantic tokens (`surface`, `ink`, `muted`, `line`, plus a
+  `--yard-*` set the SVG reads directly) rather than a `dark:` twin on every
+  class, so the map turns over with the chrome and there is one vocabulary to
+  keep straight. `@media print` redeclares the light values, so paper and the
+  server-made PDF are unaffected by the screen. The theme is applied by an
+  inline script in `index.html` before first paint — no white flash.
+
+Verified: 143 tests (new: `dates`, `users` covering PINs, permissions, the
+audit trail and session forgery; daily-register accuracy; the seal both ways;
+the standing sheet; v8 and migration idempotence), typecheck and lint clean,
+the v8 migration run against a copy of the live yard file (45 standing
+containers and 90 movements intact, phantom columns swept), and a full drive
+of the running server: setup → hire four → sign in as نور by PIN → receive
+with a seal and a long note → her 403s → fill a location to the brim → وسام
+moves and gates out under a new seal → every register carries seal, note and
+name → a removed employee still signs her old entries and loses her session.
+
+### الجولة اللي بعدها — تبديل المستخدم، كشوفات مضبوطة، والفاضي بالساحة — 2026-08-10
+
+The owner drove the built app and came back with a list. Everything below was
+found by driving the real thing in a real browser (playwright-core against a
+copy of the live yard file), not by reading the code.
+
+- **«لما بدي أفوت ع تبويب المالك ما بيعمل إشي.»** Reproduced and measured:
+  after signing in as an employee, signing out, and signing back in as the
+  owner, the app fired **585 boot/me/state requests in three seconds** and the
+  header kept the previous person's permissions — so the owner's own buttons
+  never appeared. Two causes, both fixed:
+  - `YardScreen`'s unauthorized-bounce effect listed the whole `props` object
+    in its dependencies. `props` is a new object every render, so the effect
+    body ran on every render; a 401 left in the cache by the session that had
+    just ended re-fired the bounce, the bounce invalidated every query, and
+    the re-render fired it again. It is now keyed on the callback alone and
+    latched to fire once per mount.
+  - `reboot` invalidated the cache instead of resetting it, so the previous
+    session's `me` answer survived the switch. It now `resetQueries()`, and
+    it is a `useCallback` so the dependency above can be honest.
+  After: **4 requests**, header reads «المالك», both owner screens open.
+
+- **التصفير والتعبئة التجريبية removed from the system**, as asked: the two
+  header buttons, the two client calls, `POST /api/dev/reset`,
+  `POST /api/dev/seed`, `store.devReset`/`devSeed` and `src/server/seedData.ts`
+  are gone. A test now asserts both routes answer 404 — with the yard in real
+  use, nothing in the API may delete a container or a movement for real.
+
+- **The column header spilled out of its panel.** One long line at 10px inside
+  a 110px box ran past the panel's own edge. It is two lines now (the letter
+  with its size, then how the location is built) over a taller title block,
+  with bigger cell type. The panel's WIDTH is deliberately unchanged: the
+  owner's columns stand 150 units apart in their drawing, and a wider panel
+  would have made their yard overlap itself.
+
+- **«اسم الشركة سيئ طريقة عرضها مثل كانو مقصوضة الكلمة.»** The free-text cells
+  carried Tailwind's `wrap-anywhere`, which tells the browser a single letter
+  is a legal column width — «شركة النورس للشحن والتفريغ» came out sawn through
+  the middle of a word, and the squeezed columns at the far edge were clipped
+  by the scroll container. Replaced with a computed column layout:
+  `columnShares` weighs every column by the longest thing it actually carries
+  (headings counted by their longest word, since headings wrap), clamps free
+  text between 14 and 26, and emits percentages under `table-layout: fixed`.
+  The register now fits its container exactly — measured 1388px table in a
+  1388px box, company column 208px, no clipping, no broken words — and the
+  same shares are written into the PDF/Excel document so paper matches screen.
+
+- **Dark mode on the registers.** `bg-slate-100` headers and `border-slate-700`
+  rules were hardcoded light, so the header band was white with white text. A
+  new `--color-rule` / `--color-rule-strong` pair joins the token set (a
+  register's ruling is darker than the chrome's), the print block redeclares
+  them light, and `print-color-adjust: exact` keeps the header band and the
+  zebra on paper — a register without its ruling is a wall of numbers. Swept
+  every screen in the dark with a contrast probe: no low-contrast text left.
+  The theme toggle now also sits on the register, log and staff screens.
+
+- **الطباعة**: repeated header AND footer groups, rows that never split across
+  a page, fixed column layout, and «صفحة 2 من 5» in the PDF footer beside the
+  sheet's own title, so a loose page is still identifiable on a desk.
+
+- **«قديش باقي»** on the map header, kept apart by size: `yardFreeSpace` sums
+  each column's free places and reports 40s and 20s in their own units (a free
+  place in a 40 column is no use to a 20 waiting at the gate), with the mixed
+  reserve counted in places. Verified against the live copy: 258 forty slots
+  and 109 twenty slots free with 45 standing — 34 + 11 = 45.
+
+Verified: 140 tests, typecheck and lint clean, and the whole thing driven in a
+real browser against a copy of the live yard — role switch, both owner
+screens, the registers light and dark, and the generated PDF read back page by
+page.
