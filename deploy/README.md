@@ -7,6 +7,7 @@ deployment is the `AqabaYard-Setup` folder:
 AqabaYard-Setup/
   install.ps1     ← one-shot installer / updater (run as Administrator)
   اقرأني.txt      ← the owner's Arabic instructions
+  الأوامر.txt     ← paste-ready commands (opens in Notepad on the target)
   app/
     src/          ← server + shared source (runs under tsx)
     dist/         ← the PRE-BUILT client (bun run build before packaging)
@@ -21,7 +22,8 @@ $pkg = "$env:USERPROFILE\Desktop\AqabaYard-Setup"
 Remove-Item -Recurse -Force $pkg -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$pkg\app" | Out-Null
 Copy-Item -Recurse src, dist, package.json "$pkg\app\"
-Copy-Item deploy\install.ps1, "deploy\اقرأني.txt" $pkg\
+Copy-Item deploy\install.ps1, "deploy\اقرأني.txt", "deploy\الأوامر.txt" $pkg\
+Compress-Archive -Path $pkg -DestinationPath "$env:USERPROFILE\Desktop\AqabaYard-Setup.zip" -Force
 ```
 
 What the installer sets up on the target machine:
