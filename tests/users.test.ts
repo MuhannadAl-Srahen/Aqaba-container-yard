@@ -216,9 +216,77 @@ describe('permissions', () => {
     }
   });
 
-  it('the staff list is the owner alone', async () => {
+  it('REPORTS opens every register and still opens nothing else', async () => {
+    // The owner's «فقط الحصول على الكشوفات» clerk: all the sheets, no hands
+    // on the yard itself.
+    const rana = await hire('رنا', '9012', ['REPORTS']);
+    const range = {
+      from: new Date(Date.now() - 86_400_000).toISOString(),
+      to: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const window = `from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
+    for (const url of [
+      `/api/reports/gate?type=IN&${window}`,
+      `/api/reports/gate?type=OUT&${window}`,
+      '/api/reports/standing',
+      `/api/reports/daily?${window}`,
+      `/api/reports/log?${window}`,
+      `/api/reports/truck?truck=522&${window}`,
+      '/api/reports/bill?number=3210',
+    ]) {
+      const allowed = await call({ method: 'GET', url, cookie: rana.cookie });
+      expect(allowed.status, url).toBe(200);
+    }
+    // Reading the registers is not touching the yard.
+    const received = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: gateInPayload('MSCU1234566', at(1, 1)),
+      cookie: rana.cookie,
+    });
+    expect(received.status).toBe(403);
+  });
+
+  it('EDIT alone corrects paperwork and moves nothing', async () => {
+    const received = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: gateInPayload('MSCU1234566', at(1, 1)),
+      cookie: ownerCookie,
+    });
+    const id = (received.body as { id: number }).id;
+    const card = (received.body as { enteredAt: string }).enteredAt;
+
+    const samer = await hire('سامر', '3456', ['EDIT']);
+    const corrected = await call({
+      method: 'PATCH',
+      url: `/api/containers/${String(id)}`,
+      payload: {
+        number: 'MSCU1234566',
+        customer: 'شركة مصححة',
+        size: 20,
+        notes: '',
+        enteredAt: card,
+      },
+      cookie: samer.cookie,
+    });
+    expect(corrected.status).toBe(200);
+
+    for (const [method, url, payload] of [
+      ['POST', `/api/containers/${String(id)}/move`, { to: at(3, 1) }],
+      ['POST', `/api/containers/${String(id)}/exit`, { truck: '5', seal: 'J1', driver: '' }],
+      ['DELETE', `/api/containers/${String(id)}`, undefined],
+      ['GET', '/api/reports/standing', undefined],
+    ] as const) {
+      const refused = await call({ method, url, payload, cookie: samer.cookie });
+      expect(refused.status, url).toBe(403);
+    }
+  });
+
+  it('the staff list and the owner’s tools are the owner alone', async () => {
     // Even an employee holding every grantable permission is still not the
-    // owner: staff management is never a checkbox.
+    // owner: staff management is never a checkbox, and neither is a tool that
+    // can empty the yard or overwrite it from a file.
     const ayman = await hire('ايمن', '1111', [
       'GATE_IN',
       'MOVE',
@@ -230,6 +298,12 @@ describe('permissions', () => {
     for (const [method, url, payload] of [
       ['GET', '/api/users', undefined],
       ['POST', '/api/users', { name: 'x', pin: '1234', permissions: [] }],
+      ['POST', '/api/backup', undefined],
+      ['GET', '/api/owner/tools', undefined],
+      ['POST', '/api/owner/seed', {}],
+      ['POST', '/api/owner/wipe-password', { password: 'whatever' }],
+      ['POST', '/api/owner/wipe', { password: 'whatever' }],
+      ['POST', '/api/owner/restore', {}],
     ] as const) {
       const refused = await call({ method, url, payload, cookie: ayman.cookie });
       expect(refused.status, url).toBe(403);
