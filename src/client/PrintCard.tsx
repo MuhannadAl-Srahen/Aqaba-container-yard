@@ -157,7 +157,7 @@ export function PrintCard(props: {
 
           <div className="grid sm:grid-cols-2">
             {row(AR.cardBill, container.bill === '' ? '—' : container.bill, { mono: true })}
-            {row(AR.cardSize, `${String(container.size)} قدم`)}
+            {row(AR.cardSize, AR.feet(container.size))}
             {row(AR.cardCompany, container.customer)}
             {row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), { mono: true })}
             {row(AR.cardWeightGross, container.weight === '' ? '—' : container.weight)}

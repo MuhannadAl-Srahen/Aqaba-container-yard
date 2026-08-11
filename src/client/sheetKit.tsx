@@ -200,7 +200,10 @@ function columnShares(model: TableModel, hasActions: boolean): string[] {
     // of the longest thing under it, and neither may run away with the page.
     return free ? Math.min(Math.max(widest, 14), 26) : Math.min(widest + 2, 14);
   });
-  if (hasActions) weights.push(7);
+  // The actions column holds a button, not text, and `table-layout: fixed`
+  // lets anything wider than its column spill straight out past the ruling.
+  // Wide enough for «بطاقة» and its padding, with room to spare.
+  if (hasActions) weights.push(11);
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   return weights.map((weight) => `${((weight / total) * 100).toFixed(3)}%`);
 }
@@ -438,7 +441,7 @@ export function SheetScreen(props: {
                           </td>
                         ))}
                         {props.actions !== undefined && (
-                          <td className={`${cellBase} print-hidden`}>
+                          <td className={`${cellBase} print-hidden overflow-hidden text-center`}>
                             {props.actions.render(rowIndex)}
                           </td>
                         )}

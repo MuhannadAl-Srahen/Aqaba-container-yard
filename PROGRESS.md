@@ -688,3 +688,71 @@ three-tier stack, the BURIED refusal by name, the bill doorway from search,
 the bill sheet with its 3-عشرين/1-أربعين footer, the clickable bill cell on
 the entry register, the kg label, and the free chips counting honestly
 (571 − 3 covered grounds = 568 with the roofs balancing out).
+
+## 2026-08-11 — v11: gravity, dangerous goods, the storage card, owner tools
+
+The system is live on the office server in Aqaba behind a permanent Tailscale
+URL and the staff are learning it there, which is the shape of this whole
+round: the owner asked for one big list, and it landed as six commits.
+
+- **Gravity replaces the BURIED refusal.** Lifting a container no longer says
+  no because something stands on it: everything resting above descends exactly
+  one tier, C,B,A minus A becoming B,A. `planRemoval` walks the stack upward,
+  orders the fallers lowest-first so no write lands on a slot still to be
+  vacated, then proves the result twice — once that every landing cell is
+  genuinely being emptied, once by re-running `canPlace` over the projected
+  yard. The first check cannot be folded into the second: an occupancy map
+  holds one container per cell, so a clash would silently overwrite itself
+  exactly where it matters. That clash is the one case still refused —
+  `BLOCKED_DESCENT`, a 40 bridging two 20s with only one leg lifted, and the
+  message names the 40 to relocate, not the leg blocking it. A move now judges
+  its landing AFTER the stack settles, so stepping up into the slot your own
+  roof just vacated is legal. Deleting a record settles the stack too; it used
+  to empty a slot and leave the box above it standing on air.
+- **Each descent is its own `DROP` movement** carrying the number of the
+  container that left, so the log never claims a member of staff carried a box
+  they never touched. Schema v11 rebuilds `movements` for the widened CHECK.
+- **مواد خطرة** rides in at the gate and is drawn red on every surface — bay
+  cell, map cell, search row, container card, every register, both gate cards
+  — through danger tokens defined in all three palettes: screen light, screen
+  dark, and **paper**, without which a dangerous box prints grey like any
+  other.
+- **Two weights.** `weight` keeps its rows and becomes the gross (القائم);
+  `weight_net` joins it as the net (الصافي). Nothing recorded is re-entered.
+- **The storage card** is a receipt the directorate and الحق both sign, so it
+  says so: the owner's own wording above the table, their two names on the
+  signature boxes, «فئة الحاوية», a two-column layout that fits bill, slot,
+  storage date, both weights and notes on one upright page, and ruled slots
+  for the handwritten date because a run of spaces collapses in HTML. The
+  clause prints on the entry card only — a departure receipts nothing.
+- **Every entered field is correctable**, dates included. The subtle half: a
+  register filters on `movements.at` while the card reads
+  `containers.entered_at`, so correcting one without the other would leave the
+  same container in two different weeks depending on which sheet you opened.
+  Editing a gate date re-times the matching gate movement. Amman wall-clock
+  conversion iterates to the fixed point rather than hard-coding +03:00.
+- **Owner training tools**, one file each side: demo data off a seeded
+  generator, a wipe behind its own dedicated word, and a full restore. The
+  restore copies rows into the live handle rather than swapping the file — the
+  app holds one handle for its whole life and nothing can hand it another —
+  checks the upload before migrating it (the ladder wipes anything pre-v9 by
+  design), reseeds `sqlite_sequence`, and keeps the live cookie secret so the
+  owner is not thrown out mid-request by his own restore.
+- **The gate card had nowhere to appear from inside a register**: the screens
+  were early returns and the card was rendered below them. The screen is a
+  value now and the overlays sit outside the choice — plus the card suppresses
+  the register behind it, or the printer would take both.
+- **Live across devices**: map every 8s, registers and log every 20s, an open
+  card every 10s, refetch on window focus, nothing while a tab is hidden or a
+  form is being edited.
+- **All Arabic rewritten formal**, on the owner's call, and CLAUDE.md's
+  language rule rewritten with it.
+
+Verified: **129 tests**, typecheck and lint clean. The permission model was
+re-confirmed by test at the owner's request: a REPORTS clerk gets all seven
+sheets and cannot receive a container; an EDIT clerk corrects a record and
+cannot move, exit, delete or open a register; and an employee holding every
+grantable permission is still refused the backup, the demo data, the wipe and
+the restore. The owner tools are proven by the round trip that matters —
+seed, back up, wipe, restore — coming back to the same yard, same staff, ids
+that continue instead of colliding, session still alive.

@@ -119,7 +119,7 @@ export function BaySheet(props: {
           title={container.hazmat ? `${container.number} — ${AR.hazmat}` : container.number}
         >
           <span
-            className={`w-full truncate font-mono text-[10px] font-bold ${container.hazmat ? 'text-danger' : 'text-ink'}`}
+            className={`w-full font-mono text-[11px] font-bold tracking-tight ${container.hazmat ? 'text-danger' : 'text-ink'}`}
             dir="ltr"
           >
             {container.number}
@@ -159,7 +159,7 @@ export function BaySheet(props: {
       onClick={props.onClose}
     >
       <div
-        className="max-h-[88dvh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
+        className="max-h-[88dvh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
         onClick={(event) => {
           event.stopPropagation();
         }}
@@ -181,11 +181,17 @@ export function BaySheet(props: {
           </span>
         </div>
 
-        {/* The grid, LTR like the plan: stack 01 first, tier B over tier A. */}
-        <div className="mt-4 space-y-1.5" dir="ltr">
+        {/* The grid, LTR like the plan: stack 01 first, tier B over tier A.
+            A cell is never narrower than a full container number — a truncated
+            «TCLU1757…» is the one thing this sheet exists to show. Ten stacks
+            at that width can outrun a phone, so the grid scrolls sideways
+            rather than squeezing. */}
+        <div className="-mx-1 mt-4 space-y-1.5 overflow-x-auto px-1 pb-1" dir="ltr">
           <div
             className="grid gap-1.5"
-            style={{ gridTemplateColumns: `2.6rem repeat(${String(maxStack)}, minmax(0, 1fr))` }}
+            style={{
+              gridTemplateColumns: `2.6rem repeat(${String(maxStack)}, minmax(5.75rem, 1fr))`,
+            }}
           >
             <div />
             {stacks.map((stack) => (

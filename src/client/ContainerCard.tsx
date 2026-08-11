@@ -160,7 +160,7 @@ export function ContainerCard(props: {
     <Sheet title={container.number} onClose={props.onClose}>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center gap-1.5">
-          <Badge text={`${String(container.size)} قدم`} tone="slate" />
+          <Badge text={AR.feet(container.size)} tone="slate" />
           {!container.numberValid && <Badge text={AR.numberNotVerified} tone="amber" />}
           {!inYard && <Badge text={AR.outOfYard} tone="slate" />}
           {/* Two different seals means the door was opened inside the yard. */}
@@ -583,7 +583,7 @@ function EditForm(props: {
                   : 'border-line-strong bg-surface text-muted')
               }
             >
-              {option} قدم
+              {AR.feet(option)}
             </button>
           ))}
         </div>

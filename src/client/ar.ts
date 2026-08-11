@@ -2,11 +2,13 @@ import type { ErrorCode, Permission, Tier } from '../shared/types';
 import { TIERS } from '../shared/types';
 
 /**
- * Every sentence the user reads, in one file, in the yard's own Jordanian
- * register — the vocabulary the staff already use, not document Arabic.
- * Western digits throughout, by the owner's standing rule.
+ * Every sentence the user reads, in one file, in clear formal Arabic — on the
+ * owner's instruction: «عربية رسمية واضحة». Formal, not stiff: the imperative
+ * for what the user should do, «تم …» for what the system did, a full sentence
+ * for every refusal that names the cause and then the remedy. Western digits
+ * throughout, by the owner's standing rule.
  *
- * The place words are the official plan's own: يارد، زون، باي، ستاك، طابق —
+ * The place words stay the official plan's own: يارد، زون، باي، ستاك، طابق —
  * and the full code reads `1-A-03-01-A`.
  */
 
@@ -14,13 +16,13 @@ export const AR = {
   appName: 'ساحة العقبة',
 
   // ---- boot / auth ----
-  loading: 'لحظة…',
+  loading: 'جارٍ التحميل…',
   loginTitle: 'تسجيل الدخول',
-  loginHint: 'اكتب كلمة سر الموقع',
-  loginWho: 'مين بدو يفوت؟',
-  loginPinFor: (name: string): string => `أهلًا ${name} — اكتب رمزك`,
+  loginHint: 'أدخل كلمة سر الموقع',
+  loginWho: 'اختر اسمك',
+  loginPinFor: (name: string): string => `${name} — أدخل الرمز السري`,
   loginAsOwner: 'دخول المالك',
-  loginBack: 'رجوع لقائمة الأسماء',
+  loginBack: 'العودة إلى قائمة الأسماء',
   password: 'كلمة السر',
   pin: 'الرمز السري',
   enter: 'دخول',
@@ -33,25 +35,26 @@ export const AR = {
   themeSystem: 'حسب الجهاز',
 
   // ---- employees ----
-  usersTitle: 'الموظفين',
-  usersButton: 'الموظفين',
-  usersHint: 'كل موظف إله رمزه وصلاحياته. الرمز محفوظ مشفّر — إذا نساه بتعطيه رمز جديد.',
-  usersEmpty: 'ما في موظفين بعد — ضيف أول واحد من تحت.',
-  usersOwnerOnly: 'إدارة الموظفين للمالك بس — ما بتنفتح لحدا مهما كانت صلاحياته.',
+  usersTitle: 'الموظفون',
+  usersButton: 'الموظفون',
+  usersHint:
+    'لكل موظف رمزه وصلاحياته. الرمز محفوظ مشفّراً — وعند نسيانه يُمنح الموظف رمزاً جديداً.',
+  usersEmpty: 'لا يوجد موظفون. أضف أول موظف من الأسفل.',
+  usersOwnerOnly: 'إدارة الموظفين للمالك وحده، ولا تُفتح لأحد مهما كانت صلاحياته.',
   userName: 'الاسم',
   userPin: 'الرمز السري',
   userNewPin: 'رمز جديد',
-  userPinKeep: 'اتركه فاضي إذا الرمز بيضل متل ما هو',
-  userPinRule: 'من 4 لـ 6 أرقام',
-  userAdd: 'ضيف موظف',
-  userAdded: 'انضاف الموظف.',
-  userSaved: 'انحفظت التعديلات.',
-  userRemove: 'شيله',
-  userRemoveTitle: 'شيل موظف',
+  userPinKeep: 'اتركه فارغاً إذا كان الرمز سيبقى كما هو',
+  userPinRule: 'من 4 إلى 6 أرقام',
+  userAdd: 'إضافة موظف',
+  userAdded: 'تمت إضافة الموظف.',
+  userSaved: 'تم حفظ التعديلات.',
+  userRemove: 'حذف',
+  userRemoveTitle: 'حذف موظف',
   userRemoveBody: (name: string): string =>
-    `${name} ما رح يقدر يفوت بعد هلأ. اسمه بيضل على كل كشف اشتغل عليه.`,
-  userRemoved: 'انشال الموظف.',
-  permissionsNone: 'ما إله صلاحيات',
+    `لن يتمكن ${name} من الدخول بعد الآن، ويبقى اسمه على كل كشف عمل عليه.`,
+  userRemoved: 'تم حذف الموظف.',
+  permissionsNone: 'بلا صلاحيات',
   permissionName: {
     GATE_IN: 'إدخال حاوية',
     MOVE: 'نقل حاوية',
@@ -62,116 +65,120 @@ export const AR = {
   } satisfies Record<Permission, string>,
 
   // ---- first-run setup ----
-  setupTitle: 'أهلًا! كلمة سر وخلصنا',
+  setupTitle: 'تهيئة النظام',
   setupOnce:
-    'الساحة نفسها جاهزة من المخطط الرسمي — ساحة 1 وساحة 2، 681 مكان أرضي. ' +
-    'كل اللي بدنا ياه كلمة سر للمالك.',
-  setupPassword: 'كلمة سر للموقع',
-  setupPasswordAgain: 'أعدها كمان مرة',
-  setupPasswordMismatch: 'الكلمتين مش متطابقتين.',
-  setupPasswordShort: 'كلمة السر لازم تكون 6 خانات على الأقل.',
-  setupSubmit: 'افتح الساحة',
+    'الساحة جاهزة من المخطط الرسمي — ساحة 1 وساحة 2، 681 موقعاً أرضياً. ' +
+    'المطلوب كلمة سر للمالك فقط.',
+  setupPassword: 'كلمة سر الموقع',
+  setupPasswordAgain: 'أعد إدخال كلمة السر',
+  setupPasswordMismatch: 'كلمتا السر غير متطابقتين.',
+  setupPasswordShort: 'كلمة السر يجب أن تكون 6 خانات على الأقل.',
+  setupSubmit: 'فتح الساحة',
   setupWorking: 'جارٍ التجهيز…',
 
   // ---- the map screen ----
-  searchPlaceholder: 'دوّر: رقم حاوية، بوليصة، أو اسم المالك…',
+  searchPlaceholder: 'ابحث برقم الحاوية أو البوليصة أو اسم المالك…',
   yardName: (yard: number): string => `ساحة ${String(yard)}`,
-  /** «قديش باقي» per yard: legal landings for each size, right now. */
+  /** How much room is left per yard: legal landings for each size, right now. */
   freeOfYard: (yard: number, t20: number, t40: number): string =>
-    `ساحة ${String(yard)} — فاضي لعشرين: ${String(t20)} · لأربعين: ${String(t40)}`,
-  freeTitle: 'الفاضي',
-  inYardCount: (n: number): string => `${String(n)} حاوية بالساحة`,
+    `ساحة ${String(yard)} — متاح للعشرين: ${String(t20)} · للأربعين: ${String(t40)}`,
+  freeTitle: 'المتاح',
+  inYardCount: (n: number): string => `${String(n)} حاوية في الساحة`,
   fit: 'ملء الشاشة',
   zoomIn: 'تكبير',
   zoomOut: 'تصغير',
-  matches: (n: number): string => (n === 0 ? 'ما في نتائج' : `النتائج: ${String(n)}`),
+  matches: (n: number): string => (n === 0 ? 'لا توجد نتائج' : `عدد النتائج: ${String(n)}`),
   clearSearch: 'مسح البحث',
 
-  legendFree: 'باي فاضي',
-  legendPartial: 'فيه محل',
+  legendFree: 'باي فارغ',
+  legendPartial: 'فيه متسع',
   legendFull: 'ممتلئ',
-  legendTarget: 'بينفع تنحط فيه',
-  legendNoted: 'فيه ملاحظة',
+  legendTarget: 'صالح للوضع',
+  legendNoted: 'عليه ملاحظة',
   legendHazmat: 'فيه مواد خطرة',
 
   // ---- zones and bays ----
   zoneTitle: (zone: string, yard: number): string => `زون ${zone} · ساحة ${String(yard)}`,
-  /** `ستاكات لحد 10 × 3 طوابق` — how this zone's bays are built. */
+  /** `ستاكات حتى 10 × 3 طوابق` — how this zone's bays are built. */
   zoneBuild: (maxStack: number): string =>
-    `ستاكات لحد ${String(maxStack)} × ${String(TIERS.length)} طوابق`,
-  /** `مليان 6 · فاضي 10` — the split the owner reads at a glance (TEU). */
+    `ستاكات حتى ${String(maxStack)} × ${String(TIERS.length)} طوابق`,
+  /** `مشغول 6 · متاح 10` — the split the owner reads at a glance (TEU). */
   fullAndFree: (full: number, free: number): string =>
-    `مليان ${String(full)} · فاضي ${String(free)}`,
+    `مشغول ${String(full)} · متاح ${String(free)}`,
   bayHas: (used: number, total: number): string =>
-    used === 0 ? 'الباي فاضي' : `فيه ${String(used)} من ${String(total)}`,
+    used === 0 ? 'الباي فارغ' : `مشغول ${String(used)} من ${String(total)}`,
   bayFull: 'ممتلئ',
-  tierAName: 'طابق A — الأرض',
-  tierBName: 'طابق B — فوقه',
-  tierCName: 'طابق C — الاحتياط',
+  tierAName: 'طابق A — الأرضي',
+  tierBName: 'طابق B — الثاني',
+  tierCName: 'طابق C — الاحتياطي',
   tierShort: (tier: Tier): string => tier,
   stackShort: (stack: number): string => String(stack).padStart(2, '0'),
   /** A stack position the wall swallows — it does not exist on the plan. */
-  slotWall: 'حيط',
-  slotEmpty: 'فاضي',
-  put20Here: 'حط 20 هون',
-  put40With: (otherBay: string): string => `حط 40 بالعرض مع ${otherBay}`,
-  moveHere: 'انقلها لهون',
-  move40With: (otherBay: string): string => `انقلها بالعرض مع ${otherBay}`,
-  fortySpans: 'الأربعين بتاخد البايين — بتنرمز بالرقم الزوجي بيناتهم.',
-  noLandingHere: 'ما بينفع تنحط بهالخانة — شوف خانة ثانية.',
+  slotWall: 'جدار',
+  slotEmpty: 'فارغ',
+  put20Here: 'إدخال حاوية 20 قدم هنا',
+  put40With: (otherBay: string): string => `إدخال حاوية 40 قدم بالعرض مع ${otherBay}`,
+  moveHere: 'النقل إلى هنا',
+  move40With: (otherBay: string): string => `النقل بالعرض مع ${otherBay}`,
+  fortySpans: 'حاوية الأربعين تشغل بايين، ويرمز لها بالرقم الزوجي بينهما.',
+  noLandingHere: 'لا يمكن الوضع في هذه الخانة. اختر خانة أخرى.',
   size40Chip: '40',
   size20Chip: '20',
+  /** «40 قدم» — the container's class, spelt the same everywhere it appears. */
+  feet: (size: number): string => `${String(size)} قدم`,
 
   // ---- gate in ----
   gateInTitle: (size: number): string => `إدخال حاوية ${String(size)} قدم`,
   gateInAt: 'على الموقع',
   containerNumber: 'رقم الحاوية',
-  numberOk: 'الرقم صح حسب المواصفة.',
+  numberOk: 'الرقم مطابق للمواصفة الدولية.',
   numberLocal: 'رقم بصيغة الساحة (4 أحرف و4 أرقام).',
   numberBad: (digit: number | null): string =>
     digit === null
-      ? 'الرقم مش بصيغة الساحة (4 أحرف و4 أرقام) ولا الدولية — رح ينحفظ مع تنبيه.'
-      : `الرقم الأخير المتوقع ${String(digit)} — رح ينحفظ مع تنبيه.`,
+      ? 'الرقم لا يطابق صيغة الساحة (4 أحرف و4 أرقام) ولا المواصفة الدولية. سيُحفظ مع تنبيه.'
+      : `الرقم الأخير المتوقع هو ${String(digit)}. سيُحفظ مع تنبيه.`,
   truck: 'رقم السيارة',
   bill: 'رقم البوليصة',
-  billHint: 'اختياري — بوليصة الشحن اللي الحاوية تابعة إلها. إذا ما في، اتركها فاضية.',
+  billHint: 'اختياري — بوليصة الشحن التابعة لها الحاوية. اتركه فارغاً إن لم توجد.',
   seal: 'رقم الرصاصة',
   sealOut: 'رصاصة الخروج',
-  sealHint: 'الرصاصة اللي على باب الحاوية',
+  sealHint: 'الرصاصة الموضوعة على باب الحاوية',
   sealWas: (seal: string): string => `دخلت برصاصة ${seal}`,
-  sealChanged: 'الرصاصة تغيّرت',
+  sealChanged: 'الرصاصة مختلفة عن رصاصة الدخول',
   driver: 'اسم السائق (اختياري)',
   weightGross: 'الوزن القائم بالكغم',
   weightNet: 'الوزن الصافي بالكغم',
   hazmat: 'مواد خطرة',
-  hazmatHint: 'علّم عليها إذا كانت الحاوية تحمل مواد خطرة',
+  hazmatHint: 'حدّد الخيار إذا كانت الحاوية تحمل مواد خطرة',
   hazmatYes: 'نعم — مواد خطرة',
   hazmatNo: 'لا — بضاعة عادية',
-  hazmatWarning: 'تحذير: هذه الحاوية تحمل مواد خطرة.',
+  hazmatWarning: 'تنبيه: هذه الحاوية تحمل مواد خطرة.',
   hazmatShort: 'خطرة',
   customer: 'اسم المالك',
-  customerHint: 'صاحب الحاوية — اكتب الاسم أو اختار من القائمة',
+  customerHint: 'مالك الحاوية — أدخل الاسم أو اختره من القائمة',
   notes: 'ملاحظات',
-  notesHint: 'حالة الحاوية وأي إشي لازم ينذكر: مبعوجة، قفلها مفتوح، عليها حجز…',
+  notesHint: 'حالة الحاوية وكل ما يلزم ذكره: انبعاج، قفل مفتوح، حجز جمركي…',
   confirmGateIn: 'تأكيد الإدخال',
-  gateInDone: (number: string, slot: string): string => `دخلت ${number} على ${slot}`,
+  gateInDone: (number: string, slot: string): string =>
+    `تم إدخال الحاوية ${number} في الموقع ${slot}`,
 
   // ---- container card ----
   slot: 'الموقع',
-  enteredAt: 'دخلت بتاريخ',
-  exitedAt: 'طلعت بتاريخ',
+  enteredAt: 'تاريخ الدخول',
+  exitedAt: 'تاريخ الخروج',
   dwell: (days: number): string =>
-    days === 0 ? 'دخلت اليوم' : days === 1 ? 'صارلها يوم' : `صارلها ${String(days)} يوم`,
-  onTopOf: (number: string): string => `واقفة فوق ${number}`,
-  underneath: (number: string): string => `فوقها ${number} — بدها تنزل قبلها`,
-  numberNotVerified: 'الرقم مش مطابق للمواصفة',
-  outOfYard: 'برا الساحة',
+    days === 0 ? 'دخلت اليوم' : days === 1 ? 'مضى عليها يوم' : `مضى عليها ${String(days)} يوماً`,
+  onTopOf: (number: string): string => `موضوعة فوق الحاوية ${number}`,
+  underneath: (number: string): string => `فوقها الحاوية ${number}`,
+  numberNotVerified: 'الرقم غير مطابق للمواصفة',
+  outOfYard: 'خارج الساحة',
   actionMove: 'نقل',
   actionExit: 'إخراج',
   actionEdit: 'تعديل',
-  actionDelete: 'سجل غلط؟ احذفه',
+  actionDelete: 'حذف السجل',
   sizeLockedStanding:
-    'المقاس ما بيتغير وهي واقفة — الفردي للعشرين والزوجي للأربعين. طلعها أو انقلها قبل.',
+    'لا تتغير الفئة والحاوية في موقعها — الباي الفردي للعشرين والزوجي للأربعين. ' +
+    'انقلها أو أخرجها أولاً.',
   movementsTitle: 'الحركات',
   movementIn: 'إدخال',
   movementMove: 'نقل',
@@ -210,7 +217,7 @@ export const AR = {
       keys = note.split(',');
     }
     const list = keys.map((key) => names[key] ?? key).join('، ');
-    return `تعدّل: ${list}`;
+    return `تم تعديل: ${list}`;
   },
   close: 'إغلاق',
   save: 'حفظ',
@@ -219,20 +226,23 @@ export const AR = {
   editEntrySection: 'بيانات الدخول',
   editExitSection: 'بيانات الخروج',
   badDate: 'التاريخ غير صحيح.',
-  exitBeforeEntry: 'تاريخ الخروج لازم يكون بعد تاريخ الدخول.',
+  exitBeforeEntry: 'يجب أن يكون تاريخ الخروج بعد تاريخ الدخول.',
 
   // ---- moving ----
-  movingBanner: (number: string): string => `وين بدك تحط ${number}؟ اكبس على الباي واختار الخانة.`,
+  movingBanner: (number: string): string =>
+    `اختر موقع الحاوية ${number}: اضغط على الباي ثم على الخانة.`,
   movingCancel: 'إلغاء النقل',
   confirmMoveTitle: 'تأكيد النقل',
-  confirmMoveBody: (number: string, to: string): string => `نقل ${number} إلى ${to}؟`,
-  moveDone: (number: string, to: string): string => `انتقلت ${number} إلى ${to}`,
+  confirmMoveBody: (number: string, to: string): string =>
+    `هل تريد نقل الحاوية ${number} إلى الموقع ${to}؟`,
+  moveDone: (number: string, to: string): string =>
+    `تم نقل الحاوية ${number} إلى الموقع ${to}`,
 
   // ---- exit ----
   confirmExitTitle: 'تسجيل الخروج',
   confirmExitBody: (number: string): string =>
-    `إخراج ${number} من الساحة؟ الموقع بيفضى والسجل بيضل محفوظ.`,
-  exitDone: (number: string): string => `طلعت ${number} من الساحة`,
+    `هل تريد إخراج الحاوية ${number} من الساحة؟ يُخلى الموقع ويبقى السجل محفوظاً.`,
+  exitDone: (number: string): string => `تم إخراج الحاوية ${number} من الساحة`,
 
   // ---- the printed gate cards ----
   cardInTitle: 'بطاقة دخول',
@@ -267,13 +277,13 @@ export const AR = {
 
   // ---- reports ----
   reports: 'التقارير',
-  backToMap: 'رجوع للخريطة',
+  backToMap: 'العودة إلى الخريطة',
   reportIn: 'كشف حركة الدخول',
   reportOut: 'كشف حركة الخروج',
   reportDaily: 'كشف التقرير اليومي لحركة الساحة',
-  reportStanding: 'كشف الحاويات بالساحة',
-  standingNow: 'الوضع هلأ — مش مربوط بفترة',
-  standingCount: (n: number): string => `${String(n)} حاوية واقفة`,
+  reportStanding: 'كشف الحاويات في الساحة',
+  standingNow: 'الوضع الحالي — غير مقيّد بفترة',
+  standingCount: (n: number): string => `${String(n)} حاوية في الساحة`,
   rangeFrom: 'من',
   rangeTo: 'إلى',
   print: 'طباعة',
@@ -309,10 +319,10 @@ export const AR = {
     n === 0 ? 'اليوم' : n === 1 ? 'يوم' : n === 2 ? 'يومين' : `${String(n)} يوم`,
   colIn: 'عدد الدخول',
   colOut: 'عدد الخروج',
-  colStanding: 'الساحة',
+  colStanding: 'القائم في الساحة',
   statementIn: 'دخول',
   statementOut: 'خروج',
-  reportEmpty: 'ما في حركات بهالفترة.',
+  reportEmpty: 'لا توجد حركات في هذه الفترة.',
   pagePrev: 'السابق',
   pageNext: 'التالي',
   pageOf: (page: number, pages: number): string => `صفحة ${String(page)} من ${String(pages)}`,
@@ -325,17 +335,17 @@ export const AR = {
   reportLog: 'سجل العمليات',
   logButton: 'السجل',
   reportTruck: 'كشف سيارة',
-  truckPrompt: 'اكتب رقم السيارة وبيطلعلك كل اللي نقلته.',
+  truckPrompt: 'أدخل رقم السيارة لعرض جميع الحاويات التي نقلتها.',
   reportBill: 'كشف بوليصة',
-  billPrompt: 'اكتب رقم البوليصة وبيطلعلك كل حاوياتها — الواقف والطالع.',
+  billPrompt: 'أدخل رقم البوليصة لعرض جميع حاوياتها، القائم منها والذي خرج.',
   billOf: (bill: string): string => `بوليصة ${bill}`,
-  billNow: 'كل حاويات البوليصة — مش مربوط بفترة',
+  billNow: 'جميع حاويات البوليصة — غير مقيّد بفترة',
   billTotals: (n: number, t20: number, t40: number): string =>
     `${String(n)} حاوية — ${String(t20)} عشرين · ${String(t40)} أربعين`,
   colBill: 'رقم البوليصة',
   cardBill: 'رقم البوليصة',
   colExitedAt: 'تاريخ الخروج',
-  stillStanding: 'بالساحة',
+  stillStanding: 'في الساحة',
   /** The search's doorway into one bill's own sheet. */
   searchBillRow: (bill: string, count: number): string =>
     `بوليصة ${bill} — ${String(count)} حاوية`,
@@ -358,93 +368,95 @@ export const AR = {
   cardAction: 'بطاقة',
   restoreAction: 'استرجاع',
   revertAction: 'تراجع',
-  restoredDone: 'رجع السجل.',
-  revertedDone: 'انرجع التعديل.',
-  perPage: 'بكل صفحة',
+  restoredDone: 'تم استرجاع السجل.',
+  revertedDone: 'تم التراجع عن التعديل.',
+  perPage: 'في كل صفحة',
 
   // ---- owner training tools (temporary, for the training period) ----
   toolsButton: 'أدوات التدريب',
   toolsTitle: 'أدوات التدريب',
   toolsWarning:
-    'هذه الأدوات للفترة التجريبية فقط، وللمالك وحده. كل عملية منها بتاخد نسخة ' +
-    'احتياطية من الوضع الحالي قبل ما تشتغل.',
+    'هذه الأدوات للفترة التجريبية وللمالك وحده. تُحفظ نسخة احتياطية من الوضع ' +
+    'الحالي قبل تنفيذ أي عملية منها.',
   toolsSeedTitle: 'بيانات تجريبية',
   toolsSeedBody:
-    'بتعبّي الساحة بحاويات تجريبية بتواريخ وأوقات مختلفة — منها واقف ومنها طلع، ' +
-    'وفيها بوالص ومواد خطرة — لعرض النظام على الناس.',
-  toolsSeedAction: 'عبّي بيانات تجريبية',
-  toolsSeedConfirm: 'رح تنضاف حاويات تجريبية على الموجود حالياً. متأكد؟',
+    'تعبئة الساحة بحاويات تجريبية بتواريخ وأوقات مختلفة — منها القائم ومنها ما ' +
+    'خرج، وفيها بوالص ومواد خطرة — لعرض النظام على الآخرين.',
+  toolsSeedAction: 'تعبئة بيانات تجريبية',
+  toolsSeedConfirm: 'ستُضاف حاويات تجريبية إلى الموجود حالياً. هل تريد المتابعة؟',
   toolsSeedDone: (added: number, departed: number): string =>
-    `انضافت ${String(added)} حاوية تجريبية، منها ${String(departed)} طلعت من الساحة.`,
+    `تمت إضافة ${String(added)} حاوية تجريبية، خرجت منها ${String(departed)}.`,
   toolsBackupTitle: 'نسخة احتياطية',
-  toolsBackupBody: 'بتحفظ نسخة كاملة على السيرفر وبتنزّل نفس الملف على جهازك.',
+  toolsBackupBody: 'تُحفظ نسخة كاملة على الخادم ويُنزَّل الملف نفسه على جهازك.',
   toolsRestoreTitle: 'استرجاع نسخة احتياطية',
   toolsRestoreBody:
-    'اختار ملف نسخة احتياطية (‎.db) ورجّع الساحة لحالتها وقت النسخة. ' +
-    'انتبه: بيرجع كل شي — الحاويات والحركات والموظفين وكلمات السر كما كانت وقتها.',
-  toolsPickFile: 'اختر ملف النسخة',
-  toolsNoFile: 'ما في ملف مختار',
+    'اختر ملف نسخة احتياطية (‎.db) لإعادة الساحة إلى حالتها وقت النسخة. ' +
+    'تنبيه: يعود كل شيء — الحاويات والحركات والموظفون وكلمات السر كما كانت حينها.',
+  toolsPickFile: 'اختيار ملف النسخة',
+  toolsNoFile: 'لم يُختر ملف',
   toolsRestoreAction: 'استرجاع النسخة',
   toolsRestoreConfirm: (name: string): string =>
-    `رح يترجع كل شي من «${name}»: الحاويات والحركات والموظفين وكلمات السر. ` +
-    'الوضع الحالي رح ينحفظ بنسخة احتياطية قبلها. متأكد؟',
+    `سيعود كل شيء من «${name}»: الحاويات والحركات والموظفون وكلمات السر. ` +
+    'وستُحفظ نسخة احتياطية من الوضع الحالي قبل ذلك. هل تريد المتابعة؟',
   toolsRestoreDone: (containers: number, users: number): string =>
-    `رجعت النسخة: ${String(containers)} حاوية و${String(users)} موظف.`,
+    `تم الاسترجاع: ${String(containers)} حاوية و${String(users)} موظف.`,
   toolsWipeTitle: 'حذف كل البيانات',
   toolsWipeBody:
-    'بتمسح كل الحاويات والحركات وبترجّع أرقام البطاقات لواحد. الموظفين وكلمات ' +
-    'السر بتضل زي ما هي.',
-  toolsWipeWordSet: 'عيّن كلمة سر الحذف',
-  toolsWipeWordChange: 'غيّر كلمة سر الحذف',
-  toolsWipeWordHint: 'كلمة مستقلة عن كلمة دخولك — 4 خانات على الأقل.',
-  toolsWipeWordSaved: 'انحفظت كلمة سر الحذف.',
-  toolsWipeConfirmWord: 'اكتب كلمة سر الحذف للتأكيد',
-  toolsWipeAction: 'احذف كل البيانات',
+    'حذف جميع الحاويات والحركات وإعادة أرقام البطاقات إلى 1. يبقى الموظفون ' +
+    'وكلمات السر كما هي.',
+  toolsWipeWordSet: 'تعيين كلمة سر الحذف',
+  toolsWipeWordChange: 'تغيير كلمة سر الحذف',
+  toolsWipeWordHint: 'كلمة مستقلة عن كلمة سر دخولك — 4 خانات على الأقل.',
+  toolsWipeWordSaved: 'تم حفظ كلمة سر الحذف.',
+  toolsWipeConfirmWord: 'أدخل كلمة سر الحذف للتأكيد',
+  toolsWipeAction: 'حذف كل البيانات',
   toolsWipeConfirm:
-    'رح تنمسح كل الحاويات والحركات. الوضع الحالي رح ينحفظ بنسخة احتياطية قبلها. متأكد؟',
-  toolsWipeDone: 'انمسحت البيانات، والموظفين بمكانهم.',
+    'ستُحذف جميع الحاويات والحركات، وستُحفظ نسخة احتياطية من الوضع الحالي قبل ذلك. ' +
+    'هل تريد المتابعة؟',
+  toolsWipeDone: 'تم حذف البيانات، والموظفون كما هم.',
 
   // ---- backup ----
   backup: 'نسخة احتياطية',
   backupWorking: 'جارٍ تجهيز النسخة…',
-  backupDone: 'انحفظت نسخة عند السيرفر وانتنزلت عليك — خزّنها بمكان أمين.',
+  backupDone: 'تم حفظ نسخة على الخادم وتنزيل نسخة على جهازك. احفظها في مكان آمن.',
 
   // ---- delete ----
-  confirmDeleteTitle: 'حذف سجل غلط',
+  confirmDeleteTitle: 'حذف سجل',
   confirmDeleteBody: (number: string): string =>
-    `حذف سجل ${number}؟ استخدمه بس إذا السجل كله انكتب بالغلط.`,
-  deleteDone: 'انحذف السجل.',
+    `هل تريد حذف سجل الحاوية ${number}؟ استخدم هذا الخيار فقط إذا كُتب السجل كله بالخطأ.`,
+  deleteDone: 'تم حذف السجل.',
 
   // ---- search results ----
-  searchInTitle: 'بالساحة هلأ',
-  searchOutTitle: 'طلعت من الساحة',
+  searchInTitle: 'في الساحة حالياً',
+  searchOutTitle: 'خرجت من الساحة',
 
   // ---- errors ----
   errors: {
-    BAD_PASSWORD: 'كلمة السر أو الرمز غلط.',
-    UNAUTHORIZED: 'انتهت الجلسة — سجّل دخول من جديد.',
-    FORBIDDEN: 'ما إلك صلاحية على هالعملية — راجع المالك.',
-    USER_EXISTS: 'في موظف بنفس الاسم — غيّر الاسم.',
-    NOT_SETUP: 'الموقع مش مجهز بعد.',
-    ALREADY_SETUP: 'الموقع مجهز من قبل — سجّل دخول عادي.',
-    VALIDATION: 'في بيانات ناقصة أو غلط. راجع الخانات.',
-    NOT_FOUND: 'السجل مش موجود.',
-    BAD_SLOT: 'هالخانة مش موجودة بالمخطط — حيط، أو مقاس على باي غلط.',
+    BAD_PASSWORD: 'كلمة السر أو الرمز غير صحيح.',
+    UNAUTHORIZED: 'انتهت الجلسة. سجّل الدخول من جديد.',
+    FORBIDDEN: 'لا تملك صلاحية هذه العملية. راجع المالك.',
+    USER_EXISTS: 'يوجد موظف بالاسم نفسه. اختر اسماً آخر.',
+    NOT_SETUP: 'النظام غير مهيّأ بعد.',
+    ALREADY_SETUP: 'النظام مهيّأ من قبل. سجّل الدخول مباشرة.',
+    VALIDATION: 'توجد بيانات ناقصة أو غير صحيحة. راجع الخانات.',
+    NOT_FOUND: 'السجل غير موجود.',
+    BAD_SLOT: 'هذه الخانة غير موجودة في المخطط الرسمي، أو الفئة لا تناسب الباي.',
     OCCUPIED: 'الخانة مشغولة.',
-    NO_SUPPORT: 'ما في أرضية تحتها — الطابق الثاني بدو حاوية تحته من نفس المقاس.',
+    NO_SUPPORT: 'لا توجد حاوية مسنِدة تحتها في الطابق الأدنى.',
     BLOCKED_DESCENT:
-      'الحاوية اللي فوقها ما بتلاقي مكان تنزل عليه — لازم تنقلها لموقع ثاني قبل.',
-    SAME_SLOT: 'هذا نفس مكانها الحالي.',
-    NUMBER_IN_YARD: 'هذا الرقم موجود بالساحة هلأ. راجع الأوراق.',
-    ALREADY_OUT: 'هاي الحاوية طلعت من الساحة أصلًا.',
-    NAME_TAKEN: 'الاسم مستخدم — غيّره.',
-    NOT_DELETED: 'هذا السجل مش محذوف أصلًا.',
-    BAD_BACKUP: 'الملف مش نسخة احتياطية صالحة للنظام — اختر ملف .db مأخوذ من زر النسخة الاحتياطية.',
+      'الحاوية التي فوقها لا تجد موقعاً تنزل إليه. انقلها إلى موقع آخر أولاً.',
+    SAME_SLOT: 'هذا هو موقعها الحالي نفسه.',
+    NUMBER_IN_YARD: 'هذا الرقم موجود في الساحة حالياً. راجع الأوراق.',
+    ALREADY_OUT: 'هذه الحاوية خرجت من الساحة من قبل.',
+    NAME_TAKEN: 'الاسم مستخدم. اختر اسماً آخر.',
+    NOT_DELETED: 'هذا السجل غير محذوف أصلاً.',
+    BAD_BACKUP:
+      'الملف ليس نسخة احتياطية صالحة. اختر ملف ‎.db مأخوذاً من زر النسخة الاحتياطية.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
   errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>
     code === 'BLOCKED_DESCENT'
-      ? `الحاوية ${other} اللي فوقها ما بتلاقي مكان تنزل عليه — انقل ${other} لموقع ثاني قبل.`
-      : `الخانة مشغولة — واقفة فيها ${other}.`,
-  networkError: 'ما قدرنا نوصل للخادم. تأكد من الإنترنت وجرّب كمان مرة.',
+      ? `الحاوية ${other} التي فوقها لا تجد موقعاً تنزل إليه. انقل الحاوية ${other} إلى موقع آخر أولاً.`
+      : `الخانة مشغولة بالحاوية ${other}.`,
+  networkError: 'تعذّر الاتصال بالخادم. تأكد من الاتصال وأعد المحاولة.',
 } as const;
