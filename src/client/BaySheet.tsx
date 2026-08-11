@@ -120,16 +120,26 @@ export function BaySheet(props: {
           title={container.hazmat ? `${container.number} — ${AR.hazmat}` : container.number}
         >
           <span
-            className={`w-full font-mono text-[11px] font-bold tracking-tight ${container.hazmat ? 'text-danger' : 'text-ink'}`}
+            className={`w-full font-mono text-[13px] font-bold tracking-tight ${container.hazmat ? 'text-danger' : 'text-ink'}`}
             dir="ltr"
           >
             {container.number}
           </span>
-          <span
-            className={`rounded px-1 text-[9px] font-bold ${container.hazmat ? 'bg-danger text-white' : 'bg-surface text-muted'}`}
-            dir="ltr"
-          >
-            {container.hazmat ? AR.hazmatShort : container.size === 40 ? AR.size40Chip : AR.size20Chip}
+          {/* The size is stated on EVERY box. The hazard used to be shown in
+              its place, so the one container whose contents most affect how it
+              is handled was also the one whose class nobody could read. */}
+          <span className="flex items-center gap-1">
+            <span
+              className={`rounded px-1 text-[10px] font-bold ${container.hazmat ? 'bg-surface text-danger' : 'bg-surface text-muted'}`}
+              dir="ltr"
+            >
+              {container.size === 40 ? AR.size40Chip : AR.size20Chip}
+            </span>
+            {container.hazmat && (
+              <span className="rounded bg-danger px-1 text-[10px] font-bold text-white">
+                {AR.hazmatShort}
+              </span>
+            )}
           </span>
         </button>
       );
@@ -183,15 +193,16 @@ export function BaySheet(props: {
         </div>
 
         {/* The grid, LTR like the plan: stack 01 first, tier B over tier A.
-            A cell is never narrower than a full container number — a truncated
-            «TCLU1757…» is the one thing this sheet exists to show — and the
-            sheet is wide enough that ten of them fit without scrolling on any
-            desk. A phone still gets the sideways scroll it needs. */}
+            A cell is never narrower than a full container number AT THE SIZE
+            IT IS PRINTED — a truncated «TCLU1757…» is the one thing this sheet
+            exists to show — and the sheet is wide enough that ten of them fit
+            without scrolling on any desk. A phone still gets the sideways
+            scroll it needs. */}
         <div className="-mx-1 mt-4 space-y-1.5 overflow-x-auto px-1 pb-1" dir="ltr">
           <div
             className="grid gap-1.5"
             style={{
-              gridTemplateColumns: `2.4rem repeat(${String(maxStack)}, minmax(5.25rem, 1fr))`,
+              gridTemplateColumns: `2.4rem repeat(${String(maxStack)}, minmax(6.5rem, 1fr))`,
             }}
           >
             <div />
