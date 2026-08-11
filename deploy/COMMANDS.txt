@@ -1,0 +1,69 @@
+AQABA YARD - PowerShell commands, ready to copy
+================================================
+
+Open PowerShell as Administrator first:
+  Start menu  >  type: PowerShell  >  right-click it  >  Run as administrator
+Every command below is pasted into that blue window.
+(Right-click inside the window = paste.)
+
+
+(1) INSTALL OR UPDATE
+---------------------
+Copy this whole line, paste it, press Enter:
+
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\Desktop\AqabaYard-Setup\install.ps1"
+
+If it says the file does not exist, the folder is not on the Desktop.
+Then paste this SHORT line instead, press the SPACE bar once, drag
+install.ps1 from the folder into the window, and press Enter:
+
+powershell -ExecutionPolicy Bypass -File
+
+
+(2) THE PUBLIC LINK  (first install only, never again)
+------------------------------------------------------
+& "C:\Program Files\Tailscale\tailscale.exe" up
+
+  -> opens a browser, sign in with your Google account, come back here.
+
+& "C:\Program Files\Tailscale\tailscale.exe" funnel --bg 8787
+
+  -> prints https://<machine>.<tailnet>.ts.net
+     That is the permanent yard link. Send it to the staff.
+
+Forgot the link? This prints it again:
+
+& "C:\Program Files\Tailscale\tailscale.exe" funnel status
+
+
+(3) CHECKS
+----------
+Open the yard on this machine:
+
+start http://localhost:8787
+
+Which build is actually running (the date should be today after an update):
+
+(Invoke-WebRequest http://localhost:8787/api/boot -UseBasicParsing).Content
+
+Is the service alive?
+
+Get-ScheduledTask AqabaYard | Get-ScheduledTaskInfo
+
+Restart the server by hand:
+
+Restart-ScheduledTask -TaskName AqabaYard
+
+Read the last errors:
+
+Get-Content C:\AqabaYard\logs\server.log -Tail 30
+
+
+NOTES
+-----
+- Re-running install.ps1 IS the update. It replaces the app and never
+  touches the data in C:\AqabaYard\data.
+- Delete the OLD AqabaYard-Setup folder before unzipping a new one, or you
+  may run last week's installer by mistake.
+- After an update, if the screen still looks old, press Ctrl+Shift+R in the
+  browser once.

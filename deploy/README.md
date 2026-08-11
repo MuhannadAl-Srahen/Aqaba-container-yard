@@ -7,13 +7,19 @@ deployment is the `AqabaYard-Setup` folder:
 AqabaYard-Setup/
   install.ps1     ← one-shot installer / updater (run as Administrator)
   اقرأني.txt      ← the owner's Arabic instructions
-  الأوامر.txt     ← paste-ready commands (opens in Notepad on the target)
+  COMMANDS.txt    ← paste-ready commands, in English (see below)
   app/
     src/          ← server + shared source (runs under tsx)
     dist/         ← the PRE-BUILT client (bun run build before packaging)
     node_modules/ ← the PRODUCTION runtime, shipped (npm --omit=dev)
     package.json
 ```
+
+The installer and `COMMANDS.txt` are in ENGLISH, deliberately: a PowerShell
+console does not render right-to-left text properly, and a garbled error
+message is worse than none. `اقرأني.txt` stays Arabic — it is the owner's own
+overview, read in Notepad, not in a console. The app itself is Arabic
+throughout.
 
 `node_modules` rides in the package on purpose. Installing used to run `npm
 install` on the target, which is the slowest and most fragile step there is —
@@ -30,7 +36,7 @@ $pkg = "$env:USERPROFILE\Desktop\AqabaYard-Setup"
 Remove-Item -Recurse -Force $pkg -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$pkg\app" | Out-Null
 Copy-Item -Recurse src, dist, package.json "$pkg\app\"
-Copy-Item deploy\install.ps1, "deploy\اقرأني.txt", "deploy\الأوامر.txt" $pkg\
+Copy-Item deploy\install.ps1, deploy\COMMANDS.txt, "deploy\اقرأني.txt" $pkg\
 
 # The production runtime, built in a scratch folder so the repo's dev tree is
 # never shipped by accident.
