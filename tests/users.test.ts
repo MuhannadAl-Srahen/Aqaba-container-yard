@@ -67,12 +67,14 @@ const gateInPayload = (number: string, position: Position): Record<string, unkno
   number,
   size: 20,
   customer: 'شركة النورس',
+  bill: '3210',
   notes: '',
   position,
   truck: '500',
   seal: 'JO100001',
-  driver: '',
-  weight: '',
+  driver: 'أبو أحمد',
+  weight: '25000',
+  weightNet: '22000',
 });
 
 beforeEach(async () => {
@@ -264,8 +266,14 @@ describe('permissions', () => {
       payload: {
         number: 'MSCU1234566',
         customer: 'شركة مصححة',
+        bill: '3210',
         size: 20,
         notes: '',
+        weight: '25000',
+        weightNet: '22000',
+        truckIn: '500',
+        driverIn: 'أبو أحمد',
+        sealIn: 'JO100001',
         enteredAt: card,
       },
       cookie: samer.cookie,

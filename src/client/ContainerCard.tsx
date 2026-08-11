@@ -440,7 +440,10 @@ export function ContainerCard(props: {
             </div>
             <div className="mt-5 flex gap-2">
               <Button
-                disabled={busy || truckOut.trim() === '' || sealOut.trim() === ''}
+                disabled={
+                  busy ||
+                  [truckOut, sealOut, driverOut].some((value) => value.trim() === '')
+                }
                 onClick={() => {
                   setBusy(true);
                   setError(null);
@@ -529,7 +532,12 @@ function EditForm(props: {
     enteredIso !== null &&
     (!departed || (exitedIso !== null && Date.parse(exitedIso) >= Date.parse(enteredIso)));
 
-  const ready = number.trim() !== '' && customer.trim() !== '' && datesSane && !props.busy;
+  // Same rule as the gate: everything but the notes must carry a value, and
+  // the exit paperwork only exists — and is only required — once it has left.
+  const filled = [number, customer, bill, weight, weightNet, truckIn, driverIn, sealIn]
+    .concat(departed ? [truckOut, driverOut, sealOut] : [])
+    .every((value) => value.trim() !== '');
+  const ready = filled && datesSane && !props.busy;
 
   return (
     <div className="space-y-3 rounded-xl bg-sunken p-3.5">

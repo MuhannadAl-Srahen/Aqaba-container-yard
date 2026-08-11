@@ -329,7 +329,9 @@ export function seedDemoYard(db: DatabaseSync): { added: number; departed: numbe
       numberValid: checkNumber(number).valid,
       size,
       customer: OWNERS[Math.floor(rnd() * OWNERS.length)] ?? OWNERS[0] ?? '',
-      bill: rnd() < 0.6 ? (bills[Math.floor(rnd() * bills.length)] ?? '') : '',
+      // Every field but the notes is mandatory at the gate, so the demo data
+      // is complete too — a half-filled example teaches the wrong habit.
+      bill: bills[Math.floor(rnd() * bills.length)] ?? '3210',
       notes: NOTES[Math.floor(rnd() * NOTES.length)] ?? '',
       position: slot,
       at: enteredAt,
@@ -337,7 +339,7 @@ export function seedDemoYard(db: DatabaseSync): { added: number; departed: numbe
       weightNet: String(gross - 2_200 - Math.floor(rnd() * 600)),
       hazmat: rnd() < 0.1,
       truckIn: String(100 + Math.floor(rnd() * 899)),
-      driverIn: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? '',
+      driverIn: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? DRIVERS[0] ?? '',
       sealIn: seal,
       cardIn: store.nextCardNumber(db, 'in'),
     });
@@ -351,7 +353,7 @@ export function seedDemoYard(db: DatabaseSync): { added: number; departed: numbe
       ).toISOString();
       store.markExited(db, id, exitedAt, {
         truck: String(100 + Math.floor(rnd() * 899)),
-        driver: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? '',
+        driver: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? DRIVERS[0] ?? '',
         sealOut: seal,
         cardOut: store.nextCardNumber(db, 'out'),
       });

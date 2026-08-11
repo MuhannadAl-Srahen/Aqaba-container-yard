@@ -35,12 +35,12 @@ export function GateInSheet(props: {
   const check = number.trim() === '' ? null : checkNumber(number);
   const size = sizeOfBay(props.position.bay);
   const positionText = positionLabel(props.position);
+  // Every field is required except the notes, on the owner's rule. A gate
+  // record with holes in it is one somebody has to chase down later.
   const ready =
-    number.trim() !== '' &&
-    customer.trim() !== '' &&
-    truck.trim() !== '' &&
-    seal.trim() !== '' &&
-    !busy;
+    [number, customer, bill, truck, seal, driver, weight, weightNet].every(
+      (value) => value.trim() !== '',
+    ) && !busy;
 
   const submit = (): void => {
     if (!ready) return;

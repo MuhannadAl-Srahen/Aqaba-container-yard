@@ -69,23 +69,28 @@ const positionSchema = z.object({
   tier: z.enum(TIERS),
 });
 
+/**
+ * Every field is mandatory except the notes — the owner's rule: «كل الخانات
+ * اجبارية كلهم كلهم عدا الملاحظات اختيارية». A gate record with holes in it is
+ * a gate record somebody has to chase down later.
+ */
 const gateInSchema = z.object({
   number: z.string().trim().min(1).max(20),
   size: z.union([z.literal(20), z.literal(40)]),
   /** اسم المالك — the container's owner. */
   customer: z.string().trim().min(1).max(120),
-  /** رقم البوليصة — optional by the owner's call; a blank is «بدون بوليصة». */
-  bill: z.string().trim().max(40).default(''),
+  /** رقم البوليصة. */
+  bill: z.string().trim().min(1).max(40),
+  /** The one optional field: there is not always something worth saying. */
   notes: z.string().trim().max(2000),
   position: positionSchema,
-  /** The truck and the seal — the owner made both mandatory paperwork. */
   truck: z.string().trim().min(1).max(30),
   seal: z.string().trim().min(1).max(30),
-  driver: z.string().trim().max(60).default(''),
+  driver: z.string().trim().min(1).max(60),
   /** الوزن القائم then الوزن الصافي, both as the scale ticket reads them. */
-  weight: z.string().trim().max(20).default(''),
-  weightNet: z.string().trim().max(20).default(''),
-  /** مواد خطرة. */
+  weight: z.string().trim().min(1).max(20),
+  weightNet: z.string().trim().min(1).max(20),
+  /** مواد خطرة — a yes/no, so it is always answered. */
   hazmat: z.boolean().default(false),
 });
 
@@ -93,7 +98,7 @@ const gateOutSchema = z.object({
   truck: z.string().trim().min(1).max(30),
   /** The seal on the door as it leaves — a different one means it was opened. */
   seal: z.string().trim().min(1).max(30),
-  driver: z.string().trim().max(60).default(''),
+  driver: z.string().trim().min(1).max(60),
 });
 
 /**
@@ -105,15 +110,16 @@ const gateOutSchema = z.object({
 const editSchema = z.object({
   number: z.string().trim().min(1).max(20),
   customer: z.string().trim().min(1).max(120),
-  bill: z.string().trim().max(40).default(''),
+  bill: z.string().trim().min(1).max(40),
   size: z.union([z.literal(20), z.literal(40)]),
+  /** The notes are the one field a correction may empty. */
   notes: z.string().trim().max(2000),
-  weight: z.string().trim().max(20).default(''),
-  weightNet: z.string().trim().max(20).default(''),
+  weight: z.string().trim().min(1).max(20),
+  weightNet: z.string().trim().min(1).max(20),
   hazmat: z.boolean().default(false),
-  truckIn: z.string().trim().max(30).default(''),
-  driverIn: z.string().trim().max(60).default(''),
-  sealIn: z.string().trim().max(30).default(''),
+  truckIn: z.string().trim().min(1).max(30),
+  driverIn: z.string().trim().min(1).max(60),
+  sealIn: z.string().trim().min(1).max(30),
   truckOut: z.string().trim().max(30).default(''),
   driverOut: z.string().trim().max(60).default(''),
   sealOut: z.string().trim().max(30).default(''),
@@ -553,7 +559,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (stillStanding && (body.exitedAt !== null || exitFields.some((v) => v !== ''))) {
         refuse(409, 'VALIDATION');
       }
-      if (!stillStanding && body.exitedAt === null) refuse(409, 'VALIDATION');
+      // Once it has left, its exit paperwork is as mandatory as its entry's.
+      if (!stillStanding && (body.exitedAt === null || exitFields.some((v) => v === ''))) {
+        refuse(409, 'VALIDATION');
+      }
 
       // A container cannot leave before it arrived, and neither instant may
       // be in the future — both would poison the dwell arithmetic and put the

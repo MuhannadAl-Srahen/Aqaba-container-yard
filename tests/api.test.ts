@@ -78,12 +78,15 @@ async function gateIn(
       number,
       size,
       customer,
+      // Everything but the notes is mandatory now, so the helper fills it.
+      bill: '3210',
       notes: '',
       position,
       truck: '500',
       seal: 'JO100001',
       driver: 'أبو أحمد',
-      weight: '25',
+      weight: '25000',
+      weightNet: '22000',
     },
   });
   return result as {
@@ -120,7 +123,7 @@ async function gateOut(id: number | undefined): Promise<{ status: number; body: 
   return call({
     method: 'POST',
     url: `/api/containers/${String(id)}/exit`,
-    payload: { truck: '522', seal: 'JO100001', driver: '' },
+    payload: { truck: '522', seal: 'JO100001', driver: 'أبو علي' },
   });
 }
 
@@ -281,11 +284,13 @@ describe('gate in — the official grid decides', () => {
         size: 20,
         customer: 'شركة',
         notes: '',
+        bill: '1',
         position: slot('B', 9, 1, 'A'),
         truck: '55',
         seal: '',
-        driver: '',
-        weight: '',
+        driver: 'سائق',
+        weight: '1',
+        weightNet: '1',
       },
     });
     expect(noSeal.status).toBe(400);
@@ -294,7 +299,7 @@ describe('gate in — the official grid decides', () => {
     const exitNoSeal = await call({
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/exit`,
-      payload: { truck: '66', seal: '', driver: '' },
+      payload: { truck: '66', seal: '', driver: 'سائق' },
     });
     expect(exitNoSeal.status).toBe(400);
   });
@@ -574,8 +579,14 @@ describe('edit and delete', () => {
       payload: {
         number: 'NAME0001',
         customer: 'شركة',
+        bill: '3210',
         size: 20,
         notes: '',
+        weight: '1',
+        weightNet: '1',
+        truckIn: '5',
+        driverIn: 'س',
+        sealIn: 'J1',
         enteredAt: new Date().toISOString(),
       },
     });
@@ -625,11 +636,13 @@ describe('gate paperwork', () => {
         size: 20,
         customer: 'شركة',
         notes: '',
+        bill: '1',
         position: slot('B', 1, 1, 'A'),
         truck: '',
         seal: 'JO1',
-        driver: '',
-        weight: '',
+        driver: 'سائق',
+        weight: '1',
+        weightNet: '1',
       },
     });
     expect(result.status).toBe(400);
@@ -780,10 +793,11 @@ describe('مواد خطرة والوزنان', () => {
         size: 20,
         customer: 'شركة الكيماويات',
         notes: '',
+        bill: '3210',
         position: slot('B', 1, 1, 'A'),
         truck: '500',
         seal: 'JO1',
-        driver: '',
+        driver: 'سائق',
         weight: '30000',
         weightNet: '24000',
         hazmat: true,
@@ -810,13 +824,78 @@ describe('مواد خطرة والوزنان', () => {
     expect((standing.body as { rows: Array<{ hazmat: boolean }> }).rows[0]?.hazmat).toBe(true);
   });
 
-  it('default to safe and blank when the gate does not say', async () => {
+  it('hazmat is the one field that defaults, and it defaults to safe', async () => {
     const plain = await gateIn('HAZM0002', 20, slot('B', 3, 1, 'A'));
     expect(plain.status).toBe(201);
     const card = await call({ method: 'GET', url: `/api/containers/${String(plain.body.id)}` });
-    expect(
-      (card.body as { container: { hazmat: boolean; weightNet: string } }).container,
-    ).toMatchObject({ hazmat: false, weightNet: '' });
+    expect((card.body as { container: { hazmat: boolean } }).container.hazmat).toBe(false);
+  });
+});
+
+describe('كل الخانات إلزامية عدا الملاحظات', () => {
+  const missing = (field: string): Promise<{ status: number; body: unknown }> => {
+    const payload: Record<string, unknown> = {
+      number: 'MAND0001',
+      size: 20,
+      customer: 'شركة',
+      bill: '3210',
+      notes: '',
+      position: slot('B', 1, 1, 'A'),
+      truck: '500',
+      seal: 'JO1',
+      driver: 'سائق',
+      weight: '25000',
+      weightNet: '22000',
+    };
+    payload[field] = '';
+    return call({ method: 'POST', url: '/api/containers', payload });
+  };
+
+  it('refuses a gate-in with any field left blank', async () => {
+    for (const field of [
+      'number',
+      'customer',
+      'bill',
+      'truck',
+      'seal',
+      'driver',
+      'weight',
+      'weightNet',
+    ]) {
+      const refused = await missing(field);
+      expect(refused.status, field).toBe(400);
+    }
+  });
+
+  it('accepts it with only the notes left blank', async () => {
+    const full = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: {
+        number: 'MAND0002',
+        size: 20,
+        customer: 'شركة',
+        bill: '3210',
+        notes: '',
+        position: slot('B', 1, 1, 'A'),
+        truck: '500',
+        seal: 'JO1',
+        driver: 'سائق',
+        weight: '25000',
+        weightNet: '22000',
+      },
+    });
+    expect(full.status).toBe(201);
+  });
+
+  it('holds at the exit too: the driver is no longer optional', async () => {
+    const entered = await gateIn('MAND0003', 20, slot('B', 3, 1, 'A'));
+    const noDriver = await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/exit`,
+      payload: { truck: '522', seal: 'JO2', driver: '' },
+    });
+    expect(noDriver.status).toBe(400);
   });
 });
 
@@ -834,17 +913,19 @@ describe('رقم البوليصة', () => {
         position: slot('B', bay, stack, 'A'),
         truck: '500',
         seal: 'JO1',
-        driver: '',
+        driver: 'سائق',
         weight: '24000',
+        weightNet: '21000',
       },
     });
 
-  it('rides in at the gate, optionally, and lands on the registers', async () => {
+  it('rides in at the gate and lands on the registers', async () => {
     await withBill('BILL0001', 1, 1, '3210');
     await withBill('BILL0002', 3, 1, '3210');
-    // No bill is fine — the owner made it optional.
-    const bare = await gateIn('BILL0003', 20, slot('B', 5, 1, 'A'));
-    expect(bare.status).toBe(201);
+    await withBill('BILL0003', 5, 1, '4187');
+    // It became mandatory with everything else — a blank one is refused.
+    const bare = await withBill('BILL0004', 7, 1, '');
+    expect(bare.status).toBe(400);
 
     const range = wideRange();
     const report = await call({
@@ -853,7 +934,7 @@ describe('رقم البوليصة', () => {
     });
     const rows = (report.body as { rows: Array<{ number: string; bill: string }> }).rows;
     expect(rows.find((row) => row.number === 'BILL0001')?.bill).toBe('3210');
-    expect(rows.find((row) => row.number === 'BILL0003')?.bill).toBe('');
+    expect(rows.find((row) => row.number === 'BILL0003')?.bill).toBe('4187');
   });
 
   it('كشف البوليصة gathers the whole group, standing first', async () => {
@@ -892,6 +973,11 @@ describe('رقم البوليصة', () => {
         bill: '7000',
         size: 20,
         notes: '',
+        weight: '1',
+        weightNet: '1',
+        truckIn: '5',
+        driverIn: 'س',
+        sealIn: 'J1',
         enteredAt: new Date().toISOString(),
       },
     });
