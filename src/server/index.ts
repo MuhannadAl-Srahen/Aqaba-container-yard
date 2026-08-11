@@ -21,14 +21,29 @@ const db = openDatabase(dataFile);
 const app = buildApp(db);
 
 if (existsSync(distDir)) {
-  void app.register(fastifyStatic, { root: distDir });
+  void app.register(fastifyStatic, {
+    root: distDir,
+    // Its own Cache-Control would overwrite ours, so it is switched off and
+    // the header is set here per file. The assets are content-hashed and may
+    // be kept for a year; the page that NAMES them must not be, or an update
+    // would leave a browser asking for a bundle that no longer exists and the
+    // office would swear the update never arrived.
+    cacheControl: false,
+    setHeaders: (response, filePath) => {
+      const hashed = filePath.includes('assets') && !filePath.endsWith('index.html');
+      response.setHeader(
+        'cache-control',
+        hashed ? 'public, max-age=31536000, immutable' : 'no-cache',
+      );
+    },
+  });
   // Deep links land on the SPA; unknown /api routes stay honest 404s.
   app.setNotFoundHandler((request, reply) => {
     if (request.raw.url?.startsWith('/api/') === true) {
       void reply.status(404).send({ code: 'NOT_FOUND' });
       return;
     }
-    void reply.sendFile('index.html');
+    void reply.header('cache-control', 'no-cache').sendFile('index.html');
   });
 }
 

@@ -1,8 +1,9 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import type { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 import type { Browser, BrowserType } from 'playwright-core';
@@ -155,6 +156,22 @@ function parseOrRefuse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.out
   return result.data as z.output<S>;
 }
 
+/**
+ * Which build is actually running, as the moment its client was compiled.
+ * After an update the first question is always «نزلت التعديلات؟», and until
+ * this existed the only honest answer was to go looking. Read from the
+ * shipped file itself, so it cannot claim a version that was not deployed.
+ */
+function buildStamp(): string {
+  try {
+    const index = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../dist/index.html');
+    return statSync(index).mtime.toISOString();
+  } catch {
+    // Development, where Vite serves the page and there is no build to stamp.
+    return '';
+  }
+}
+
 /** In-memory login throttle: enough to blunt a guessing loop on a public URL. */
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 const ATTEMPT_LIMIT = 20;
@@ -274,11 +291,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * names, so the sign-in screen can offer them as buttons. Names are all it
    * gives away, and the whole site sits behind the sign-in either way.
    */
+  const build = buildStamp();
+
   app.get('/api/boot', (request) => {
     return {
       firstRun: !hasPassword(db),
       authorized: isAuthorized(request),
       staff: store.listUsers(db).map((user) => ({ id: user.id, name: user.name })),
+      build,
     };
   });
 

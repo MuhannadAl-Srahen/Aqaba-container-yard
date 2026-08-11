@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AR } from './ar';
-import { ApiFailure, api } from './api';
+import { ApiFailure, api, formatDate } from './api';
 import { Button, Confirm, ErrorLine, Field, Toast, inputClass } from './ui';
 import { ThemePicker } from './ThemePicker';
 
@@ -23,6 +23,7 @@ type Pending = 'wipe' | 'seed' | 'restore' | null;
 
 export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
   const queryClient = useQueryClient();
+  const boot = useQuery({ queryKey: ['boot'], queryFn: api.boot });
   const tools = useQuery({ queryKey: ['owner-tools'], queryFn: api.ownerTools });
   const wipePasswordSet = tools.data?.wipePasswordSet ?? false;
 
@@ -70,6 +71,16 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
       <main className="mx-auto max-w-3xl space-y-4 p-4">
         <p className="rounded-2xl border-2 border-danger-line bg-danger-soft px-4 py-3 text-sm font-bold text-danger">
           {AR.toolsWarning}
+        </p>
+        {/* After an update the first question is «نزلت التعديلات؟». This is
+            read from the running build itself, so it cannot claim otherwise. */}
+        <p className="rounded-2xl bg-surface px-4 py-2.5 text-sm text-muted shadow-sm">
+          {AR.systemVersion}{' '}
+          <span dir="ltr" className="font-mono font-bold text-ink">
+            {boot.data?.build === undefined || boot.data.build === ''
+              ? AR.versionDev
+              : formatDate(boot.data.build)}
+          </span>
         </p>
         <ErrorLine message={error} />
 

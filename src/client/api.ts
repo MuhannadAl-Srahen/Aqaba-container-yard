@@ -122,6 +122,8 @@ export interface BootDto {
   authorized: boolean;
   /** The employees the sign-in screen offers as buttons. */
   staff: Array<{ id: number; name: string }>;
+  /** When the running build was compiled — the answer to «نزلت التعديلات؟». */
+  build: string;
 }
 
 export const api = {

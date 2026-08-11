@@ -49,24 +49,40 @@ if ($nodeOk) {
   Write-Host '        انصّب Node.js' -ForegroundColor Green
 }
 
-# ── 2. نسخ التطبيق ───────────────────────────────────────────────────────────
-Write-Host '  [2/6] نسخ التطبيق إلى C:\AqabaYard\app ...' -ForegroundColor Yellow
+# ── 2. إيقاف السيرفر القديم قبل أي نسخ ───────────────────────────────────────
+# لازم يوقف الأول: ويندوز ما بيسمح باستبدال ملفات مفتوحة، وإذا نسخنا والسيرفر
+# شغال بيفشل النسخ وبيضل النظام القديم شغال — وهاد بالضبط اللي بيخلي التحديث
+# «ما ينزل».
+Write-Host '  [2/7] إيقاف السيرفر القديم...' -ForegroundColor Yellow
+try { Stop-ScheduledTask -TaskName 'AqabaYard' -ErrorAction Stop } catch {}
+Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
+  Where-Object { $_.CommandLine -like '*AqabaYard*' } |
+  ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop } catch {} }
+# مهلة قصيرة حتى يطلق ويندوز الملفات فعلياً.
+Start-Sleep -Seconds 3
+
+# ── 3. نسخ التطبيق ───────────────────────────────────────────────────────────
+Write-Host '  [3/7] نسخ التطبيق إلى C:\AqabaYard\app ...' -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path $AppDir, (Join-Path $Root 'data'), (Join-Path $Root 'logs') | Out-Null
 # التطبيق يُستبدل بالكامل عند التحديث؛ البيانات في data\ خارجه ولا تُلمس.
-robocopy (Join-Path $Here 'app') $AppDir /MIR /NFL /NDL /NJH /NJS | Out-Null
-if ($LASTEXITCODE -ge 8) { throw 'robocopy failed' }
+# node_modules مستثنى: هو ناتج npm مش جزء من الحزمة، ومسحه كل مرة يعني إعادة
+# تنزيل 102 حزمة بلا داعٍ.
+robocopy (Join-Path $Here 'app') $AppDir /MIR /XD node_modules /NFL /NDL /NJH /NJS | Out-Null
+if ($LASTEXITCODE -ge 8) {
+  throw 'robocopy failed — تأكد إنو ما في نسخة ثانية من السيرفر شغالة'
+}
 $global:LASTEXITCODE = 0
 
-# ── 3. حزم التشغيل ───────────────────────────────────────────────────────────
-Write-Host '  [3/6] تنصيب حزم التشغيل (npm)...' -ForegroundColor Yellow
+# ── 4. حزم التشغيل ───────────────────────────────────────────────────────────
+Write-Host '  [4/7] تنصيب حزم التشغيل (npm)...' -ForegroundColor Yellow
 Push-Location $AppDir
 & npm install --omit=dev --no-audit --no-fund --loglevel=error
 if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'npm install failed' }
 Pop-Location
 Write-Host '        تم' -ForegroundColor Green
 
-# ── 4. التشغيل التلقائي ──────────────────────────────────────────────────────
-Write-Host '  [4/6] تسجيل التشغيل التلقائي...' -ForegroundColor Yellow
+# ── 5. التشغيل التلقائي ──────────────────────────────────────────────────────
+Write-Host '  [5/7] تسجيل التشغيل التلقائي...' -ForegroundColor Yellow
 $cmd = @"
 @echo off
 set YARD_DB=C:\AqabaYard\data\yard.db
@@ -76,7 +92,6 @@ cd /d C:\AqabaYard\app
 "@
 Set-Content -Path (Join-Path $Root 'start-yard.cmd') -Value $cmd -Encoding ascii
 
-try { Stop-ScheduledTask -TaskName 'AqabaYard' -ErrorAction Stop } catch {}
 try { Unregister-ScheduledTask -TaskName 'AqabaYard' -Confirm:$false -ErrorAction Stop } catch {}
 $action    = New-ScheduledTaskAction -Execute (Join-Path $Root 'start-yard.cmd')
 $trigger   = New-ScheduledTaskTrigger -AtStartup
@@ -89,18 +104,18 @@ Register-ScheduledTask -TaskName 'AqabaYard' -Action $action -Trigger $trigger `
 Start-ScheduledTask -TaskName 'AqabaYard'
 Write-Host '        السيرفر صار يشتغل تلقائياً مع كل إقلاع' -ForegroundColor Green
 
-# ── 5. جدار الحماية (شبكة المكتب) ────────────────────────────────────────────
-Write-Host '  [5/6] فتح منفذ 8787 داخل الشبكة...' -ForegroundColor Yellow
+# ── 6. جدار الحماية (شبكة المكتب) ────────────────────────────────────────────
+Write-Host '  [6/7] فتح منفذ 8787 داخل الشبكة...' -ForegroundColor Yellow
 try { Remove-NetFirewallRule -DisplayName 'AqabaYard' -ErrorAction Stop } catch {}
 New-NetFirewallRule -DisplayName 'AqabaYard' -Direction Inbound -Protocol TCP `
   -LocalPort 8787 -Action Allow -Profile Private,Domain | Out-Null
 
-# ── 6. Tailscale — رابط https من الإنترنت ───────────────────────────────────
+# ── 7. Tailscale — رابط https من الإنترنت ───────────────────────────────────
 $ts = 'C:\Program Files\Tailscale\tailscale.exe'
 if (Test-Path $ts) {
-  Write-Host '  [6/6] Tailscale موجود' -ForegroundColor Green
+  Write-Host '  [7/7] Tailscale موجود' -ForegroundColor Green
 } else {
-  Write-Host '  [6/6] تنزيل وتنصيب Tailscale...' -ForegroundColor Yellow
+  Write-Host '  [7/7] تنزيل وتنصيب Tailscale...' -ForegroundColor Yellow
   $tsMsi = Join-Path $env:TEMP 'tailscale.msi'
   Invoke-WebRequest -Uri 'https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi' -OutFile $tsMsi
   Start-Process msiexec.exe -ArgumentList "/i `"$tsMsi`" /qn /norestart" -Wait
