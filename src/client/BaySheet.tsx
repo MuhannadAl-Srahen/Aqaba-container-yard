@@ -129,14 +129,17 @@ export function BaySheet(props: {
               its place, so the one container whose contents most affect how it
               is handled was also the one whose class nobody could read. */}
           <span className="flex items-center gap-1">
+            {/* The class is read across a bay sheet at arm's length, so it is
+                set at the size of the number itself rather than as a footnote
+                to it — «كبر خط» was about this one. */}
             <span
-              className={`rounded px-1 text-[10px] font-bold ${container.hazmat ? 'bg-surface text-danger' : 'bg-surface text-muted'}`}
+              className={`rounded px-1.5 text-[13px] font-extrabold leading-4 ${container.hazmat ? 'bg-surface text-danger' : 'bg-surface text-ink'}`}
               dir="ltr"
             >
               {container.size === 40 ? AR.size40Chip : AR.size20Chip}
             </span>
             {container.hazmat && (
-              <span className="rounded bg-danger px-1 text-[10px] font-bold text-white">
+              <span className="rounded bg-danger px-1.5 text-[12px] font-extrabold leading-4 text-white">
                 {AR.hazmatShort}
               </span>
             )}
@@ -169,8 +172,12 @@ export function BaySheet(props: {
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
       onClick={props.onClose}
     >
+      {/* Wide enough for the widest bay the plan has — ten stacks — at the
+          size the numbers are now printed. The sheet was capped at 72rem and
+          a ten-stack bay no longer fitted, which put a scrollbar under it and
+          half a stack out of sight: «ما بدي يكون scroll بدي يبين كله». */}
       <div
-        className="max-h-[88dvh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
+        className="max-h-[88dvh] w-full max-w-368 overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
         onClick={(event) => {
           event.stopPropagation();
         }}
@@ -195,14 +202,15 @@ export function BaySheet(props: {
         {/* The grid, LTR like the plan: stack 01 first, tier B over tier A.
             A cell is never narrower than a full container number AT THE SIZE
             IT IS PRINTED — a truncated «TCLU1757…» is the one thing this sheet
-            exists to show — and the sheet is wide enough that ten of them fit
-            without scrolling on any desk. A phone still gets the sideways
-            scroll it needs. */}
+            exists to show — but the floor is set to exactly that and no more,
+            so the widest bay on the plan fits a desk screen whole. Wider
+            screens spread the cells out; only a phone still gets the sideways
+            scroll it cannot avoid. */}
         <div className="-mx-1 mt-4 space-y-1.5 overflow-x-auto px-1 pb-1" dir="ltr">
           <div
             className="grid gap-1.5"
             style={{
-              gridTemplateColumns: `2.4rem repeat(${String(maxStack)}, minmax(6.5rem, 1fr))`,
+              gridTemplateColumns: `2.4rem repeat(${String(maxStack)}, minmax(6rem, 1fr))`,
             }}
           >
             <div />
