@@ -92,6 +92,30 @@ async function gateIn(
   };
 }
 
+/**
+ * PATCH sends the whole record — every entered value is correctable now — so
+ * a test states only what it is changing and the rest rides back unchanged.
+ */
+async function editWith(
+  id: number | undefined,
+  overrides: Record<string, unknown>,
+): Promise<{ status: number; body: unknown }> {
+  const card = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
+  const now = (card.body as { container: Record<string, unknown> }).container;
+  const keep = [
+    'number', 'customer', 'bill', 'size', 'notes', 'weight', 'weightNet', 'hazmat',
+    'truckIn', 'driverIn', 'sealIn', 'truckOut', 'driverOut', 'sealOut',
+    'enteredAt', 'exitedAt',
+  ];
+  const payload: Record<string, unknown> = {};
+  for (const key of keep) payload[key] = now[key];
+  return call({
+    method: 'PATCH',
+    url: `/api/containers/${String(id)}`,
+    payload: { ...payload, ...overrides },
+  });
+}
+
 async function gateOut(id: number | undefined): Promise<{ status: number; body: unknown }> {
   return call({
     method: 'POST',
@@ -429,10 +453,9 @@ describe('gate out', () => {
 describe('edit and delete', () => {
   it('edits fields and logs which ones changed', async () => {
     const entered = await gateIn('EDIT0001', 20, slot('B', 1, 1, 'A'));
-    const edited = await call({
-      method: 'PATCH',
-      url: `/api/containers/${String(entered.body.id)}`,
-      payload: { number: 'EDIT0001', customer: 'شركة الساحل', size: 20, notes: 'باب مبعوج' },
+    const edited = await editWith(entered.body.id, {
+      customer: 'شركة الساحل',
+      notes: 'باب مبعوج',
     });
     expect(edited.status).toBe(200);
     expect((edited.body as { customer: string }).customer).toBe('شركة الساحل');
@@ -447,23 +470,98 @@ describe('edit and delete', () => {
     expect(types).toContain('EDIT');
   });
 
+  it('corrects every entered field, not just some of them', async () => {
+    const entered = await gateIn('EDIT0010', 20, slot('B', 1, 1, 'A'));
+    const fixed = await editWith(entered.body.id, {
+      weight: '31000',
+      weightNet: '25000',
+      hazmat: true,
+      truckIn: '777',
+      driverIn: 'أبو خالد',
+      sealIn: 'JO999',
+    });
+    expect(fixed.status).toBe(200);
+    expect(fixed.body).toMatchObject({
+      weight: '31000',
+      weightNet: '25000',
+      hazmat: true,
+      truckIn: '777',
+      driverIn: 'أبو خالد',
+      sealIn: 'JO999',
+    });
+
+    // Every corrected field is named in the log, and its old value kept so
+    // the change can be undone.
+    const card = await call({ method: 'GET', url: `/api/containers/${String(entered.body.id)}` });
+    const edit = (card.body as { movements: Array<{ type: string; note: string }> }).movements.find(
+      (movement) => movement.type === 'EDIT',
+    );
+    const note = JSON.parse(edit?.note ?? '{}') as { k: string[]; b: Record<string, unknown> };
+    expect(note.k).toEqual(
+      expect.arrayContaining(['weight', 'weightNet', 'hazmat', 'truckIn', 'driverIn', 'sealIn']),
+    );
+    expect(note.b['sealIn']).toBe('JO100001');
+  });
+
+  it('a corrected entry date moves the gate movement with it', async () => {
+    const entered = await gateIn('EDIT0011', 20, slot('B', 3, 1, 'A'));
+    // Recorded today by mistake; it actually arrived five days ago.
+    const real = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    expect((await editWith(entered.body.id, { enteredAt: real })).status).toBe(200);
+
+    // The card says five days ago...
+    const card = await call({ method: 'GET', url: `/api/containers/${String(entered.body.id)}` });
+    expect((card.body as { container: { enteredAt: string } }).container.enteredAt).toBe(real);
+
+    // ...and so does the register, which reads the MOVEMENT's own timestamp.
+    // Without re-timing, the two would place the box in different weeks.
+    const inMovement = (
+      card.body as { movements: Array<{ type: string; at: string }> }
+    ).movements.find((movement) => movement.type === 'IN');
+    expect(inMovement?.at).toBe(real);
+
+    const window = {
+      from: new Date(Date.now() - 6 * 86_400_000).toISOString(),
+      to: new Date(Date.now() - 4 * 86_400_000).toISOString(),
+    };
+    const register = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=IN&from=${encodeURIComponent(window.from)}&to=${encodeURIComponent(window.to)}`,
+    });
+    const numbers = (register.body as { rows: Array<{ number: string }> }).rows.map(
+      (row) => row.number,
+    );
+    expect(numbers).toContain('EDIT0011');
+  });
+
+  it('refuses impossible dates and exit paperwork on a standing container', async () => {
+    const entered = await gateIn('EDIT0012', 20, slot('B', 5, 1, 'A'));
+
+    const future = await editWith(entered.body.id, {
+      enteredAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    expect(future.status).toBe(409);
+
+    // It has not left, so it has no exit paperwork to correct.
+    const phantom = await editWith(entered.body.id, { truckOut: '900' });
+    expect(phantom.status).toBe(409);
+
+    await gateOut(entered.body.id);
+    const backwards = await editWith(entered.body.id, {
+      exitedAt: new Date(Date.now() - 10 * 86_400_000).toISOString(),
+    });
+    expect(backwards.status).toBe(409);
+  });
+
   it('a size flip is refused while standing — the bay’s parity is the size', async () => {
     const entered = await gateIn('EDIT0002', 20, slot('B', 1, 1, 'A'));
-    const flipped = await call({
-      method: 'PATCH',
-      url: `/api/containers/${String(entered.body.id)}`,
-      payload: { number: 'EDIT0002', customer: 'شركة', size: 40, notes: '' },
-    });
+    const flipped = await editWith(entered.body.id, { size: 40 });
     expect(flipped.status).toBe(409);
     expect((flipped.body as { code: string }).code).toBe('BAD_SLOT');
 
     // Once it leaves, the paperwork can be fixed.
     await gateOut(entered.body.id);
-    const fixed = await call({
-      method: 'PATCH',
-      url: `/api/containers/${String(entered.body.id)}`,
-      payload: { number: 'EDIT0002', customer: 'شركة', size: 40, notes: '' },
-    });
+    const fixed = await editWith(entered.body.id, { size: 40 });
     expect(fixed.status).toBe(200);
   });
 
@@ -473,7 +571,13 @@ describe('edit and delete', () => {
     const renamed = await call({
       method: 'PATCH',
       url: `/api/containers/${String(other.body.id)}`,
-      payload: { number: 'NAME0001', customer: 'شركة', size: 20, notes: '' },
+      payload: {
+        number: 'NAME0001',
+        customer: 'شركة',
+        size: 20,
+        notes: '',
+        enteredAt: new Date().toISOString(),
+      },
     });
     expect(renamed.status).toBe(409);
     expect((renamed.body as { code: string }).code).toBe('NUMBER_IN_YARD');
@@ -782,7 +886,14 @@ describe('رقم البوليصة', () => {
     const edited = await call({
       method: 'PATCH',
       url: `/api/containers/${String(entered.body.id)}`,
-      payload: { number: 'BILL0008', customer: 'شركة', bill: '7000', size: 20, notes: '' },
+      payload: {
+        number: 'BILL0008',
+        customer: 'شركة',
+        bill: '7000',
+        size: 20,
+        notes: '',
+        enteredAt: new Date().toISOString(),
+      },
     });
     expect(edited.status).toBe(200);
     expect((edited.body as { bill: string }).bill).toBe('7000');

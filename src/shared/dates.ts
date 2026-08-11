@@ -31,3 +31,45 @@ export function daysBetween(fromIso: string | Date, toIso: string | Date): numbe
   const days = Math.round((noonOf(ammanDay(toIso)) - noonOf(ammanDay(fromIso))) / 86_400_000);
   return Math.max(0, days);
 }
+
+const AMMAN_STAMP = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'Asia/Amman',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+});
+
+/**
+ * An instant as the `YYYY-MM-DDTHH:mm` a datetime-local input wants, on the
+ * Amman wall clock — because that is the clock the person correcting a gate
+ * date read it from.
+ */
+export function toLocalStamp(iso: string | Date): string {
+  const parts = AMMAN_STAMP.formatToParts(typeof iso === 'string' ? new Date(iso) : iso);
+  const of = (type: string): string => parts.find((part) => part.type === type)?.value ?? '00';
+  return `${of('year')}-${of('month')}-${of('day')}T${of('hour')}:${of('minute')}`;
+}
+
+/**
+ * The reverse: the UTC instant whose Amman wall clock reads exactly this.
+ * Solved by iteration rather than by hard-coding +03:00 — Jordan has changed
+ * its mind about daylight saving before, and a wrong hour here would silently
+ * move a container between two days of the register.
+ */
+export function fromLocalStamp(stamp: string): string | null {
+  // Shape-checked rather than handed straight to Date.parse, which accepts
+  // all sorts of nonsense and answers with a plausible-looking instant.
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(stamp)) return null;
+  const target = Date.parse(`${stamp}:00Z`);
+  if (Number.isNaN(target)) return null;
+  let guess = target;
+  for (let pass = 0; pass < 3; pass += 1) {
+    const shown = Date.parse(`${toLocalStamp(new Date(guess))}:00Z`);
+    if (shown === target) break;
+    guess += target - shown;
+  }
+  return new Date(guess).toISOString();
+}

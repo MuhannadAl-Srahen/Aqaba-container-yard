@@ -2,7 +2,9 @@ import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, MovementDto, Permission } from '../shared/types';
 import { positionLabel } from '../shared/address';
+import { fromLocalStamp, toLocalStamp } from '../shared/dates';
 import { AR } from './ar';
+import type { ContainerEditInput } from './api';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
 
@@ -484,7 +486,7 @@ function EditForm(props: {
   /** While it stands, the bay's parity IS the size — the toggle locks. */
   standing: boolean;
   busy: boolean;
-  onSave: (input: { number: string; customer: string; bill: string; size: 20 | 40; notes: string }) => void;
+  onSave: (input: ContainerEditInput) => void;
   onCancel: () => void;
 }): ReactElement {
   const [number, setNumber] = useState(props.container.number);
@@ -492,8 +494,29 @@ function EditForm(props: {
   const [bill, setBill] = useState(props.container.bill);
   const [size, setSize] = useState<20 | 40>(props.container.size);
   const [notes, setNotes] = useState(props.container.notes);
+  const [weight, setWeight] = useState(props.container.weight);
+  const [weightNet, setWeightNet] = useState(props.container.weightNet);
+  const [hazmat, setHazmat] = useState(props.container.hazmat);
+  const [truckIn, setTruckIn] = useState(props.container.truckIn);
+  const [driverIn, setDriverIn] = useState(props.container.driverIn);
+  const [sealIn, setSealIn] = useState(props.container.sealIn);
+  const [truckOut, setTruckOut] = useState(props.container.truckOut);
+  const [driverOut, setDriverOut] = useState(props.container.driverOut);
+  const [sealOut, setSealOut] = useState(props.container.sealOut);
+  const [enteredAt, setEnteredAt] = useState(toLocalStamp(props.container.enteredAt));
+  const [exitedAt, setExitedAt] = useState(
+    props.container.exitedAt === null ? '' : toLocalStamp(props.container.exitedAt),
+  );
 
-  const ready = number.trim() !== '' && customer.trim() !== '' && !props.busy;
+  // The exit paperwork exists only once there has been an exit.
+  const departed = props.container.exitedAt !== null;
+  const enteredIso = fromLocalStamp(enteredAt);
+  const exitedIso = departed ? fromLocalStamp(exitedAt) : null;
+  const datesSane =
+    enteredIso !== null &&
+    (!departed || (exitedIso !== null && Date.parse(exitedIso) >= Date.parse(enteredIso)));
+
+  const ready = number.trim() !== '' && customer.trim() !== '' && datesSane && !props.busy;
 
   return (
     <div className="space-y-3 rounded-xl bg-sunken p-3.5">
@@ -552,6 +575,148 @@ function EditForm(props: {
           ))}
         </div>
       </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={AR.weightGross}>
+          <input
+            dir="ltr"
+            inputMode="numeric"
+            className={`${inputClass} text-start`}
+            value={weight}
+            onChange={(event) => {
+              setWeight(event.target.value);
+            }}
+          />
+        </Field>
+        <Field label={AR.weightNet}>
+          <input
+            dir="ltr"
+            inputMode="numeric"
+            className={`${inputClass} text-start`}
+            value={weightNet}
+            onChange={(event) => {
+              setWeightNet(event.target.value);
+            }}
+          />
+        </Field>
+      </div>
+      <Field label={AR.hazmat}>
+        <label
+          className={`flex cursor-pointer items-center gap-2.5 rounded-xl border-2 px-3.5 py-2.5 text-sm font-bold transition ${
+            hazmat ? 'border-danger bg-danger-soft text-danger' : 'border-line bg-surface text-muted'
+          }`}
+        >
+          <input
+            type="checkbox"
+            className="size-5 accent-current"
+            checked={hazmat}
+            onChange={(event) => {
+              setHazmat(event.target.checked);
+            }}
+          />
+          {hazmat ? AR.hazmatYes : AR.hazmatNo}
+        </label>
+      </Field>
+
+      {/* The entry paperwork, all of it correctable — it was typed by hand at
+          a gate, under a truck engine, at some hour of the night. */}
+      <p className="pt-1 text-xs font-bold text-muted">{AR.editEntrySection}</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label={AR.truck}>
+          <input
+            dir="ltr"
+            className={`${inputClass} text-start`}
+            value={truckIn}
+            onChange={(event) => {
+              setTruckIn(event.target.value);
+            }}
+          />
+        </Field>
+        <Field label={AR.seal}>
+          <input
+            dir="ltr"
+            className={`${inputClass} text-start font-mono`}
+            value={sealIn}
+            onChange={(event) => {
+              setSealIn(event.target.value);
+            }}
+          />
+        </Field>
+        <Field label={AR.driver}>
+          <input
+            className={inputClass}
+            value={driverIn}
+            onChange={(event) => {
+              setDriverIn(event.target.value);
+            }}
+          />
+        </Field>
+        <Field
+          label={AR.enteredAt}
+          hint={enteredIso === null ? <span className="text-danger">{AR.badDate}</span> : undefined}
+        >
+          <input
+            type="datetime-local"
+            dir="ltr"
+            className={`${inputClass} text-start`}
+            value={enteredAt}
+            onChange={(event) => {
+              setEnteredAt(event.target.value);
+            }}
+          />
+        </Field>
+      </div>
+
+      {departed && (
+        <>
+          <p className="pt-1 text-xs font-bold text-muted">{AR.editExitSection}</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label={AR.truck}>
+              <input
+                dir="ltr"
+                className={`${inputClass} text-start`}
+                value={truckOut}
+                onChange={(event) => {
+                  setTruckOut(event.target.value);
+                }}
+              />
+            </Field>
+            <Field label={AR.sealOut}>
+              <input
+                dir="ltr"
+                className={`${inputClass} text-start font-mono`}
+                value={sealOut}
+                onChange={(event) => {
+                  setSealOut(event.target.value);
+                }}
+              />
+            </Field>
+            <Field label={AR.driver}>
+              <input
+                className={inputClass}
+                value={driverOut}
+                onChange={(event) => {
+                  setDriverOut(event.target.value);
+                }}
+              />
+            </Field>
+            <Field
+              label={AR.exitedAt}
+              hint={!datesSane ? <span className="text-danger">{AR.exitBeforeEntry}</span> : undefined}
+            >
+              <input
+                type="datetime-local"
+                dir="ltr"
+                className={`${inputClass} text-start`}
+                value={exitedAt}
+                onChange={(event) => {
+                  setExitedAt(event.target.value);
+                }}
+              />
+            </Field>
+          </div>
+        </>
+      )}
+
       <Field label={AR.notes} hint={<span className="text-faint">{AR.notesHint}</span>}>
         <textarea
           className={`${inputClass} min-h-24 resize-y leading-7`}
@@ -567,12 +732,24 @@ function EditForm(props: {
         <Button
           disabled={!ready}
           onClick={() => {
+            if (enteredIso === null) return;
             props.onSave({
               number: number.trim(),
               customer: customer.trim(),
               bill: bill.trim(),
               size,
               notes: notes.trim(),
+              weight: weight.trim(),
+              weightNet: weightNet.trim(),
+              hazmat,
+              truckIn: truckIn.trim(),
+              driverIn: driverIn.trim(),
+              sealIn: sealIn.trim(),
+              truckOut: truckOut.trim(),
+              driverOut: driverOut.trim(),
+              sealOut: sealOut.trim(),
+              enteredAt: enteredIso,
+              exitedAt: exitedIso,
             });
           }}
         >

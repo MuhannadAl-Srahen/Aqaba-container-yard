@@ -71,9 +71,23 @@ describe('bay loads', () => {
       used: 2,
       total: 6,
       full: false,
+      hazmat: false,
     });
     // Bay 05 has a single usable stack over the three tiers.
-    expect(countBay(zoneA, 5, undefined)).toEqual({ used: 0, total: 3, full: false });
+    expect(countBay(zoneA, 5, undefined)).toEqual({
+      used: 0,
+      total: 3,
+      full: false,
+      hazmat: false,
+    });
+  });
+
+  it('flags a bay the moment one dangerous container stands in it', () => {
+    const risky = { ...box('C', at(3, 1, 'A')), hazmat: true };
+    const loads = buildBayLoads([box('D', at(3, 2, 'A')), risky]);
+    // One box out of two is enough — the map paints the whole bay red.
+    expect(countBay(zoneA, 3, loads.get(bayKey('A', 3))).hazmat).toBe(true);
+    expect(countBay(zoneA, 1, loads.get(bayKey('A', 1))).hazmat).toBe(false);
   });
 
   it('rolls a zone up for the panel header', () => {

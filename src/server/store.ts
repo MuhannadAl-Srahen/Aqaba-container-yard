@@ -349,12 +349,69 @@ export interface ContainerEdit {
   bill: string;
   size: Size;
   notes: string;
+  weight: string;
+  weightNet: string;
+  hazmat: boolean;
+  truckIn: string;
+  driverIn: string;
+  sealIn: string;
+  truckOut: string;
+  driverOut: string;
+  sealOut: string;
+  enteredAt: string;
+  exitedAt: string | null;
 }
 
 export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdit): void {
   db.prepare(
-    'UPDATE containers SET number = ?, number_valid = ?, customer = ?, bill = ?, size = ?, notes = ? WHERE id = ?',
-  ).run(edit.number, edit.numberValid ? 1 : 0, edit.customer, edit.bill, edit.size, edit.notes, id);
+    `UPDATE containers SET number = ?, number_valid = ?, customer = ?, bill = ?, size = ?,
+       notes = ?, weight = ?, weight_net = ?, hazmat = ?,
+       truck_in = ?, driver_in = ?, seal_in = ?,
+       truck_out = ?, driver_out = ?, seal_out = ?,
+       entered_at = ?, exited_at = ?
+     WHERE id = ?`,
+  ).run(
+    edit.number,
+    edit.numberValid ? 1 : 0,
+    edit.customer,
+    edit.bill,
+    edit.size,
+    edit.notes,
+    edit.weight,
+    edit.weightNet,
+    edit.hazmat ? 1 : 0,
+    edit.truckIn,
+    edit.driverIn,
+    edit.sealIn,
+    edit.truckOut,
+    edit.driverOut,
+    edit.sealOut,
+    edit.enteredAt,
+    edit.exitedAt,
+    id,
+  );
+}
+
+/**
+ * Move a recorded gate instant to match a corrected date. The registers read
+ * `movements.at`, the container card reads `entered_at`/`exited_at` — leave
+ * one behind and the same container sits in two different weeks depending on
+ * which sheet you open. The first IN and the last OUT are the gate's own.
+ */
+export function retimeMovement(
+  db: DatabaseSync,
+  containerId: number,
+  type: 'IN' | 'OUT',
+  at: string,
+): void {
+  db.prepare(
+    `UPDATE movements SET at = ?
+     WHERE id = (
+       SELECT id FROM movements WHERE container_id = ? AND type = ?
+       ORDER BY at ${type === 'IN' ? 'ASC' : 'DESC'}, id ${type === 'IN' ? 'ASC' : 'DESC'}
+       LIMIT 1
+     )`,
+  ).run(at, containerId, type);
 }
 
 export function softDelete(db: DatabaseSync, id: number, at: string): void {

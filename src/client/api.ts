@@ -71,6 +71,52 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T;
 }
 
+/**
+ * Everything a person entered, correctable — because a person entered it.
+ * The dates are full ISO instants; the form turns the Amman wall clock the
+ * user typed back into one.
+ */
+export interface ContainerEditInput {
+  number: string;
+  customer: string;
+  bill: string;
+  size: 20 | 40;
+  notes: string;
+  weight: string;
+  weightNet: string;
+  hazmat: boolean;
+  truckIn: string;
+  driverIn: string;
+  sealIn: string;
+  truckOut: string;
+  driverOut: string;
+  sealOut: string;
+  enteredAt: string;
+  exitedAt: string | null;
+}
+
+/** The edit payload that changes nothing — the base a correction is laid on. */
+export function editPayloadOf(container: ContainerDto): ContainerEditInput {
+  return {
+    number: container.number,
+    customer: container.customer,
+    bill: container.bill,
+    size: container.size,
+    notes: container.notes,
+    weight: container.weight,
+    weightNet: container.weightNet,
+    hazmat: container.hazmat,
+    truckIn: container.truckIn,
+    driverIn: container.driverIn,
+    sealIn: container.sealIn,
+    truckOut: container.truckOut,
+    driverOut: container.driverOut,
+    sealOut: container.sealOut,
+    enteredAt: container.enteredAt,
+    exitedAt: container.exitedAt,
+  };
+}
+
 export interface BootDto {
   firstRun: boolean;
   authorized: boolean;
@@ -213,10 +259,7 @@ export const api = {
     return response.blob();
   },
 
-  edit: (
-    id: number,
-    input: { number: string; customer: string; bill: string; size: 20 | 40; notes: string },
-  ): Promise<ContainerDto> =>
+  edit: (id: number, input: ContainerEditInput): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
 
   remove: (id: number): Promise<{ ok: boolean }> =>

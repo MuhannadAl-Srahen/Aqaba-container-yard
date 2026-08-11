@@ -95,12 +95,35 @@ const gateOutSchema = z.object({
   driver: z.string().trim().max(60).default(''),
 });
 
+/**
+ * Everything a person typed can be corrected, because a person typed it —
+ * «ممكن يخطئ». What is NOT here is deliberate: the card serials are minted by
+ * the yard rather than entered, the position belongs to a move (which has its
+ * own movement record), and `number_valid` is derived from the number itself.
+ */
 const editSchema = z.object({
   number: z.string().trim().min(1).max(20),
   customer: z.string().trim().min(1).max(120),
   bill: z.string().trim().max(40).default(''),
   size: z.union([z.literal(20), z.literal(40)]),
   notes: z.string().trim().max(2000),
+  weight: z.string().trim().max(20).default(''),
+  weightNet: z.string().trim().max(20).default(''),
+  hazmat: z.boolean().default(false),
+  truckIn: z.string().trim().max(30).default(''),
+  driverIn: z.string().trim().max(60).default(''),
+  sealIn: z.string().trim().max(30).default(''),
+  truckOut: z.string().trim().max(30).default(''),
+  driverOut: z.string().trim().max(60).default(''),
+  sealOut: z.string().trim().max(30).default(''),
+  /** The gate instants themselves — a wrong date puts a box in the wrong register. */
+  enteredAt: z.string().datetime({ offset: true }).or(z.string().datetime()),
+  exitedAt: z
+    .string()
+    .datetime({ offset: true })
+    .or(z.string().datetime())
+    .nullable()
+    .default(null),
 });
 
 const permissionSchema = z.array(z.enum(PERMISSIONS)).max(PERMISSIONS.length);
@@ -513,28 +536,48 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         if (sizeOfBay(existing.position.bay) !== body.size) refuse(409, 'BAD_SLOT');
       }
 
+      // The exit paperwork only exists once there has been an exit; offering
+      // it on a standing container would invent a departure that never was.
+      const stillStanding = existing.exitedAt === null;
+      const exitFields = [body.truckOut, body.driverOut, body.sealOut];
+      if (stillStanding && (body.exitedAt !== null || exitFields.some((v) => v !== ''))) {
+        refuse(409, 'VALIDATION');
+      }
+      if (!stillStanding && body.exitedAt === null) refuse(409, 'VALIDATION');
+
+      // A container cannot leave before it arrived, and neither instant may
+      // be in the future — both would poison the dwell arithmetic and put the
+      // row in a register period that has not happened yet.
+      const entered = Date.parse(body.enteredAt);
+      const exited = body.exitedAt === null ? null : Date.parse(body.exitedAt);
+      const horizon = Date.now() + 60_000;
+      if (entered > horizon || (exited !== null && exited > horizon)) refuse(409, 'VALIDATION');
+      if (exited !== null && exited < entered) refuse(409, 'VALIDATION');
+
       const changed: string[] = [];
       const before: Record<string, string | number> = {};
-      if (check.normalized !== existing.number) {
-        changed.push('number');
-        before['number'] = existing.number;
-      }
-      if (body.customer !== existing.customer) {
-        changed.push('customer');
-        before['customer'] = existing.customer;
-      }
-      if (body.size !== existing.size) {
-        changed.push('size');
-        before['size'] = existing.size;
-      }
-      if (body.bill !== existing.bill) {
-        changed.push('bill');
-        before['bill'] = existing.bill;
-      }
-      if (body.notes !== existing.notes) {
-        changed.push('notes');
-        before['notes'] = existing.notes;
-      }
+      const diff = (key: string, next: string | number, was: string | number): void => {
+        if (next === was) return;
+        changed.push(key);
+        before[key] = was;
+      };
+
+      diff('number', check.normalized, existing.number);
+      diff('customer', body.customer, existing.customer);
+      diff('size', body.size, existing.size);
+      diff('bill', body.bill, existing.bill);
+      diff('notes', body.notes, existing.notes);
+      diff('weight', body.weight, existing.weight);
+      diff('weightNet', body.weightNet, existing.weightNet);
+      diff('hazmat', body.hazmat ? 1 : 0, existing.hazmat ? 1 : 0);
+      diff('truckIn', body.truckIn, existing.truckIn);
+      diff('driverIn', body.driverIn, existing.driverIn);
+      diff('sealIn', body.sealIn, existing.sealIn);
+      diff('truckOut', body.truckOut, existing.truckOut);
+      diff('driverOut', body.driverOut, existing.driverOut);
+      diff('sealOut', body.sealOut, existing.sealOut);
+      diff('enteredAt', body.enteredAt, existing.enteredAt);
+      diff('exitedAt', body.exitedAt ?? '', existing.exitedAt ?? '');
 
       if (changed.length > 0) {
         store.updateContainer(db, id, {
@@ -544,7 +587,27 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           bill: body.bill,
           size: body.size,
           notes: body.notes,
+          weight: body.weight,
+          weightNet: body.weightNet,
+          hazmat: body.hazmat,
+          truckIn: body.truckIn,
+          driverIn: body.driverIn,
+          sealIn: body.sealIn,
+          truckOut: body.truckOut,
+          driverOut: body.driverOut,
+          sealOut: body.sealOut,
+          enteredAt: body.enteredAt,
+          exitedAt: body.exitedAt,
         });
+
+        // A corrected gate date has to move the gate movement with it, or the
+        // register (which reads movements.at) and the card (which reads
+        // entered_at) would place the same container in different weeks.
+        if (changed.includes('enteredAt')) store.retimeMovement(db, id, 'IN', body.enteredAt);
+        if (changed.includes('exitedAt') && body.exitedAt !== null) {
+          store.retimeMovement(db, id, 'OUT', body.exitedAt);
+        }
+
         // The note carries machine keys AND the old values, so the log can
         // both name the change in Arabic and undo it later.
         store.recordMovement(

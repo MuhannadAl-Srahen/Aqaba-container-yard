@@ -3,7 +3,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { LogReportRow } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
-import { ApiFailure, api } from './api';
+import type { ContainerEditInput } from './api';
+import { ApiFailure, api, editPayloadOf } from './api';
 import { Toast } from './ui';
 import {
   SheetScreen,
@@ -142,13 +143,36 @@ export function LogScreen(props: {
       .detail(row.containerId)
       .then(({ container }) => {
         const before = parsed.before;
+        // Start from the container as it stands and lay the recorded old
+        // values back over it, whichever fields they happen to be. Anything
+        // the edit did not touch is sent back unchanged.
+        const payload = editPayloadOf(container);
+        const text = (key: keyof ContainerEditInput): string | undefined =>
+          typeof before[key] === 'string' ? before[key] : undefined;
         return api.edit(row.containerId, {
-          number: typeof before['number'] === 'string' ? before['number'] : container.number,
-          customer:
-            typeof before['customer'] === 'string' ? before['customer'] : container.customer,
-          bill: typeof before['bill'] === 'string' ? before['bill'] : container.bill,
-          size: before['size'] === 20 || before['size'] === 40 ? before['size'] : container.size,
-          notes: typeof before['notes'] === 'string' ? before['notes'] : container.notes,
+          ...payload,
+          number: text('number') ?? payload.number,
+          customer: text('customer') ?? payload.customer,
+          bill: text('bill') ?? payload.bill,
+          size: before['size'] === 20 || before['size'] === 40 ? before['size'] : payload.size,
+          notes: text('notes') ?? payload.notes,
+          weight: text('weight') ?? payload.weight,
+          weightNet: text('weightNet') ?? payload.weightNet,
+          hazmat: before['hazmat'] === undefined ? payload.hazmat : before['hazmat'] === 1,
+          truckIn: text('truckIn') ?? payload.truckIn,
+          driverIn: text('driverIn') ?? payload.driverIn,
+          sealIn: text('sealIn') ?? payload.sealIn,
+          truckOut: text('truckOut') ?? payload.truckOut,
+          driverOut: text('driverOut') ?? payload.driverOut,
+          sealOut: text('sealOut') ?? payload.sealOut,
+          enteredAt: text('enteredAt') ?? payload.enteredAt,
+          // A blank recorded exit means it had not left yet at the time.
+          exitedAt:
+            before['exitedAt'] === undefined
+              ? payload.exitedAt
+              : before['exitedAt'] === ''
+                ? null
+                : String(before['exitedAt']),
         });
       })
       .then(() => {

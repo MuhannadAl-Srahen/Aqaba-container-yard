@@ -92,6 +92,7 @@ export const AR = {
   legendFull: 'ممتلئ',
   legendTarget: 'بينفع تنحط فيه',
   legendNoted: 'فيه ملاحظة',
+  legendHazmat: 'فيه مواد خطرة',
 
   // ---- zones and bays ----
   zoneTitle: (zone: string, yard: number): string => `زون ${zone} · ساحة ${String(yard)}`,
@@ -186,8 +187,19 @@ export const AR = {
       number: 'الرقم',
       customer: 'اسم المالك',
       bill: 'رقم البوليصة',
-      size: 'المقاس',
+      size: 'الفئة',
       notes: 'الملاحظات',
+      weight: 'الوزن القائم',
+      weightNet: 'الوزن الصافي',
+      hazmat: 'المواد الخطرة',
+      truckIn: 'سيارة الدخول',
+      driverIn: 'سائق الدخول',
+      sealIn: 'رصاصة الدخول',
+      truckOut: 'سيارة الخروج',
+      driverOut: 'سائق الخروج',
+      sealOut: 'رصاصة الخروج',
+      enteredAt: 'تاريخ الدخول',
+      exitedAt: 'تاريخ الخروج',
     };
     // Newer notes are JSON {k: keys, b: before-values}; older ones plain CSV.
     let keys: string[];
@@ -203,6 +215,11 @@ export const AR = {
   close: 'إغلاق',
   save: 'حفظ',
   cancel: 'إلغاء',
+  /** Section headings inside the edit form, which now covers every field. */
+  editEntrySection: 'بيانات الدخول',
+  editExitSection: 'بيانات الخروج',
+  badDate: 'التاريخ غير صحيح.',
+  exitBeforeEntry: 'تاريخ الخروج لازم يكون بعد تاريخ الدخول.',
 
   // ---- moving ----
   movingBanner: (number: string): string => `وين بدك تحط ${number}؟ اكبس على الباي واختار الخانة.`,
