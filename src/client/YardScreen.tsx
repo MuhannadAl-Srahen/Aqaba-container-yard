@@ -303,8 +303,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                         setSelected(container);
                       }}
                     >
-                      <span className="font-mono font-semibold text-ink" dir="ltr">
-                        {container.number}
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="font-mono font-semibold text-ink" dir="ltr">
+                          {container.number}
+                        </span>
+                        {container.hazmat && (
+                          <span className="shrink-0 rounded bg-danger-soft px-1.5 py-0.5 text-[10px] font-extrabold text-danger">
+                            {AR.hazmatShort}
+                          </span>
+                        )}
                       </span>
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="truncate text-xs text-muted">{container.customer}</span>
@@ -331,8 +338,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                         setSelected(container);
                       }}
                     >
-                      <span className="font-mono font-semibold text-ink" dir="ltr">
-                        {container.number}
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        <span className="font-mono font-semibold text-ink" dir="ltr">
+                          {container.number}
+                        </span>
+                        {container.hazmat && (
+                          <span className="shrink-0 rounded bg-danger-soft px-1.5 py-0.5 text-[10px] font-extrabold text-danger">
+                            {AR.hazmatShort}
+                          </span>
+                        )}
                       </span>
                       <span className="text-xs text-muted">{container.customer}</span>
                     </button>

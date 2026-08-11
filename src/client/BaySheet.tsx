@@ -108,17 +108,27 @@ export function BaySheet(props: {
           }}
           className={
             'flex h-14 flex-col items-center justify-center gap-0.5 rounded-lg border px-1 text-center ' +
-            (container.size === 40
-              ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
-              : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950')
+            // Dangerous goods outrank the size colour: the crew has to see
+            // which box it is before they decide anything about it.
+            (container.hazmat
+              ? 'border-2 border-danger-line bg-danger-soft hover:border-danger'
+              : container.size === 40
+                ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
+                : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950')
           }
-          title={container.number}
+          title={container.hazmat ? `${container.number} — ${AR.hazmat}` : container.number}
         >
-          <span className="w-full truncate font-mono text-[10px] font-bold text-ink" dir="ltr">
+          <span
+            className={`w-full truncate font-mono text-[10px] font-bold ${container.hazmat ? 'text-danger' : 'text-ink'}`}
+            dir="ltr"
+          >
             {container.number}
           </span>
-          <span className="rounded bg-surface px-1 text-[9px] font-bold text-muted" dir="ltr">
-            {container.size === 40 ? AR.size40Chip : AR.size20Chip}
+          <span
+            className={`rounded px-1 text-[9px] font-bold ${container.hazmat ? 'bg-danger text-white' : 'bg-surface text-muted'}`}
+            dir="ltr"
+          >
+            {container.hazmat ? AR.hazmatShort : container.size === 40 ? AR.size40Chip : AR.size20Chip}
           </span>
         </button>
       );

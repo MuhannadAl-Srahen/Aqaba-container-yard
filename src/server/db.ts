@@ -84,8 +84,15 @@ export function migrate(db: DatabaseSync, file: string): void {
   // widens a CHECK, so movements are rebuilt the same way v10 rebuilt
   // containers. Both non-destructive, both read from the file's own SQL.
   const v10ContainersSql = tableSql('containers');
-  if (v10ContainersSql !== undefined && !v10ContainersSql.includes('hazmat')) {
-    db.exec('ALTER TABLE containers ADD COLUMN hazmat INTEGER NOT NULL DEFAULT 0');
+  if (v10ContainersSql !== undefined) {
+    if (!v10ContainersSql.includes('hazmat')) {
+      db.exec('ALTER TABLE containers ADD COLUMN hazmat INTEGER NOT NULL DEFAULT 0');
+    }
+    // The gate card names two weights; `weight` keeps its rows and becomes
+    // the gross one, so nothing already recorded has to be re-entered.
+    if (!v10ContainersSql.includes('weight_net')) {
+      db.exec("ALTER TABLE containers ADD COLUMN weight_net TEXT NOT NULL DEFAULT ''");
+    }
   }
   const v10MovementsSql = tableSql('movements');
   if (v10MovementsSql !== undefined && !v10MovementsSql.includes("'DROP'")) {
@@ -140,7 +147,10 @@ export function migrate(db: DatabaseSync, file: string): void {
       tier          TEXT    CHECK (tier IN ('A', 'B', 'C')),
       -- The gate paperwork: weights, trucks, drivers, seals and card serials.
       -- A different seal on the way out means the door was opened inside.
+      -- Two weights ride on the storage card: weight is the gross (القائم)
+      -- and weight_net the net (الصافي). Free text — the scale ticket's own.
       weight        TEXT    NOT NULL DEFAULT '',
+      weight_net    TEXT    NOT NULL DEFAULT '',
       truck_in      TEXT    NOT NULL DEFAULT '',
       driver_in     TEXT    NOT NULL DEFAULT '',
       seal_in       TEXT    NOT NULL DEFAULT '',

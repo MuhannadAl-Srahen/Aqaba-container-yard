@@ -163,6 +163,14 @@ export function ContainerCard(props: {
           )}
         </div>
 
+        {/* Dangerous goods are not a detail line — whoever opens this card
+            should see it before anything else. */}
+        {container.hazmat && (
+          <p className="rounded-xl border-2 border-danger-line bg-danger-soft px-3.5 py-2 text-sm font-extrabold text-danger">
+            {AR.hazmatWarning}
+          </p>
+        )}
+
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between gap-3">
             <dt className="shrink-0 text-muted">{AR.customer}</dt>
@@ -246,9 +254,17 @@ export function ContainerCard(props: {
           )}
           {container.weight !== '' && (
             <div className="flex justify-between gap-3">
-              <dt className="text-muted">{AR.cardWeight}</dt>
+              <dt className="text-muted">{AR.cardWeightGross}</dt>
               <dd className="text-ink" dir="ltr">
                 {container.weight}
+              </dd>
+            </div>
+          )}
+          {container.weightNet !== '' && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted">{AR.cardWeightNet}</dt>
+              <dd className="text-ink" dir="ltr">
+                {container.weightNet}
               </dd>
             </div>
           )}

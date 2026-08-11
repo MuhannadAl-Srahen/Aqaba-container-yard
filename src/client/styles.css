@@ -25,6 +25,12 @@
   --color-rule: #94a3b8;
   --color-rule-strong: #334155;
 
+  /* مواد خطرة. One red, defined in all three palettes — screen light, screen
+     dark, and paper — so a dangerous box never prints as a grey one. */
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fee2e2;
+  --color-danger-line: #ef4444;
+
   /* The yard drawing. The SVG reads these directly. */
   --yard-panel: #ffffff;
   --yard-panel-border: #e2e8f0;
@@ -56,6 +62,11 @@
   --color-line-strong: #31405a;
   --color-rule: #33445f;
   --color-rule-strong: #5d7398;
+
+  /* Lifted off the dark ground so it still reads as a warning, not a bruise. */
+  --color-danger: #fca5a5;
+  --color-danger-soft: #45161a;
+  --color-danger-line: #ef4444;
 
   --yard-panel: #111a2b;
   --yard-panel-border: #1f2b40;
@@ -146,6 +157,9 @@ body {
     --color-line-strong: #cbd5e1;
     --color-rule: #94a3b8;
     --color-rule-strong: #334155;
+    --color-danger: #b91c1c;
+    --color-danger-soft: #fee2e2;
+    --color-danger-line: #ef4444;
   }
 
   body {

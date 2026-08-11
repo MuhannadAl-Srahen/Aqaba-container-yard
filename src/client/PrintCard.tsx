@@ -51,13 +51,26 @@ export function PrintCard(props: {
   const sealShown = kind === 'in' ? container.sealIn : container.sealOut;
   const accent = kind === 'in' ? 'bg-blue-700' : 'bg-slate-700';
 
-  const row = (label: string, value: string, mono = false): ReactElement => (
-    <div className="flex items-stretch border-b border-line-strong last:border-b-0">
+  /**
+   * One labelled cell of the voucher grid. `wide` spans both columns for the
+   * long free-text values; `danger` paints the hazardous-goods line red so it
+   * is the first thing read on paper as well as on screen.
+   */
+  const row = (
+    label: string,
+    value: string,
+    options: { mono?: boolean; wide?: boolean; danger?: boolean } = {},
+  ): ReactElement => (
+    <div
+      className={`flex items-stretch border-b border-line-strong${options.wide === true ? ' sm:col-span-2' : ' border-e'}`}
+    >
       <span className="gate-label flex w-32 shrink-0 items-center border-e border-line-strong bg-sunken px-3 py-2 text-[13px] font-bold text-ink">
         {label}
       </span>
       <span
-        className={`gate-value flex flex-1 items-center px-3 py-2 text-sm font-semibold text-ink${mono ? ' font-mono tracking-wide' : ''}`}
+        className={`gate-value flex flex-1 items-center px-3 py-2 text-sm font-semibold${
+          options.danger === true ? ' bg-danger-soft font-extrabold text-danger' : ' text-ink'
+        }${options.mono === true ? ' font-mono tracking-wide' : ''}`}
         dir="ltr"
       >
         {value}
@@ -68,8 +81,8 @@ export function PrintCard(props: {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
       {/* The card prints upright, unlike the wide report sheets. */}
-      <style>{'@media print { @page { size: A4 portrait; margin: 14mm; } }'}</style>
-      <div className="max-h-full w-full max-w-md overflow-y-auto">
+      <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
+      <div className="max-h-full w-full max-w-2xl overflow-y-auto">
         <div className="print-area gate-card overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
           {/* The voucher strip: serial | title | day+date. */}
           <div className={`flex items-stretch ${accent} text-white`}>
@@ -99,6 +112,12 @@ export function PrintCard(props: {
             </div>
           </div>
 
+          {/* The receipt itself: what the two signatures below attest to. It
+              says «المبينة معلوماتها أدناه», so it stands above the table. */}
+          <p className="gate-statement border-b-2 border-rule-strong px-3.5 py-2.5 text-[13px] font-semibold leading-6 text-ink">
+            {AR.cardStatement}
+          </p>
+
           {/* The container number is what the gate checker actually reads —
               it stands alone, big, above the table. */}
           <div className="gate-hero border-b-2 border-rule-strong px-3 py-2.5 text-center">
@@ -108,17 +127,25 @@ export function PrintCard(props: {
             </p>
           </div>
 
-          {row(AR.cardSize, `${String(container.size)} قدم`)}
-          {row(AR.cardCompany, container.customer)}
-          {container.bill !== '' && row(AR.cardBill, container.bill, true)}
-          {row(AR.cardTruck, truck === '' ? '—' : truck)}
-          {row(AR.cardDriver, driver === '' ? '—' : driver)}
-          {row(AR.cardWeight, container.weight === '' ? '—' : container.weight)}
-          {/* The seal of THIS gate moment: the one it came under on the entry
-              card, the one it leaves under on the exit card. */}
-          {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, true)}
-          {row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), true)}
-          {container.notes !== '' && row(AR.cardNotes, container.notes)}
+          <div className="grid sm:grid-cols-2">
+            {row(AR.cardBill, container.bill === '' ? '—' : container.bill, { mono: true })}
+            {row(AR.cardSize, `${String(container.size)} قدم`)}
+            {row(AR.cardCompany, container.customer)}
+            {row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), { mono: true })}
+            {row(AR.cardWeightGross, container.weight === '' ? '—' : container.weight)}
+            {row(AR.cardWeightNet, container.weightNet === '' ? '—' : container.weightNet)}
+            {/* The seal of THIS gate moment: the one it came under on the
+                entry card, the one it leaves under on the exit card. */}
+            {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, { mono: true })}
+            {row(AR.cardStoredAt, at === null ? '—' : dateFormat.format(new Date(at)))}
+            {row(AR.cardTruck, truck === '' ? '—' : truck)}
+            {row(AR.cardDriver, driver === '' ? '—' : driver)}
+            {row(AR.cardHazmat, container.hazmat ? AR.hazmatYes : AR.hazmatNo, {
+              wide: true,
+              danger: container.hazmat,
+            })}
+            {row(AR.cardNotes, container.notes === '' ? '—' : container.notes, { wide: true })}
+          </div>
 
           <div className="flex border-t-2 border-rule-strong">
             {[AR.cardWorkerSign, AR.cardSupervisorSign].map((sign, index) => (

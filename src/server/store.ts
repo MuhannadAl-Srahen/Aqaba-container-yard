@@ -41,6 +41,8 @@ interface ContainerRow {
   stack: number | null;
   tier: string | null;
   weight: string;
+  weight_net: string;
+  hazmat: number;
   truck_in: string;
   driver_in: string;
   seal_in: string;
@@ -75,6 +77,8 @@ function toDto(row: ContainerRow): ContainerDto {
     position: slotOf(row.zone, row.bay, row.stack, row.tier),
     notes: row.notes,
     weight: row.weight,
+    weightNet: row.weight_net,
+    hazmat: row.hazmat === 1,
     truckIn: row.truck_in,
     driverIn: row.driver_in,
     sealIn: row.seal_in,
@@ -275,6 +279,8 @@ export interface NewContainer {
   position: Position;
   at: string;
   weight: string;
+  weightNet: string;
+  hazmat: boolean;
   truckIn: string;
   driverIn: string;
   sealIn: string;
@@ -286,8 +292,8 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
     .prepare(
       `INSERT INTO containers
          (number, number_valid, size, customer, bill, notes, entered_at, zone, bay, stack, tier,
-          weight, truck_in, driver_in, seal_in, card_in)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          weight, weight_net, hazmat, truck_in, driver_in, seal_in, card_in)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       container.number,
@@ -302,6 +308,8 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
       container.position.stack,
       container.position.tier,
       container.weight,
+      container.weightNet,
+      container.hazmat ? 1 : 0,
       container.truckIn,
       container.driverIn,
       container.sealIn,
@@ -485,6 +493,8 @@ interface GateRow {
   size: number;
   customer: string;
   weight: string;
+  weight_net: string;
+  hazmat: number;
   notes: string;
   truck_in: string;
   driver_in: string;
@@ -513,7 +523,7 @@ export function listGateMovements(
   const rows = db
     .prepare(
       `SELECT m.container_id, m.at, m.user_id, ${positionColumns},
-              k.number, k.size, k.customer, k.bill, k.weight, k.notes,
+              k.number, k.size, k.customer, k.bill, k.weight, k.weight_net, k.hazmat, k.notes,
               k.truck_in, k.driver_in, k.seal_in, k.card_in,
               k.truck_out, k.driver_out, k.seal_out, k.card_out,
               k.entered_at
@@ -534,6 +544,8 @@ export function listGateMovements(
     number: row.number,
     bill: row.bill,
     weight: row.weight,
+    weightNet: row.weight_net,
+    hazmat: row.hazmat === 1,
     notes: row.notes,
     size: row.size as Size,
     customer: row.customer,
@@ -553,6 +565,8 @@ export interface GateReportRowInternal {
   seal: string;
   number: string;
   weight: string;
+  weightNet: string;
+  hazmat: boolean;
   notes: string;
   size: Size;
   customer: string;
@@ -644,7 +658,7 @@ export function listTruckMovements(
       `SELECT m.type, m.container_id, m.at, m.user_id,
               m.from_zone, m.from_bay, m.from_stack, m.from_tier,
               m.to_zone, m.to_bay, m.to_stack, m.to_tier,
-              k.number, k.size, k.customer, k.bill, k.weight, k.notes,
+              k.number, k.size, k.customer, k.bill, k.weight, k.weight_net, k.hazmat, k.notes,
               k.truck_in, k.driver_in, k.seal_in, k.card_in,
               k.truck_out, k.driver_out, k.seal_out, k.card_out,
               k.entered_at
@@ -669,6 +683,8 @@ export function listTruckMovements(
       number: row.number,
       bill: row.bill,
       weight: row.weight,
+      weightNet: row.weight_net,
+      hazmat: row.hazmat === 1,
       notes: row.notes,
       size: row.size as Size,
       customer: row.customer,

@@ -81,7 +81,11 @@ const gateInSchema = z.object({
   truck: z.string().trim().min(1).max(30),
   seal: z.string().trim().min(1).max(30),
   driver: z.string().trim().max(60).default(''),
+  /** الوزن القائم then الوزن الصافي, both as the scale ticket reads them. */
   weight: z.string().trim().max(20).default(''),
+  weightNet: z.string().trim().max(20).default(''),
+  /** مواد خطرة. */
+  hazmat: z.boolean().default(false),
 });
 
 const gateOutSchema = z.object({
@@ -377,6 +381,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         position: body.position,
         at,
         weight: body.weight,
+        weightNet: body.weightNet,
+        hazmat: body.hazmat,
         truckIn: body.truck,
         driverIn: body.driver,
         sealIn: body.seal,
@@ -633,6 +639,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         driver: row.driver,
         number: row.number,
         weight: row.weight,
+        weightNet: row.weightNet,
+        hazmat: row.hazmat,
         size: row.size,
         customer: row.customer,
         bill: row.bill,
@@ -660,6 +668,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         containerId: container.id,
         number: container.number,
         size: container.size,
+        hazmat: container.hazmat,
         customer: container.customer,
         bill: container.bill,
         position: container.position,
@@ -700,6 +709,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         driver: row.driver,
         number: row.number,
         weight: row.weight,
+        weightNet: row.weightNet,
+        hazmat: row.hazmat,
         size: row.size,
         customer: row.customer,
         bill: row.bill,

@@ -393,7 +393,7 @@ describe('gate out', () => {
 
     expect((await gateOut(ground.body.id)).status).toBe(200);
 
-    const where = async (id: number): Promise<Position | null> => {
+    const where = async (id: number | undefined): Promise<Position | null> => {
       const card = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
       return (card.body as { container: { position: Position | null } }).container.position;
     };
@@ -663,6 +663,56 @@ describe('reports', () => {
       url: `/api/reports/truck?truck=522&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
     });
     expect((outbound.body as { rows: unknown[] }).rows).toHaveLength(1);
+  });
+});
+
+describe('مواد خطرة والوزنان', () => {
+  it('ride in at the gate and reach the card, the state and the registers', async () => {
+    const entered = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: {
+        number: 'HAZM0001',
+        size: 20,
+        customer: 'شركة الكيماويات',
+        notes: '',
+        position: slot('B', 1, 1, 'A'),
+        truck: '500',
+        seal: 'JO1',
+        driver: '',
+        weight: '30000',
+        weightNet: '24000',
+        hazmat: true,
+      },
+    });
+    expect(entered.status).toBe(201);
+    expect(entered.body as { hazmat: boolean; weight: string; weightNet: string }).toMatchObject({
+      hazmat: true,
+      weight: '30000',
+      weightNet: '24000',
+    });
+
+    // Both weights and the flag survive the round trip to every register.
+    const range = wideRange();
+    const gate = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=IN&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    const row = (gate.body as { rows: Array<{ hazmat: boolean; weightNet: string }> }).rows[0];
+    expect(row?.hazmat).toBe(true);
+    expect(row?.weightNet).toBe('24000');
+
+    const standing = await call({ method: 'GET', url: '/api/reports/standing' });
+    expect((standing.body as { rows: Array<{ hazmat: boolean }> }).rows[0]?.hazmat).toBe(true);
+  });
+
+  it('default to safe and blank when the gate does not say', async () => {
+    const plain = await gateIn('HAZM0002', 20, slot('B', 3, 1, 'A'));
+    expect(plain.status).toBe(201);
+    const card = await call({ method: 'GET', url: `/api/containers/${String(plain.body.id)}` });
+    expect(
+      (card.body as { container: { hazmat: boolean; weightNet: string } }).container,
+    ).toMatchObject({ hazmat: false, weightNet: '' });
   });
 });
 

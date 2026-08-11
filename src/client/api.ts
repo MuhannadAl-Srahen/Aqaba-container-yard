@@ -128,6 +128,8 @@ export const api = {
     seal: string;
     driver: string;
     weight: string;
+    weightNet: string;
+    hazmat: boolean;
   }): Promise<ContainerDto> =>
     request('/api/containers', { method: 'POST', body: JSON.stringify(input) }),
 

@@ -54,6 +54,8 @@ export interface TableCell {
   readonly wrap?: boolean;
   /** Screen only: the cell is a link (e.g. a truck opening its register). */
   readonly onClick?: () => void;
+  /** مواد خطرة: red on screen, on paper and in the PDF alike. */
+  readonly danger?: boolean;
 }
 
 export interface TableModel {
@@ -65,6 +67,9 @@ export interface TableModel {
 export const cellText = (text: string): TableCell => ({ text });
 export const cellLtr = (text: string): TableCell => ({ text, ltr: true });
 export const cellWrap = (text: string): TableCell => ({ text, wrap: true });
+/** A yes/no that must be impossible to miss when it is a yes. */
+export const cellFlag = (on: boolean, yes: string, no: string): TableCell =>
+  on ? { text: yes, danger: true } : { text: no };
 export const dash = '—';
 
 export const stampCells = (at: Date): TableCell[] => [
@@ -90,7 +95,13 @@ export function sheetHtml(title: string, period: string, model: TableModel): str
         `<tr>${row
           .map(
             (c) =>
-              `<td${c.ltr === true ? ' class="ltr"' : c.wrap === true ? ' class="free"' : ''}>${esc(c.text)}</td>`,
+              `<td class="${[
+                c.ltr === true ? 'ltr' : '',
+                c.wrap === true ? 'free' : '',
+                c.danger === true ? 'danger' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}">${esc(c.text)}</td>`,
           )
           .join('')}</tr>`,
     )
@@ -128,6 +139,10 @@ export function sheetHtml(title: string, period: string, model: TableModel): str
     // Free text is the only thing allowed to grow tall, and it breaks
     // between words — never through the middle of one.
     `td.free{line-height:1.5}` +
+    // مواد خطرة: the one colour on the sheet, and print-color-adjust above
+    // makes sure the printer honours it instead of dropping it to grey. The
+    // even-row stripe is overridden so it stays red down the whole column.
+    `td.danger,tbody tr:nth-child(even) td.danger{background:#fee2e2;color:#b91c1c;font-weight:800}` +
     `tfoot td{border-top:2px solid #334155;font-weight:700;background:#e2e8f0}` +
     `thead{display:table-header-group}tfoot{display:table-footer-group}` +
     `tr{break-inside:avoid;page-break-inside:avoid}` +
@@ -411,6 +426,9 @@ export function SheetScreen(props: {
                               (cell.wrap === true ? cellFree : '') +
                               (cell.onClick !== undefined
                                 ? ' cursor-pointer font-semibold text-blue-700 underline decoration-dotted hover:text-blue-900'
+                                : '') +
+                              (cell.danger === true
+                                ? ' bg-danger-soft font-extrabold text-danger'
                                 : '')
                             }
                             dir={cell.ltr === true ? 'ltr' : undefined}

@@ -138,8 +138,15 @@ export interface ContainerDto {
   readonly position: Position | null;
   /** Free text: the condition it arrived in, and anything else worth saying. */
   readonly notes: string;
-  /** The gate paperwork. Blank when it was not recorded. */
+  /**
+   * مواد خطرة — dangerous goods. Drawn red on every surface and printed on
+   * both gate cards, so nobody has to remember which box it was.
+   */
+  readonly hazmat: boolean;
+  /** The gate paperwork, blank when unrecorded. الوزن القائم — gross. */
   readonly weight: string;
+  /** الوزن الصافي — net. */
+  readonly weightNet: string;
   readonly truckIn: string;
   readonly driverIn: string;
   /** The seal (الرصاصة) on the door at the gate — one each way. */
@@ -162,6 +169,8 @@ export interface GateReportRow {
   readonly driver: string;
   readonly number: string;
   readonly weight: string;
+  readonly weightNet: string;
+  readonly hazmat: boolean;
   readonly size: Size;
   readonly customer: string;
   readonly bill: string;
@@ -180,6 +189,7 @@ export interface StandingReportRow {
   readonly containerId: number;
   readonly number: string;
   readonly size: Size;
+  readonly hazmat: boolean;
   readonly customer: string;
   readonly bill: string;
   readonly position: Position | null;

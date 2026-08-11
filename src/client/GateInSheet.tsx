@@ -26,6 +26,8 @@ export function GateInSheet(props: {
   const [seal, setSeal] = useState('');
   const [driver, setDriver] = useState('');
   const [weight, setWeight] = useState('');
+  const [weightNet, setWeightNet] = useState('');
+  const [hazmat, setHazmat] = useState(false);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,6 +58,8 @@ export function GateInSheet(props: {
         seal: seal.trim(),
         driver: driver.trim(),
         weight: weight.trim(),
+        weightNet: weightNet.trim(),
+        hazmat,
       })
       .then((container) => {
         props.onDone(AR.gateInDone(container.number, positionText));
@@ -142,7 +146,7 @@ export function GateInSheet(props: {
               }}
             />
           </Field>
-          <Field label={AR.weight}>
+          <Field label={AR.weightGross}>
             <input
               dir="ltr"
               inputMode="numeric"
@@ -152,6 +156,41 @@ export function GateInSheet(props: {
                 setWeight(event.target.value);
               }}
             />
+          </Field>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={AR.weightNet}>
+            <input
+              dir="ltr"
+              inputMode="numeric"
+              className={`${inputClass} text-start`}
+              value={weightNet}
+              onChange={(event) => {
+                setWeightNet(event.target.value);
+              }}
+            />
+          </Field>
+          {/* مواد خطرة rides at the gate, not as an afterthought: it decides
+              where the crew may put it and what the card must warn about. */}
+          <Field label={AR.hazmat} hint={<span className="text-faint">{AR.hazmatHint}</span>}>
+            <label
+              className={`flex cursor-pointer items-center gap-2.5 rounded-xl border-2 px-3.5 py-2.5 text-sm font-bold transition ${
+                hazmat
+                  ? 'border-danger bg-danger-soft text-danger'
+                  : 'border-line bg-surface text-muted'
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="size-5 accent-current"
+                checked={hazmat}
+                onChange={(event) => {
+                  setHazmat(event.target.checked);
+                }}
+              />
+              {hazmat ? AR.hazmatYes : AR.hazmatNo}
+            </label>
           </Field>
         </div>
 

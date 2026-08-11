@@ -140,7 +140,14 @@ export const AR = {
   sealWas: (seal: string): string => `دخلت برصاصة ${seal}`,
   sealChanged: 'الرصاصة تغيّرت',
   driver: 'اسم السائق (اختياري)',
-  weight: 'الوزن بالكغم (اختياري)',
+  weightGross: 'الوزن القائم بالكغم',
+  weightNet: 'الوزن الصافي بالكغم',
+  hazmat: 'مواد خطرة',
+  hazmatHint: 'علّم عليها إذا كانت الحاوية تحمل مواد خطرة',
+  hazmatYes: 'نعم — مواد خطرة',
+  hazmatNo: 'لا — بضاعة عادية',
+  hazmatWarning: 'تحذير: هذه الحاوية تحمل مواد خطرة.',
+  hazmatShort: 'خطرة',
   customer: 'اسم المالك',
   customerHint: 'صاحب الحاوية — اكتب الاسم أو اختار من القائمة',
   notes: 'ملاحظات',
@@ -218,14 +225,25 @@ export const AR = {
   cardDate: 'التاريخ',
   cardDriver: 'اسم السائق',
   cardTruck: 'رقم السيارة',
-  cardSize: 'نوع الحاوية',
+  cardSize: 'فئة الحاوية',
   cardCompany: 'اسم المالك',
-  cardWeight: 'الوزن (كغم)',
+  cardWeightGross: 'الوزن القائم بالكغم',
+  cardWeightNet: 'الوزن الصافي بالكغم',
   cardSeal: 'رقم الرصاصة',
-  cardSlot: 'الموقع',
+  cardSlot: 'موقع الحاوية',
+  cardStoredAt: 'تاريخ تخزين الحاوية',
+  cardHazmat: 'مواد خطرة',
   cardNotes: 'ملاحظات',
-  cardWorkerSign: 'توقيع العامل',
-  cardSupervisorSign: 'توقيع المشرف',
+  /**
+   * The receipt line the storage directorate and الحق sign under. The date is
+   * left open on the paper so it is filled in by hand at the gate.
+   */
+  cardStatement:
+    'تم بتاريخ     /     /       استلام وتخزين الحاوية المبينة معلوماتها أدناه ' +
+    'في الموقع المخصص بإشراف مندوب مديرية إدارة التخزين وشركة الحق ' +
+    'تحت وضع الرصاص الجمركي:',
+  cardWorkerSign: 'توقيع موظف مديرية إدارة التخزين',
+  cardSupervisorSign: 'توقيع شركة الحق',
   printCardIn: 'طباعة بطاقة دخول',
   printCardOut: 'طباعة بطاقة خروج',
 
@@ -250,9 +268,19 @@ export const AR = {
   colCardIn: 'رقم بطاقة دخول',
   colCardOut: 'رقم بطاقة خروج',
   colNumber: 'رقم الحاوية',
-  colWeight: 'الوزن (كغم)',
-  colSize: 'نوع الحاوية',
+  colWeight: 'الوزن القائم (كغم)',
+  colWeightNet: 'الوزن الصافي (كغم)',
+  colHazmat: 'مواد خطرة',
+  colSize: 'فئة الحاوية',
   colSlot: 'موقع الحاوية',
+  /**
+   * A gate register records the slot of the gate MOMENT; the standing sheet
+   * records where the container is now. Since a box can descend a tier when
+   * a neighbour leaves, the two can differ — so each column says which it is.
+   */
+  colSlotIn: 'الموقع عند الدخول',
+  colSlotOut: 'الموقع عند الخروج',
+  colSlotNow: 'الموقع الحالي',
   colCompany: 'اسم المالك',
   colSeal: 'رقم الرصاصة',
   colNotes: 'ملاحظات',
