@@ -22,6 +22,32 @@ export function openDatabase(file: string): DatabaseSync {
 }
 
 /**
+ * The file this handle is actually writing to. A `:memory:` database answers
+ * with a blank, which is how the routes that need a real file on disk know to
+ * refuse instead of pretending.
+ */
+export function databaseFile(db: DatabaseSync): string {
+  const rows = db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>;
+  return rows.find((row) => row.name === 'main')?.file ?? '';
+}
+
+/**
+ * A complete single-file copy beside the live one, WAL folded in, named for
+ * the moment it was taken. Every destructive operation takes one first — a
+ * wipe or a restore should never be the last word on anything.
+ */
+export function snapshot(db: DatabaseSync, label: string): string {
+  const live = databaseFile(db);
+  if (live === '') throw new Error('no file to snapshot');
+  const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', '-');
+  const dir = path.join(path.dirname(live), 'backups');
+  mkdirSync(dir, { recursive: true });
+  const target = path.join(dir, `${label}-${stamp}.db`);
+  db.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`);
+  return target;
+}
+
+/**
  * Schema v9: the yard became the official ASEZA yard, and a position became
  * the exact five-part slot (zone, bay, stack, tier). The yard's SHAPE left
  * the database entirely — it is the authority's own drawing, decoded into

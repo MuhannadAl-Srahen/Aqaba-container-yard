@@ -1,7 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import cookie from '@fastify/cookie';
 import type { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 
@@ -34,7 +34,8 @@ import {
   verifySecret,
   verifySession,
 } from './auth';
-import { transaction } from './db';
+import { databaseFile, snapshot, transaction } from './db';
+import { registerOwnerTools } from './ownerTools';
 import * as store from './store';
 
 /**
@@ -176,6 +177,15 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   // the whole yard.
   const app = Fastify({ logger: false, trustProxy: true });
   void app.register(cookie);
+  // A restored backup arrives as raw database bytes. Fastify only knows JSON
+  // out of the box; the route that receives this sets its own body limit.
+  app.addContentTypeParser(
+    'application/octet-stream',
+    { parseAs: 'buffer' },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
 
   const attempts = new Map<string, { count: number; windowStart: number }>();
 
@@ -808,16 +818,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    */
   app.post('/api/backup', (request, reply) => {
     requireOwner(request);
-    const main = (db.prepare('PRAGMA database_list').all() as Array<{ name: string; file: string }>)
-      .find((row) => row.name === 'main');
-    const liveFile = main?.file ?? '';
-    if (liveFile === '') refuse(409, 'NOT_SETUP');
-
-    const stamp = new Date().toISOString().slice(0, 19).replaceAll(':', '-').replace('T', '-');
-    const dir = path.join(path.dirname(liveFile), 'backups');
-    mkdirSync(dir, { recursive: true });
-    const target = path.join(dir, `yard-${stamp}.db`);
-    db.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`);
+    if (databaseFile(db) === '') refuse(409, 'NOT_SETUP');
+    const target = snapshot(db, 'yard');
 
     const bytes = readFileSync(target);
     void reply
@@ -933,6 +935,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     if (container === null) throw new Error('unreachable');
     return { container, movements: store.listMovements(db, id) };
   });
+
+  // The owner's training tools, for the period the staff are learning on the
+  // live yard. One line and one file — both go together when they are done.
+  registerOwnerTools(app, db, { requireOwner, refuse });
 
   return app;
 }

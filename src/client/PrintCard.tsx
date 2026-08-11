@@ -124,8 +124,18 @@ export function PrintCard(props: {
 
           {/* The receipt itself: what the two signatures below attest to. It
               says «المبينة معلوماتها أدناه», so it stands above the table. */}
-          <p className="gate-statement border-b-2 border-rule-strong px-3.5 py-2.5 text-[13px] font-semibold leading-6 text-ink">
-            {AR.cardStatement}
+          <p className="gate-statement border-b-2 border-rule-strong px-3.5 py-3 text-[13px] font-semibold leading-7 text-ink">
+            {AR.cardStatementBefore}{' '}
+            {/* Ruled slots, not spaces: a run of spaces collapses in HTML and
+                leaves nothing to write the date on. */}
+            <span className="gate-date" dir="ltr">
+              <span className="gate-date-slot" />
+              <span className="gate-date-sep">/</span>
+              <span className="gate-date-slot" />
+              <span className="gate-date-sep">/</span>
+              <span className="gate-date-slot gate-date-year" />
+            </span>{' '}
+            {AR.cardStatementAfter}
           </p>
 
           {/* The container number is what the gate checker actually reads —

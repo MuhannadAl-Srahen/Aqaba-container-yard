@@ -255,10 +255,10 @@ export const AR = {
    * The receipt line the storage directorate and الحق sign under. The date is
    * left open on the paper so it is filled in by hand at the gate.
    */
-  cardStatement:
-    'تم بتاريخ     /     /       استلام وتخزين الحاوية المبينة معلوماتها أدناه ' +
-    'في الموقع المخصص بإشراف مندوب مديرية إدارة التخزين وشركة الحق ' +
-    'تحت وضع الرصاص الجمركي:',
+  cardStatementBefore: 'تم بتاريخ',
+  cardStatementAfter:
+    'استلام وتخزين الحاوية المبينة معلوماتها أدناه في الموقع المخصص ' +
+    'بإشراف مندوب مديرية إدارة التخزين وشركة الحق تحت وضع الرصاص الجمركي:',
   cardWorkerSign: 'توقيع موظف مديرية إدارة التخزين',
   cardSupervisorSign: 'توقيع شركة الحق',
   printCardIn: 'طباعة بطاقة دخول',
@@ -361,6 +361,48 @@ export const AR = {
   revertedDone: 'انرجع التعديل.',
   perPage: 'بكل صفحة',
 
+  // ---- owner training tools (temporary, for the training period) ----
+  toolsButton: 'أدوات التدريب',
+  toolsTitle: 'أدوات التدريب',
+  toolsWarning:
+    'هذه الأدوات للفترة التجريبية فقط، وللمالك وحده. كل عملية منها بتاخد نسخة ' +
+    'احتياطية من الوضع الحالي قبل ما تشتغل.',
+  toolsSeedTitle: 'بيانات تجريبية',
+  toolsSeedBody:
+    'بتعبّي الساحة بحاويات تجريبية بتواريخ وأوقات مختلفة — منها واقف ومنها طلع، ' +
+    'وفيها بوالص ومواد خطرة — لعرض النظام على الناس.',
+  toolsSeedAction: 'عبّي بيانات تجريبية',
+  toolsSeedConfirm: 'رح تنضاف حاويات تجريبية على الموجود حالياً. متأكد؟',
+  toolsSeedDone: (added: number, departed: number): string =>
+    `انضافت ${String(added)} حاوية تجريبية، منها ${String(departed)} طلعت من الساحة.`,
+  toolsBackupTitle: 'نسخة احتياطية',
+  toolsBackupBody: 'بتحفظ نسخة كاملة على السيرفر وبتنزّل نفس الملف على جهازك.',
+  toolsRestoreTitle: 'استرجاع نسخة احتياطية',
+  toolsRestoreBody:
+    'اختار ملف نسخة احتياطية (‎.db) ورجّع الساحة لحالتها وقت النسخة. ' +
+    'انتبه: بيرجع كل شي — الحاويات والحركات والموظفين وكلمات السر كما كانت وقتها.',
+  toolsPickFile: 'اختر ملف النسخة',
+  toolsNoFile: 'ما في ملف مختار',
+  toolsRestoreAction: 'استرجاع النسخة',
+  toolsRestoreConfirm: (name: string): string =>
+    `رح يترجع كل شي من «${name}»: الحاويات والحركات والموظفين وكلمات السر. ` +
+    'الوضع الحالي رح ينحفظ بنسخة احتياطية قبلها. متأكد؟',
+  toolsRestoreDone: (containers: number, users: number): string =>
+    `رجعت النسخة: ${String(containers)} حاوية و${String(users)} موظف.`,
+  toolsWipeTitle: 'حذف كل البيانات',
+  toolsWipeBody:
+    'بتمسح كل الحاويات والحركات وبترجّع أرقام البطاقات لواحد. الموظفين وكلمات ' +
+    'السر بتضل زي ما هي.',
+  toolsWipeWordSet: 'عيّن كلمة سر الحذف',
+  toolsWipeWordChange: 'غيّر كلمة سر الحذف',
+  toolsWipeWordHint: 'كلمة مستقلة عن كلمة دخولك — 4 خانات على الأقل.',
+  toolsWipeWordSaved: 'انحفظت كلمة سر الحذف.',
+  toolsWipeConfirmWord: 'اكتب كلمة سر الحذف للتأكيد',
+  toolsWipeAction: 'احذف كل البيانات',
+  toolsWipeConfirm:
+    'رح تنمسح كل الحاويات والحركات. الوضع الحالي رح ينحفظ بنسخة احتياطية قبلها. متأكد؟',
+  toolsWipeDone: 'انمسحت البيانات، والموظفين بمكانهم.',
+
   // ---- backup ----
   backup: 'نسخة احتياطية',
   backupWorking: 'جارٍ تجهيز النسخة…',
@@ -396,6 +438,7 @@ export const AR = {
     ALREADY_OUT: 'هاي الحاوية طلعت من الساحة أصلًا.',
     NAME_TAKEN: 'الاسم مستخدم — غيّره.',
     NOT_DELETED: 'هذا السجل مش محذوف أصلًا.',
+    BAD_BACKUP: 'الملف مش نسخة احتياطية صالحة للنظام — اختر ملف .db مأخوذ من زر النسخة الاحتياطية.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
   errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>

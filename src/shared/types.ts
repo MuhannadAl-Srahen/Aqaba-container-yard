@@ -286,6 +286,8 @@ export const ERROR_CODES = [
   'ALREADY_OUT',
   'NAME_TAKEN',
   'NOT_DELETED',
+  /** The uploaded restore file is not a yard backup this version can read. */
+  'BAD_BACKUP',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

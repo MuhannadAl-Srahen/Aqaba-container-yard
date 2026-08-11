@@ -243,6 +243,48 @@ export const api = {
     return { blob: await response.blob(), filename };
   },
 
+  /**
+   * The owner's training tools. Temporary, for the period the staff are
+   * learning on the live yard — they come out with OwnerToolsScreen.
+   */
+  ownerTools: (): Promise<{ wipePasswordSet: boolean }> => request('/api/owner/tools'),
+
+  setWipePassword: (password: string): Promise<{ ok: boolean }> =>
+    request('/api/owner/wipe-password', { method: 'POST', body: JSON.stringify({ password }) }),
+
+  wipeData: (password: string): Promise<{ ok: boolean; backup: string }> =>
+    request('/api/owner/wipe', { method: 'POST', body: JSON.stringify({ password }) }),
+
+  seedDemo: (): Promise<{ added: number; departed: number }> =>
+    request('/api/owner/seed', { method: 'POST', body: JSON.stringify({}) }),
+
+  /** Upload a .db backup and put the whole snapshot back. */
+  restoreBackup: async (
+    file: File,
+  ): Promise<{ ok: boolean; containers: number; users: number; backup: string }> => {
+    let response: Response;
+    try {
+      response = await fetch('/api/owner/restore', {
+        method: 'POST',
+        headers: { 'content-type': 'application/octet-stream' },
+        body: await file.arrayBuffer(),
+      });
+    } catch {
+      throw new ApiFailure('NETWORK', AR.networkError);
+    }
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as ApiError | null;
+      const code = body?.code ?? 'NETWORK';
+      throw new ApiFailure(code, AR.errors[code as ErrorCode] ?? AR.networkError);
+    }
+    return (await response.json()) as {
+      ok: boolean;
+      containers: number;
+      users: number;
+      backup: string;
+    };
+  },
+
   /** The sheet as a server-printed PDF file. */
   reportPdf: async (title: string, html: string, landscape: boolean): Promise<Blob> => {
     let response: Response;

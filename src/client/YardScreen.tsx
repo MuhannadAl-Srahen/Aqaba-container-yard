@@ -16,6 +16,7 @@ import { usePanZoom } from './usePanZoom';
 import { GateInSheet } from './GateInSheet';
 import { ContainerCard } from './ContainerCard';
 import { BaySheet } from './BaySheet';
+import { OwnerToolsScreen } from './OwnerToolsScreen';
 import { UsersScreen } from './UsersScreen';
 import { ThemePicker } from './ThemePicker';
 import { Button, Confirm, Toast } from './ui';
@@ -48,6 +49,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     null,
   );
   const [usersView, setUsersView] = useState(false);
+  /** Temporary: the owner's training tools, removed with OwnerToolsScreen. */
+  const [toolsView, setToolsView] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
@@ -209,6 +212,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <UsersScreen
         onBack={() => {
           setUsersView(false);
+        }}
+      />
+    );
+  } else if (toolsView && isOwner) {
+    screen = (
+      <OwnerToolsScreen
+        onBack={() => {
+          setToolsView(false);
         }}
       />
     );
@@ -426,6 +437,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                   }}
                 >
                   {backingUp ? AR.backupWorking : AR.backup}
+                </Button>
+                {/* Temporary, for the training period — see OwnerToolsScreen. */}
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setToolsView(true);
+                  }}
+                >
+                  {AR.toolsButton}
                 </Button>
               </>
             )}
