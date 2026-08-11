@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
+import { isTallRow, sheetMetrics } from './sheetGeometry';
 import { ThemePicker } from './ThemePicker';
 import { Button } from './ui';
 
@@ -83,16 +84,17 @@ const esc = (s: string): string =>
 
 /** The standalone sheet document — what the PDF printer and Excel both read. */
 export function sheetHtml(title: string, period: string, model: TableModel): string {
-  // The paper sheet is ruled by the same shares as the screen, so what the
-  // owner reviews on the screen is exactly what comes out of the printer.
-  const colGroup = `<colgroup>${columnShares(model, false)
+  // The paper sheet is ruled by exactly the measurements the screen used, so
+  // what the owner reviews on the screen is what comes out of the printer.
+  const metrics = sheetMetrics(model, false);
+  const colGroup = `<colgroup>${metrics.printShares
     .map((share) => `<col style="width:${share}">`)
     .join('')}</colgroup>`;
   const headRow = `<tr>${model.head.map((h) => `<th>${esc(h)}</th>`).join('')}</tr>`;
   const bodyRows = model.body
     .map(
       (row) =>
-        `<tr>${row
+        `<tr class="${isTallRow(row) ? 'tall' : ''}">${row
           .map(
             (c) =>
               `<td class="${[
@@ -127,10 +129,13 @@ export function sheetHtml(title: string, period: string, model: TableModel): str
     `h1{font-size:19px;margin:0}` +
     `.period{font-size:12px;color:#475569;margin:4px 0 0}` +
     // A fixed layout divides the page evenly instead of letting one long
-    // company name starve every other column.
-    `table{width:100%;border-collapse:collapse;font-size:10px;border:2px solid #334155;` +
-    `table-layout:fixed}` +
-    `th,td{border:1px solid #94a3b8;padding:3px 5px;text-align:right;vertical-align:middle;` +
+    // company name starve every other column, and the type is sized to the
+    // widest row this particular sheet carries — a register of eighteen
+    // columns cannot be read at the same size as one of six, and printing it
+    // at that size is precisely what made the columns overlap.
+    `table{width:100%;border-collapse:collapse;font-size:${metrics.printFont};` +
+    `border:2px solid #334155;table-layout:fixed}` +
+    `th,td{border:1px solid #94a3b8;padding:2.5px 4px;text-align:right;vertical-align:middle;` +
     `overflow-wrap:break-word;word-break:normal}` +
     `th{background:#e2e8f0;border-bottom:2px solid #334155;font-weight:700;line-height:1.35;` +
     `text-align:center}` +
@@ -145,7 +150,12 @@ export function sheetHtml(title: string, period: string, model: TableModel): str
     `td.danger,tbody tr:nth-child(even) td.danger{background:#fee2e2;color:#b91c1c;font-weight:800}` +
     `tfoot td{border-top:2px solid #334155;font-weight:700;background:#e2e8f0}` +
     `thead{display:table-header-group}tfoot{display:table-footer-group}` +
+    // A row is kept whole so the reader never loses the line they were on —
+    // unless a note has been written at such length that the row is taller
+    // than the page, in which case keeping it whole would push it off the
+    // paper altogether.
     `tr{break-inside:avoid;page-break-inside:avoid}` +
+    `tr.tall{break-inside:auto;page-break-inside:auto}` +
     `.printed{margin-top:8px;font-size:9px;color:#94a3b8;text-align:left;direction:ltr}` +
     `</style></head><body>` +
     `<div class="head"><p class="site">${esc(AR.appName)}</p><h1>${esc(title)}</h1>` +
@@ -175,38 +185,8 @@ const cellBase = 'border border-rule px-2 py-1.5 text-[13px] align-middle';
 const cellFree = ' break-words leading-6';
 const PAGE_SIZES = [20, 50, 80] as const;
 
-/** The longest unbreakable run in a heading — headings wrap, words do not. */
-function longestWord(text: string): number {
-  return text.split(' ').reduce((longest, word) => Math.max(longest, word.length), 0);
-}
-
-/**
- * Every column's share of the sheet, decided once from what it actually
- * carries. With `table-layout: fixed` these shares are the whole story: the
- * register always fits its page exactly, so no column is ever sliced off at
- * the far edge and no word is broken to buy room for the next column.
- */
-function columnShares(model: TableModel, hasActions: boolean): string[] {
-  const weights = model.head.map((heading, index) => {
-    let widest = longestWord(heading);
-    let free = false;
-    for (const row of model.body) {
-      const cell = row[index];
-      if (cell === undefined) continue;
-      if (cell.wrap === true) free = true;
-      widest = Math.max(widest, cell.text.length);
-    }
-    // Free text gets room to breathe; everything else gets exactly the width
-    // of the longest thing under it, and neither may run away with the page.
-    return free ? Math.min(Math.max(widest, 14), 26) : Math.min(widest + 2, 14);
-  });
-  // The actions column holds a button, not text, and `table-layout: fixed`
-  // lets anything wider than its column spill straight out past the ruling.
-  // Wide enough for «بطاقة» and its padding, with room to spare.
-  if (hasActions) weights.push(11);
-  const total = weights.reduce((sum, weight) => sum + weight, 0);
-  return weights.map((weight) => `${((weight / total) * 100).toFixed(3)}%`);
-}
+/** Inline custom properties: the sheet hands its measurements to the CSS. */
+type StyleVars = CSSProperties & Record<`--${string}`, string>;
 
 /**
  * A whole register screen: title row with the caller's tabs, a filter row
@@ -294,7 +274,8 @@ export function SheetScreen(props: {
   };
 
   const footer = model.footer;
-  const shares = columnShares(model, props.actions !== undefined);
+  const metrics = sheetMetrics(model, props.actions !== undefined);
+  const sheetStyle: StyleVars = { '--sheet-font': metrics.printFont };
 
   return (
     <div className="flex h-dvh flex-col bg-canvas">
@@ -395,7 +376,12 @@ export function SheetScreen(props: {
       </header>
 
       <main className="flex-1 overflow-auto p-4 lg:p-6">
-        <div className="print-area report-sheet mx-auto max-w-[1700px] rounded-2xl bg-surface p-5 shadow-sm lg:p-8">
+        <div
+          className={`print-area report-sheet mx-auto max-w-[1700px] rounded-2xl bg-surface p-5 shadow-sm lg:p-8${
+            metrics.tight ? ' sheet-tight' : ''
+          }`}
+          style={sheetStyle}
+        >
           <div className="mb-5 border-b-2 border-rule-strong pb-3 text-center">
             <p className="text-sm font-semibold text-muted">{AR.appName}</p>
             <h2 className="text-xl font-extrabold text-ink">{props.sheetTitle}</h2>
@@ -409,15 +395,23 @@ export function SheetScreen(props: {
           ) : (
             <>
               {/* On screen a wide register keeps its columns readable and
-                  scrolls sideways if it must; on paper the page decides the
-                  width and every column comes back in. Print gets every row;
-                  the screen pages. */}
+                  scrolls sideways if it must — the floor is what this sheet's
+                  own columns need at screen type, so nothing overlaps here
+                  either. On paper the page decides the width and every column
+                  comes back in. Print gets every row; the screen pages. */}
               <div className="sheet-scroll overflow-x-auto">
-              <table className="w-full min-w-[880px] table-fixed border-collapse border-2 border-rule-strong">
+              <table
+                className="w-full table-fixed border-collapse border-2 border-rule-strong"
+                style={{ minWidth: `${String(metrics.minWidth)}px` }}
+              >
                 <colgroup>
-                  {shares.map((share, index) => (
-                    <col key={index} style={{ width: share }} />
-                  ))}
+                  {metrics.shares.map((share, index) => {
+                    const colStyle: StyleVars = {
+                      width: share,
+                      '--print-w': metrics.printShares[index] ?? share,
+                    };
+                    return <col key={index} style={colStyle} />;
+                  })}
                 </colgroup>
                 <thead>
                   <tr>
@@ -449,6 +443,7 @@ export function SheetScreen(props: {
                         key={rowIndex}
                         className={
                           (onPage ? '' : 'row-off hidden print:table-row ') +
+                          (isTallRow(row) ? 'row-tall ' : '') +
                           'odd:bg-surface even:bg-sunken'
                         }
                       >

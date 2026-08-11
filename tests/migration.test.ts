@@ -110,7 +110,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(11);
+    ).toBe(12);
     db.close();
   });
 
@@ -226,6 +226,84 @@ describe('schema v9 — the cutover to the official yard', () => {
          VALUES ('CCCC0002', 1, 20, 'شركة', '2026-08-10T09:00:00.000Z', 'B', 3, 1, 'C')`,
       )
       .run();
+    upgraded.close();
+  });
+
+  /**
+   * v11 → v12: the gate cards start counting again every January. Nothing
+   * already printed is renumbered — a card in somebody's hand keeps the number
+   * on it — and each year's counter resumes above the highest serial that year
+   * actually issued, so no two cards of one year can ever share a number.
+   */
+  it('v11 → v12 dates every card already printed and splits the counter by year', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'v11.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO settings VALUES ('password', 'x'), ('card_in_next', '4'), ('card_out_next', '3');
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, pin_hash TEXT NOT NULL,
+        perms TEXT NOT NULL DEFAULT '', deleted_at TEXT
+      );
+      CREATE TABLE containers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT NOT NULL, number_valid INTEGER NOT NULL,
+        size INTEGER NOT NULL CHECK (size IN (20, 40)), customer TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '', entered_at TEXT NOT NULL, exited_at TEXT,
+        bill TEXT NOT NULL DEFAULT '',
+        zone TEXT CHECK (zone IN ('A', 'B', 'C', 'D', 'E')), bay INTEGER, stack INTEGER,
+        tier TEXT CHECK (tier IN ('A', 'B', 'C')),
+        weight TEXT NOT NULL DEFAULT '', weight_net TEXT NOT NULL DEFAULT '',
+        truck_in TEXT NOT NULL DEFAULT '',
+        driver_in TEXT NOT NULL DEFAULT '', seal_in TEXT NOT NULL DEFAULT '', card_in INTEGER,
+        truck_out TEXT NOT NULL DEFAULT '', driver_out TEXT NOT NULL DEFAULT '',
+        seal_out TEXT NOT NULL DEFAULT '', card_out INTEGER,
+        hazmat INTEGER NOT NULL DEFAULT 0, deleted_at TEXT
+      );
+      -- Two years of cards: 2025 got as far as 2 in and 1 out, 2026 to 3 and 2.
+      INSERT INTO containers (id, number, number_valid, size, customer, entered_at, exited_at,
+                              card_in, card_out, seal_in)
+        VALUES (1, 'AAAA0001', 1, 20, 'شركة', '2025-03-04T09:00:00.000Z', '2025-03-09T09:00:00.000Z', 1, 1, 'JO1'),
+               (2, 'AAAA0002', 1, 20, 'شركة', '2025-11-20T09:00:00.000Z', NULL, 2, NULL, 'JO2'),
+               (3, 'AAAA0003', 1, 20, 'شركة', '2026-01-06T09:00:00.000Z', '2026-02-01T09:00:00.000Z', 1, 1, 'JO3'),
+               (4, 'AAAA0004', 1, 20, 'شركة', '2026-05-11T09:00:00.000Z', '2026-06-01T09:00:00.000Z', 3, 2, 'JO4');
+      CREATE TABLE movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL REFERENCES containers (id),
+        type TEXT NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
+        at TEXT NOT NULL,
+        from_zone TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
+        to_zone TEXT, to_bay INTEGER, to_stack INTEGER, to_tier TEXT,
+        note TEXT NOT NULL DEFAULT '', user_id INTEGER REFERENCES users (id)
+      );
+      PRAGMA user_version = 11;
+    `);
+    db.close();
+
+    const upgraded = openDatabase(file);
+    const cards = upgraded
+      .prepare('SELECT id, card_in, card_in_year, card_out, card_out_year FROM containers ORDER BY id')
+      .all() as Array<Record<string, number | null>>;
+    // Every serial survives untouched, now dated.
+    expect(cards).toEqual([
+      { id: 1, card_in: 1, card_in_year: 2025, card_out: 1, card_out_year: 2025 },
+      { id: 2, card_in: 2, card_in_year: 2025, card_out: null, card_out_year: null },
+      { id: 3, card_in: 1, card_in_year: 2026, card_out: 1, card_out_year: 2026 },
+      { id: 4, card_in: 3, card_in_year: 2026, card_out: 2, card_out_year: 2026 },
+    ]);
+
+    const counters = Object.fromEntries(
+      (
+        upgraded
+          .prepare("SELECT key, value FROM settings WHERE key LIKE 'card%' ORDER BY key")
+          .all() as Array<{ key: string; value: string }>
+      ).map((row) => [row.key, row.value]),
+    );
+    expect(counters).toEqual({
+      'card_in_next:2025': '3',
+      'card_in_next:2026': '4',
+      'card_out_next:2025': '2',
+      'card_out_next:2026': '3',
+    });
     upgraded.close();
   });
 });

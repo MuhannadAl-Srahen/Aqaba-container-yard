@@ -6,6 +6,7 @@ import type {
   GateReportRow,
   StandingReportRow,
 } from '../shared/types';
+import { cardSerial } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { api, dwellDays } from './api';
@@ -85,7 +86,9 @@ function gateModel(
             onTruck(row.truck);
           },
         },
-    cellLtr(row.card === null ? dash : String(row.card)),
+    // Serial and year together: the count restarts every January, so «0091»
+    // on its own would name two different cards a year apart.
+    cellLtr(cardSerial(row.card, row.cardYear) ?? dash),
     cellLtr(row.number),
     billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),

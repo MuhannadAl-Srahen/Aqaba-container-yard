@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { ErrorCode, Position, Size, Zone } from '../shared/types';
 import { TIERS } from '../shared/types';
 import { ASEZA } from '../shared/asezaLayout';
+import { ammanYear } from '../shared/dates';
 import { bayLabel, baySpan } from '../shared/address';
 import { canPlace, type Standing } from '../shared/rules';
 import { checkNumber } from '../shared/iso6346';
@@ -98,7 +99,9 @@ export function registerOwnerTools(
     transaction(db, () => {
       db.exec('DELETE FROM movements');
       db.exec('DELETE FROM containers');
-      db.exec("DELETE FROM settings WHERE key IN ('card_in_next', 'card_out_next')");
+      // One counter per year now, so the wipe clears the whole family.
+      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
+      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
       db.exec("DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements')");
     });
     return { ok: true, backup: path.basename(kept) };
@@ -363,7 +366,8 @@ export function seedDemoYard(db: DatabaseSync): {
       truckIn: String(100 + Math.floor(rnd() * 899)),
       driverIn: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? DRIVERS[0] ?? '',
       sealIn: seal,
-      cardIn: store.nextCardNumber(db, 'in'),
+      cardIn: store.nextCardNumber(db, 'in', ammanYear(enteredAt)),
+      cardInYear: ammanYear(enteredAt),
     });
     store.recordMovement(db, id, 'IN', enteredAt, null, slot, '', null);
     added += 1;
@@ -377,7 +381,8 @@ export function seedDemoYard(db: DatabaseSync): {
         truck: String(100 + Math.floor(rnd() * 899)),
         driver: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? DRIVERS[0] ?? '',
         sealOut: seal,
-        cardOut: store.nextCardNumber(db, 'out'),
+        cardOut: store.nextCardNumber(db, 'out', ammanYear(exitedAt)),
+        cardOutYear: ammanYear(exitedAt),
       });
       store.recordMovement(db, id, 'OUT', exitedAt, slot, null, '', null);
       departed += 1;

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../src/server/db';
 import { buildApp } from '../src/server/app';
+import { ammanYear } from '../src/shared/dates';
 import type { Position, Tier, Zone } from '../src/shared/types';
 
 /**
@@ -69,7 +70,15 @@ async function gateIn(
   customer = 'شركة النقل الأردنية',
 ): Promise<{
   status: number;
-  body: { id?: number; position?: Position; code?: string; cardIn?: number; sealIn?: string };
+  body: {
+    id?: number;
+    position?: Position;
+    code?: string;
+    cardIn?: number;
+    cardInYear?: number;
+    sealIn?: string;
+    enteredAt?: string;
+  };
 }> {
   const result = await call({
     method: 'POST',
@@ -91,7 +100,15 @@ async function gateIn(
   });
   return result as {
     status: number;
-    body: { id?: number; position?: Position; code?: string; cardIn?: number; sealIn?: string };
+    body: {
+      id?: number;
+      position?: Position;
+      code?: string;
+      cardIn?: number;
+      cardInYear?: number;
+      sealIn?: string;
+      enteredAt?: string;
+    };
   };
 }
 
@@ -648,10 +665,20 @@ describe('gate paperwork', () => {
     expect(result.status).toBe(400);
   });
 
-  it('the local 4+4 number form is valid, not a warning', async () => {
-    const result = await gateIn('ABCD1234', 20, slot('B', 1, 1, 'A'));
-    expect(result.status).toBe(201);
-    expect((result.body as { numberValid: boolean }).numberValid).toBe(true);
+  /**
+   * The accepted shape is four letters and seven digits. A shorter one is a
+   * warning, never a refusal: the box is in the yard whatever its paperwork
+   * says, and a gate that cannot record it teaches the clerk to invent a
+   * number that passes.
+   */
+  it('records a number of the wrong shape, flagged rather than refused', async () => {
+    const short = await gateIn('ABCD1234', 20, slot('B', 1, 1, 'A'));
+    expect(short.status).toBe(201);
+    expect((short.body as { numberValid: boolean }).numberValid).toBe(false);
+
+    const proper = await gateIn('MSCU1234566', 20, slot('B', 1, 2, 'A'));
+    expect(proper.status).toBe(201);
+    expect((proper.body as { numberValid: boolean }).numberValid).toBe(true);
   });
 
   it('card serials count up from 1, separately per direction', async () => {
@@ -662,6 +689,16 @@ describe('gate paperwork', () => {
 
     const out = await gateOut(first.body.id);
     expect((out.body as { cardOut: number }).cardOut).toBe(1);
+  });
+
+  /** The count restarts each January, so the year is part of the record. */
+  it('stamps each card with the Amman year it was issued in', async () => {
+    const thisYear = ammanYear(new Date());
+    const entered = await gateIn('CARD0003', 20, slot('B', 1, 3, 'A'));
+    expect(entered.body.cardInYear).toBe(thisYear);
+
+    const out = await gateOut(entered.body.id);
+    expect(out.body).toMatchObject({ cardOutYear: thisYear });
   });
 });
 
@@ -866,8 +903,8 @@ describe('ثلاثة طوابق في كل مكان', () => {
   });
 });
 
-describe('كل الخانات إلزامية عدا الملاحظات', () => {
-  const missing = (field: string): Promise<{ status: number; body: unknown }> => {
+describe('الخانات الإلزامية والاختيارية', () => {
+  const withoutField = (field: string): Promise<{ status: number; body: unknown }> => {
     const payload: Record<string, unknown> = {
       number: 'MAND0001',
       size: 20,
@@ -885,24 +922,20 @@ describe('كل الخانات إلزامية عدا الملاحظات', () => {
     return call({ method: 'POST', url: '/api/containers', payload });
   };
 
-  it('refuses a gate-in with any field left blank', async () => {
-    for (const field of [
-      'number',
-      'customer',
-      'bill',
-      'truck',
-      'seal',
-      'driver',
-      'weight',
-      'weightNet',
-    ]) {
-      const refused = await missing(field);
+  it('refuses a gate-in missing any of the mandatory fields', async () => {
+    for (const field of ['number', 'customer', 'bill', 'truck', 'seal']) {
+      const refused = await withoutField(field);
       expect(refused.status, field).toBe(400);
     }
   });
 
-  it('accepts it with only the notes left blank', async () => {
-    const full = await call({
+  /**
+   * The owner's later correction to «كل الخانات اجبارية»: a truck can arrive
+   * before its scale ticket, and the man at the wheel is often on no paper at
+   * all. Refusing the record over either only teaches the gate to invent one.
+   */
+  it('accepts a gate-in with no driver name and no weights', async () => {
+    const spare = await call({
       method: 'POST',
       url: '/api/containers',
       payload: {
@@ -914,22 +947,61 @@ describe('كل الخانات إلزامية عدا الملاحظات', () => {
         position: slot('B', 1, 1, 'A'),
         truck: '500',
         seal: 'JO1',
-        driver: 'سائق',
-        weight: '25000',
-        weightNet: '22000',
       },
     });
-    expect(full.status).toBe(201);
+    expect(spare.status).toBe(201);
+    expect(spare.body).toMatchObject({ driverIn: '', weight: '', weightNet: '' });
   });
 
-  it('holds at the exit too: the driver is no longer optional', async () => {
+  it('lets a container leave without a driver name', async () => {
     const entered = await gateIn('MAND0003', 20, slot('B', 3, 1, 'A'));
     const noDriver = await call({
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/exit`,
       payload: { truck: '522', seal: 'JO2', driver: '' },
     });
-    expect(noDriver.status).toBe(400);
+    expect(noDriver.status).toBe(200);
+  });
+
+  it('still demands the truck and the seal at the exit', async () => {
+    const entered = await gateIn('MAND0004', 20, slot('B', 5, 1, 'A'));
+    const noSeal = await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/exit`,
+      payload: { truck: '522', seal: '', driver: 'سائق' },
+    });
+    expect(noSeal.status).toBe(400);
+  });
+
+  /** A correction may empty the same four fields, and no others. */
+  it('lets an edit clear the weights and the driver but not the owner', async () => {
+    const entered = await gateIn('MAND0005', 20, slot('B', 7, 1, 'A'));
+    const id = String(entered.body.id);
+    const edit = (patch: Record<string, unknown>): Promise<{ status: number; body: unknown }> =>
+      call({
+        method: 'PATCH',
+        url: `/api/containers/${id}`,
+        payload: {
+          number: 'MAND0005',
+          customer: 'شركة',
+          bill: '3210',
+          size: 20,
+          notes: '',
+          weight: '25000',
+          weightNet: '22000',
+          truckIn: '500',
+          driverIn: 'سائق',
+          sealIn: 'JO1',
+          enteredAt: entered.body.enteredAt,
+          ...patch,
+        },
+      });
+
+    const cleared = await edit({ weight: '', weightNet: '', driverIn: '' });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body).toMatchObject({ weight: '', weightNet: '', driverIn: '' });
+    expect((await edit({ customer: '' })).status).toBe(400);
+    expect((await edit({ truckIn: '' })).status).toBe(400);
   });
 });
 

@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { ammanYear } from '../shared/dates';
 
 /**
  * SQLite through Node's own driver: one file, no native build step, and a
@@ -125,6 +126,17 @@ export function migrate(db: DatabaseSync, file: string): void {
     upgradeMovementsV11(db);
   }
 
+  // v12: the gate cards are numbered per YEAR and start again at 1 each
+  // January, on the owner's call. A serial alone stops identifying a card, so
+  // the year it counts within is stored beside it — derived rather than
+  // re-derived from the gate date later, which the owner is free to correct.
+  const v11ContainersSql = tableSql('containers');
+  if (v11ContainersSql !== undefined && !v11ContainersSql.includes('card_in_year')) {
+    db.exec('ALTER TABLE containers ADD COLUMN card_in_year INTEGER');
+    db.exec('ALTER TABLE containers ADD COLUMN card_out_year INTEGER');
+    backfillCardYears(db);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -185,6 +197,11 @@ export function migrate(db: DatabaseSync, file: string): void {
       driver_out    TEXT    NOT NULL DEFAULT '',
       seal_out      TEXT    NOT NULL DEFAULT '',
       card_out      INTEGER,
+      -- The year each card serial counts within: the count restarts at 1 every
+      -- January, so «0091» means nothing on its own. Stored rather than read
+      -- back off the gate date, which the owner may correct afterwards.
+      card_in_year  INTEGER,
+      card_out_year INTEGER,
       -- مواد خطرة: this box carries dangerous goods. Drawn red everywhere and
       -- printed on both gate cards, so nobody has to remember which one it is.
       hazmat        INTEGER NOT NULL DEFAULT 0,
@@ -220,8 +237,64 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 11;
+    PRAGMA user_version = 12;
   `);
+}
+
+/**
+ * v11 → v12: give every card already printed the year its serial counted in,
+ * and re-seat the two running counters as one counter per year.
+ *
+ * The year is computed in JavaScript, not in SQL: `strftime` would need the
+ * Amman offset hard-coded, and this file is not the place to decide what
+ * Jordan's clock was doing on a given night. Nothing is renumbered — a card
+ * already in somebody's hands keeps the number printed on it.
+ */
+function backfillCardYears(db: DatabaseSync): void {
+  const rows = db
+    .prepare(
+      `SELECT id, entered_at, exited_at, card_in, card_out FROM containers
+        WHERE card_in IS NOT NULL OR card_out IS NOT NULL`,
+    )
+    .all() as Array<{
+    id: number;
+    entered_at: string;
+    exited_at: string | null;
+    card_in: number | null;
+    card_out: number | null;
+  }>;
+
+  const stamp = db.prepare('UPDATE containers SET card_in_year = ?, card_out_year = ? WHERE id = ?');
+  // The highest serial seen in each year, per direction — where that year's
+  // counter has to resume so the office never issues the same card twice.
+  const highest = new Map<string, number>();
+  const note = (kind: 'in' | 'out', year: number, serial: number): void => {
+    const key = `card_${kind}_next:${String(year)}`;
+    highest.set(key, Math.max(highest.get(key) ?? 0, serial));
+  };
+
+  for (const row of rows) {
+    const inYear = row.card_in === null ? null : ammanYear(row.entered_at);
+    const outYear =
+      row.card_out === null || row.exited_at === null ? null : ammanYear(row.exited_at);
+    stamp.run(inYear, outYear, row.id);
+    if (row.card_in !== null && inYear !== null) note('in', inYear, row.card_in);
+    if (row.card_out !== null && outYear !== null) note('out', outYear, row.card_out);
+  }
+
+  // The settings table has ridden along since v1, but a file that somehow
+  // lacks it must not take the whole upgrade down with it.
+  const hasSettings =
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'settings'").get() !==
+    undefined;
+  if (!hasSettings) return;
+
+  db.exec("DELETE FROM settings WHERE key IN ('card_in_next', 'card_out_next')");
+  const seed = db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+  );
+  for (const [key, top] of highest) seed.run(key, String(top + 1));
 }
 
 /**

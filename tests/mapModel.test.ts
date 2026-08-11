@@ -43,10 +43,12 @@ function box(number: string, position: Position | null, size: Size = 20): Contai
     driverIn: '',
     sealIn: 'JO1',
     cardIn: 1,
+    cardInYear: 2026,
     truckOut: '',
     driverOut: '',
     sealOut: '',
     cardOut: null,
+    cardOutYear: null,
   };
 }
 

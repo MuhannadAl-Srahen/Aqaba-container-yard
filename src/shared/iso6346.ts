@@ -1,11 +1,12 @@
 /**
  * ISO 6346 container number check — fresh implementation for the web rebuild.
  *
- * Four letters (owner code + category letter U/J/Z), six digits, one check
- * digit. **An invalid number is a warning, never a refusal**: real yards
- * receive containers whose numbers are mistyped on the paperwork or repainted
- * wrongly, and refusing to record them would force the clerk to either lie or
- * keep the box off the books.
+ * Four letters (owner code + category letter U/J/Z) and seven digits — six of
+ * serial and one of check — which is the shape the owner records containers
+ * in: «4 احرف و7 ارقام». **An invalid number is a warning, never a refusal**:
+ * real yards receive containers whose numbers are mistyped on the paperwork or
+ * repainted wrongly, and refusing to record them would force the clerk to
+ * either lie or keep the box off the books.
  */
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
@@ -33,28 +34,27 @@ export function normalizeNumber(raw: string): string {
 
 export interface NumberCheck {
   readonly valid: boolean;
-  /** True when the number is the yard's own short form, not ISO. */
-  readonly local: boolean;
+  /** The number is the standard shape — four letters, seven digits. */
+  readonly wellFormed: boolean;
   readonly normalized: string;
   /** What the last digit should have been; null when too malformed to compute. */
   readonly expectedDigit: number | null;
 }
 
 /**
- * The yard's own working designation: 4 letters and 4 digits, the way the
- * paper register writes containers. Accepted as correct alongside full ISO.
+ * The one accepted form, on the owner's instruction: FOUR LETTERS AND SEVEN
+ * DIGITS. A shorter four-and-four designation used to pass here as «the yard's
+ * own form» — it no longer does, because a number that short cannot carry a
+ * check digit and so cannot be checked at all, which is the whole point of
+ * writing it down. Anything else is still RECORDED, with a warning beside it.
  */
-const LOCAL_FORM = /^[A-Z]{4}\d{4}$/;
+export const NUMBER_FORM = /^[A-Z]{4}\d{7}$/;
 
 export function checkNumber(raw: string): NumberCheck {
   const normalized = normalizeNumber(raw);
 
-  if (LOCAL_FORM.test(normalized)) {
-    return { valid: true, local: true, normalized, expectedDigit: null };
-  }
-
-  if (!/^[A-Z]{4}\d{7}$/.test(normalized)) {
-    return { valid: false, local: false, normalized, expectedDigit: null };
+  if (!NUMBER_FORM.test(normalized)) {
+    return { valid: false, wellFormed: false, normalized, expectedDigit: null };
   }
 
   let sum = 0;
@@ -70,5 +70,5 @@ export function checkNumber(raw: string): NumberCheck {
   const category = normalized[3] ?? '';
   const valid = 'UJZ'.includes(category) && Number(normalized[10]) === expectedDigit;
 
-  return { valid, local: false, normalized, expectedDigit };
+  return { valid, wellFormed: true, normalized, expectedDigit };
 }

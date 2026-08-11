@@ -35,12 +35,13 @@ export function GateInSheet(props: {
   const check = number.trim() === '' ? null : checkNumber(number);
   const size = sizeOfBay(props.position.bay);
   const positionText = positionLabel(props.position);
-  // Every field is required except the notes, on the owner's rule. A gate
-  // record with holes in it is one somebody has to chase down later.
+  // Nearly everything is required, on the owner's rule: a gate record with
+  // holes in it is one somebody has to chase down later. The exceptions are
+  // the notes, the driver's NAME and the two weights — the scale ticket does
+  // not always arrive with the truck, and refusing the whole record over a
+  // name the gate does not have only teaches the gate to invent one.
   const ready =
-    [number, customer, bill, truck, seal, driver, weight, weightNet].every(
-      (value) => value.trim() !== '',
-    ) && !busy;
+    [number, customer, bill, truck, seal].every((value) => value.trim() !== '') && !busy;
 
   const submit = (): void => {
     if (!ready) return;
@@ -88,11 +89,13 @@ export function GateInSheet(props: {
           </span>
         </div>
 
+        {/* The expected shape is stated before anything is typed — four
+            letters and seven digits — and the check answers once it is. */}
         <Field
           label={AR.containerNumber}
           hint={
-            check === null ? undefined : check.local ? (
-              <span className="text-emerald-600">{AR.numberLocal}</span>
+            check === null ? (
+              <span className="text-faint">{AR.numberForm}</span>
             ) : check.valid ? (
               <span className="text-emerald-600">{AR.numberOk}</span>
             ) : (
@@ -107,7 +110,7 @@ export function GateInSheet(props: {
             onChange={(event) => {
               setNumber(event.target.value);
             }}
-            placeholder="MSCU 1234"
+            placeholder="MSCU1234566"
             autoFocus
           />
         </Field>
@@ -146,7 +149,7 @@ export function GateInSheet(props: {
               }}
             />
           </Field>
-          <Field label={AR.weightGross}>
+          <Field label={AR.weightGross} hint={<span className="text-faint">{AR.optional}</span>}>
             <input
               dir="ltr"
               inputMode="numeric"
@@ -160,7 +163,7 @@ export function GateInSheet(props: {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={AR.weightNet}>
+          <Field label={AR.weightNet} hint={<span className="text-faint">{AR.optional}</span>}>
             <input
               dir="ltr"
               inputMode="numeric"
@@ -194,7 +197,7 @@ export function GateInSheet(props: {
           </Field>
         </div>
 
-        <Field label={AR.driver}>
+        <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
           <input
             className={inputClass}
             value={driver}

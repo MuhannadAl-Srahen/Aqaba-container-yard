@@ -47,10 +47,12 @@ interface ContainerRow {
   driver_in: string;
   seal_in: string;
   card_in: number | null;
+  card_in_year: number | null;
   truck_out: string;
   driver_out: string;
   seal_out: string;
   card_out: number | null;
+  card_out_year: number | null;
   deleted_at: string | null;
 }
 
@@ -83,10 +85,12 @@ function toDto(row: ContainerRow): ContainerDto {
     driverIn: row.driver_in,
     sealIn: row.seal_in,
     cardIn: row.card_in,
+    cardInYear: row.card_in_year,
     truckOut: row.truck_out,
     driverOut: row.driver_out,
     sealOut: row.seal_out,
     cardOut: row.card_out,
+    cardOutYear: row.card_out_year,
   };
 }
 
@@ -285,6 +289,8 @@ export interface NewContainer {
   driverIn: string;
   sealIn: string;
   cardIn: number;
+  /** The year the entry serial counts within — the counter restarts each one. */
+  cardInYear: number;
 }
 
 export function insertContainer(db: DatabaseSync, container: NewContainer): number {
@@ -292,8 +298,8 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
     .prepare(
       `INSERT INTO containers
          (number, number_valid, size, customer, bill, notes, entered_at, zone, bay, stack, tier,
-          weight, weight_net, hazmat, truck_in, driver_in, seal_in, card_in)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          weight, weight_net, hazmat, truck_in, driver_in, seal_in, card_in, card_in_year)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       container.number,
@@ -314,6 +320,7 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
       container.driverIn,
       container.sealIn,
       container.cardIn,
+      container.cardInYear,
     );
   return Number(result.lastInsertRowid);
 }
@@ -333,13 +340,15 @@ export interface GateOut {
   driver: string;
   sealOut: string;
   cardOut: number;
+  cardOutYear: number;
 }
 
 export function markExited(db: DatabaseSync, id: number, at: string, gate: GateOut): void {
   db.prepare(
     `UPDATE containers SET exited_at = ?, zone = NULL, bay = NULL, stack = NULL, tier = NULL,
-       truck_out = ?, driver_out = ?, seal_out = ?, card_out = ? WHERE id = ?`,
-  ).run(at, gate.truck, gate.driver, gate.sealOut, gate.cardOut, id);
+       truck_out = ?, driver_out = ?, seal_out = ?, card_out = ?, card_out_year = ?
+     WHERE id = ?`,
+  ).run(at, gate.truck, gate.driver, gate.sealOut, gate.cardOut, gate.cardOutYear, id);
 }
 
 export interface ContainerEdit {
@@ -523,11 +532,17 @@ export function listMovements(db: DatabaseSync, containerId: number): MovementDt
 }
 
 /**
- * The next serial for a printed gate card. One counter per direction, held in
- * settings and bumped inside the caller's transaction.
+ * The next serial for a printed gate card. One counter per direction PER YEAR,
+ * held in settings and bumped inside the caller's transaction: the office's
+ * cards start again at 1 every January, on the owner's call, so the counter is
+ * keyed by the year the card is issued in and a fresh year simply has no key
+ * yet. Four places is the room the card and the registers leave for it — that
+ * is 9999 movements in one direction in one year, which this yard does not
+ * approach, and the year is printed beside the serial so no two cards with the
+ * same number can ever be confused.
  */
-export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out'): number {
-  const key = kind === 'in' ? 'card_in_next' : 'card_out_next';
+export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out', year: number): number {
+  const key = `card_${kind}_next:${String(year)}`;
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
     | { value: string }
     | undefined;
@@ -557,10 +572,12 @@ interface GateRow {
   driver_in: string;
   seal_in: string;
   card_in: number | null;
+  card_in_year: number | null;
   truck_out: string;
   driver_out: string;
   seal_out: string;
   card_out: number | null;
+  card_out_year: number | null;
   entered_at: string;
   user_id: number | null;
 }
@@ -581,8 +598,8 @@ export function listGateMovements(
     .prepare(
       `SELECT m.container_id, m.at, m.user_id, ${positionColumns},
               k.number, k.size, k.customer, k.bill, k.weight, k.weight_net, k.hazmat, k.notes,
-              k.truck_in, k.driver_in, k.seal_in, k.card_in,
-              k.truck_out, k.driver_out, k.seal_out, k.card_out,
+              k.truck_in, k.driver_in, k.seal_in, k.card_in, k.card_in_year,
+              k.truck_out, k.driver_out, k.seal_out, k.card_out, k.card_out_year,
               k.entered_at
        FROM movements m
        JOIN containers k ON k.id = m.container_id
@@ -595,6 +612,7 @@ export function listGateMovements(
     containerId: row.container_id,
     at: row.at,
     card: type === 'IN' ? row.card_in : row.card_out,
+    cardYear: type === 'IN' ? row.card_in_year : row.card_out_year,
     truck: type === 'IN' ? row.truck_in : row.truck_out,
     driver: type === 'IN' ? row.driver_in : row.driver_out,
     seal: type === 'IN' ? row.seal_in : row.seal_out,
@@ -617,6 +635,7 @@ export interface GateReportRowInternal {
   at: string;
   bill: string;
   card: number | null;
+  cardYear: number | null;
   truck: string;
   driver: string;
   seal: string;
@@ -716,8 +735,8 @@ export function listTruckMovements(
               m.from_zone, m.from_bay, m.from_stack, m.from_tier,
               m.to_zone, m.to_bay, m.to_stack, m.to_tier,
               k.number, k.size, k.customer, k.bill, k.weight, k.weight_net, k.hazmat, k.notes,
-              k.truck_in, k.driver_in, k.seal_in, k.card_in,
-              k.truck_out, k.driver_out, k.seal_out, k.card_out,
+              k.truck_in, k.driver_in, k.seal_in, k.card_in, k.card_in_year,
+              k.truck_out, k.driver_out, k.seal_out, k.card_out, k.card_out_year,
               k.entered_at
        FROM movements m
        JOIN containers k ON k.id = m.container_id
@@ -734,6 +753,7 @@ export function listTruckMovements(
       containerId: row.container_id,
       at: row.at,
       card: type === 'IN' ? row.card_in : row.card_out,
+      cardYear: type === 'IN' ? row.card_in_year : row.card_out_year,
       truck: type === 'IN' ? row.truck_in : row.truck_out,
       driver: type === 'IN' ? row.driver_in : row.driver_out,
       seal: type === 'IN' ? row.seal_in : row.seal_out,

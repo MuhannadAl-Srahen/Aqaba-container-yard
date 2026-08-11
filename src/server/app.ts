@@ -21,7 +21,7 @@ import type {
   YardStateDto,
 } from '../shared/types';
 import { OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
-import { ammanDay, daysBetween } from '../shared/dates';
+import { ammanDay, ammanYear, daysBetween } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
 import { canMove, canPlace, planRemoval } from '../shared/rules';
@@ -71,9 +71,15 @@ const positionSchema = z.object({
 });
 
 /**
- * Every field is mandatory except the notes — the owner's rule: «كل الخانات
- * اجبارية كلهم كلهم عدا الملاحظات اختيارية». A gate record with holes in it is
- * a gate record somebody has to chase down later.
+ * A gate record with holes in it is a gate record somebody has to chase down
+ * later, so nearly everything here is mandatory — the owner's rule, «كل
+ * الخانات اجبارية كلهم كلهم عدا الملاحظات اختيارية».
+ *
+ * Four exceptions, all of them the owner's later correction: the notes, the
+ * driver's NAME, and the two weights. A truck can arrive before its scale
+ * ticket does, and the man at the wheel is often not the man on any paper —
+ * the plate identifies the vehicle, and refusing the whole record over a name
+ * only teaches the gate to invent one.
  */
 const gateInSchema = z.object({
   number: z.string().trim().min(1).max(20),
@@ -82,15 +88,14 @@ const gateInSchema = z.object({
   customer: z.string().trim().min(1).max(120),
   /** رقم البوليصة. */
   bill: z.string().trim().min(1).max(40),
-  /** The one optional field: there is not always something worth saying. */
   notes: z.string().trim().max(2000),
   position: positionSchema,
   truck: z.string().trim().min(1).max(30),
   seal: z.string().trim().min(1).max(30),
-  driver: z.string().trim().min(1).max(60),
+  driver: z.string().trim().max(60).default(''),
   /** الوزن القائم then الوزن الصافي, both as the scale ticket reads them. */
-  weight: z.string().trim().min(1).max(20),
-  weightNet: z.string().trim().min(1).max(20),
+  weight: z.string().trim().max(20).default(''),
+  weightNet: z.string().trim().max(20).default(''),
   /** مواد خطرة — a yes/no, so it is always answered. */
   hazmat: z.boolean().default(false),
 });
@@ -99,7 +104,7 @@ const gateOutSchema = z.object({
   truck: z.string().trim().min(1).max(30),
   /** The seal on the door as it leaves — a different one means it was opened. */
   seal: z.string().trim().min(1).max(30),
-  driver: z.string().trim().min(1).max(60),
+  driver: z.string().trim().max(60).default(''),
 });
 
 /**
@@ -113,13 +118,13 @@ const editSchema = z.object({
   customer: z.string().trim().min(1).max(120),
   bill: z.string().trim().min(1).max(40),
   size: z.union([z.literal(20), z.literal(40)]),
-  /** The notes are the one field a correction may empty. */
+  /** Optional here for the same reasons they are optional at the gate. */
   notes: z.string().trim().max(2000),
-  weight: z.string().trim().min(1).max(20),
-  weightNet: z.string().trim().min(1).max(20),
+  weight: z.string().trim().max(20).default(''),
+  weightNet: z.string().trim().max(20).default(''),
   hazmat: z.boolean().default(false),
   truckIn: z.string().trim().min(1).max(30),
-  driverIn: z.string().trim().min(1).max(60),
+  driverIn: z.string().trim().max(60).default(''),
   sealIn: z.string().trim().min(1).max(30),
   truckOut: z.string().trim().max(30).default(''),
   driverOut: z.string().trim().max(60).default(''),
@@ -272,11 +277,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   };
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof Refusal) {
       void reply.status(error.status).send(error.body);
       return;
     }
+    // Anything that reaches here is a fault, not a refusal, and the client is
+    // told nothing but «حدث خطأ». Without a line in the log there is no way
+    // to find out what it was on a machine at the office — the wipe/restore
+    // tools in particular fail in ways only their stack explains.
+    console.error(`[${request.method} ${request.url}]`, error);
     // A constraint violation surfacing here means a rule check missed a race —
     // the database held the line; report it as the conflict it is.
     if (error instanceof Error && error.message.includes('UNIQUE constraint failed')) {
@@ -430,6 +440,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (refusal !== null) refuseRule(refusal);
 
       const at = now();
+      // The serial counts within the Amman year of this very moment, and the
+      // year rides along with it: come January the count starts at 1 again.
+      const year = ammanYear(at);
       const id = store.insertContainer(db, {
         number: check.normalized,
         numberValid: check.valid,
@@ -445,7 +458,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         truckIn: body.truck,
         driverIn: body.driver,
         sealIn: body.seal,
-        cardIn: store.nextCardNumber(db, 'in'),
+        cardIn: store.nextCardNumber(db, 'in', year),
+        cardInYear: year,
       });
       store.recordMovement(db, id, 'IN', at, null, body.position, '', actorId(actor));
       void reply.status(201);
@@ -532,11 +546,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const standing = store.listStanding(db);
       const descents = liftPlan(standing, { id, number: dto.number, size: dto.size, position });
       const at = now();
+      const year = ammanYear(at);
       store.markExited(db, id, at, {
         truck: gate.truck,
         driver: gate.driver,
         sealOut: gate.seal,
-        cardOut: store.nextCardNumber(db, 'out'),
+        cardOut: store.nextCardNumber(db, 'out', year),
+        cardOutYear: year,
       });
       store.recordMovement(db, id, 'OUT', at, position, null, '', actorId(actor));
       settleAbove(descents, at, dto.number, actorId(actor));
@@ -579,8 +595,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (stillStanding && (body.exitedAt !== null || exitFields.some((v) => v !== ''))) {
         refuse(409, 'VALIDATION');
       }
-      // Once it has left, its exit paperwork is as mandatory as its entry's.
-      if (!stillStanding && (body.exitedAt === null || exitFields.some((v) => v === ''))) {
+      // Once it has left, its exit paperwork is as mandatory as its entry's —
+      // the driver's name excepted, which is optional in both directions.
+      const requiredOnExit = [body.truckOut, body.sealOut];
+      if (!stillStanding && (body.exitedAt === null || requiredOnExit.some((v) => v === ''))) {
         refuse(409, 'VALIDATION');
       }
 
@@ -737,6 +755,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         containerId: row.containerId,
         at: row.at,
         card: row.card,
+        cardYear: row.cardYear,
         truck: row.truck,
         driver: row.driver,
         number: row.number,
@@ -807,6 +826,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         containerId: row.containerId,
         at: row.at,
         card: row.card,
+        cardYear: row.cardYear,
         truck: row.truck,
         driver: row.driver,
         number: row.number,

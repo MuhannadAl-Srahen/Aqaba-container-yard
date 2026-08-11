@@ -18,6 +18,16 @@ export function ammanDay(iso: string | Date): string {
   return AMMAN_DAY.format(typeof iso === 'string' ? new Date(iso) : iso);
 }
 
+/**
+ * The Amman calendar YEAR of an instant. The gate cards are numbered per year
+ * and start again at 1 each January, so which year a card belongs to is the
+ * office's year, not UTC's — a card issued at 01:30 on the first of January
+ * belongs to the new year even though UTC still says the old one.
+ */
+export function ammanYear(iso: string | Date): number {
+  return Number(ammanDay(iso).slice(0, 4));
+}
+
 /** Midday UTC of an Amman calendar date — a safe instant to do date maths on. */
 function noonOf(day: string): number {
   return Date.parse(`${day}T12:00:00Z`);

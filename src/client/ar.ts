@@ -131,11 +131,12 @@ export const AR = {
   gateInTitle: (size: number): string => `إدخال حاوية ${String(size)} قدم`,
   gateInAt: 'على الموقع',
   containerNumber: 'رقم الحاوية',
+  /** The one accepted shape, on the owner's instruction: «4 احرف و7 ارقام». */
+  numberForm: 'أربعة أحرف وسبعة أرقام — مثال: MSCU1234566',
   numberOk: 'الرقم مطابق للمواصفة الدولية.',
-  numberLocal: 'رقم بصيغة الساحة (4 أحرف و4 أرقام).',
   numberBad: (digit: number | null): string =>
     digit === null
-      ? 'الرقم لا يطابق صيغة الساحة (4 أحرف و4 أرقام) ولا المواصفة الدولية. سيُحفظ مع تنبيه.'
+      ? 'الصيغة المعتمدة أربعة أحرف وسبعة أرقام. سيُحفظ الرقم مع تنبيه.'
       : `الرقم الأخير المتوقع هو ${String(digit)}. سيُحفظ مع تنبيه.`,
   truck: 'رقم السيارة',
   bill: 'رقم البوليصة',
@@ -157,7 +158,12 @@ export const AR = {
   customer: 'اسم المالك',
   customerHint: 'مالك الحاوية — أدخل الاسم أو اختره من القائمة',
   notes: 'ملاحظات (اختياري)',
-  notesHint: 'الحقل الوحيد غير الإلزامي — حالة الحاوية وما يلزم ذكره: انبعاج، قفل مفتوح، حجز جمركي…',
+  notesHint: 'حالة الحاوية وما يلزم ذكره: انبعاج، قفل مفتوح، حجز جمركي…',
+  /**
+   * The four fields the gate may leave empty: the notes, the driver's name and
+   * the two weights. Everything else is mandatory, on the owner's rule.
+   */
+  optional: 'اختياري',
   confirmGateIn: 'تأكيد الإدخال',
   gateInDone: (number: string, slot: string): string =>
     `تم إدخال الحاوية ${number} في الموقع ${slot}`,

@@ -55,7 +55,11 @@ export function PrintCard(props: {
   const slot = kind === 'in' ? (gateMove?.to ?? container.position) : (gateMove?.from ?? null);
 
   const at = kind === 'in' ? container.enteredAt : container.exitedAt;
+  // Four places, and the year the count runs in beneath it: the serial starts
+  // again at 1 every January, so «0091» alone names no card.
   const serial = kind === 'in' ? container.cardIn : container.cardOut;
+  const serialYear = kind === 'in' ? container.cardInYear : container.cardOutYear;
+  const serialText = serial === null ? '—' : String(serial).padStart(4, '0');
   const truck = kind === 'in' ? container.truckIn : container.truckOut;
   const driver = kind === 'in' ? container.driverIn : container.driverOut;
   const sealShown = kind === 'in' ? container.sealIn : container.sealOut;
@@ -65,11 +69,17 @@ export function PrintCard(props: {
    * One labelled cell of the voucher grid. `wide` spans both columns for the
    * long free-text values; `danger` paints the hazardous-goods line red so it
    * is the first thing read on paper as well as on screen.
+   *
+   * Only codes and figures are forced left-to-right. An owner's name or a note
+   * about a dented door is Arabic, and reading it out of an LTR paragraph put
+   * its full stop at the wrong end of the sentence — `auto` lets the text
+   * itself decide, which for «—» and for Arabic and for a plate number is
+   * right every time.
    */
   const row = (
     label: string,
     value: string,
-    options: { mono?: boolean; wide?: boolean; danger?: boolean } = {},
+    options: { mono?: boolean; wide?: boolean; danger?: boolean; ltr?: boolean } = {},
   ): ReactElement => (
     <div
       className={`flex items-stretch border-b border-line-strong${options.wide === true ? ' sm:col-span-2' : ' border-e'}`}
@@ -77,11 +87,14 @@ export function PrintCard(props: {
       <span className="gate-label flex w-32 shrink-0 items-center border-e border-line-strong bg-sunken px-3 py-2 text-[13px] font-bold text-ink">
         {label}
       </span>
+      {/* Free text is given room to wrap rather than to overflow: a long
+          company name or a paragraph of notes grows the row and stays inside
+          its box, on screen and on the paper alike. */}
       <span
-        className={`gate-value flex flex-1 items-center px-3 py-2 text-sm font-semibold${
+        className={`gate-value flex min-w-0 flex-1 items-center px-3 py-2 text-sm font-semibold leading-6 break-words${
           options.danger === true ? ' bg-danger-soft font-extrabold text-danger' : ' text-ink'
         }${options.mono === true ? ' font-mono tracking-wide' : ''}`}
-        dir="ltr"
+        dir={options.ltr === true || options.mono === true ? 'ltr' : 'auto'}
       >
         {value}
       </span>
@@ -96,14 +109,21 @@ export function PrintCard(props: {
         <div className="print-area gate-card overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
           {/* The voucher strip: serial | title | day+date. */}
           <div className={`flex items-stretch ${accent} text-white`}>
-            <div className="flex w-24 flex-col items-center justify-center gap-0.5 border-e border-white/25 px-2 py-2.5">
+            <div className="flex w-28 flex-col items-center justify-center gap-0.5 border-e border-white/25 px-2 py-2.5">
               <span className="text-[10px] font-semibold opacity-80">{AR.cardNumber}</span>
               <span
                 className="gate-serial rounded-md border border-white/40 px-2 font-mono text-2xl font-extrabold tabular-nums leading-7"
                 dir="ltr"
               >
-                {serial ?? '—'}
+                {serialText}
               </span>
+              {/* The count restarts each January, so the year is part of the
+                  number: card 0091 of 2026 is not card 0091 of 2027. */}
+              {serialYear !== null && (
+                <span className="gate-serial-year text-[10px] font-bold opacity-80" dir="ltr">
+                  {String(serialYear)}
+                </span>
+              )}
             </div>
             <div className="flex flex-1 flex-col items-center justify-center px-2 py-2.5">
               <span className="text-lg font-extrabold leading-6">
@@ -150,15 +170,21 @@ export function PrintCard(props: {
             {row(AR.cardSize, AR.feet(container.size))}
             {row(AR.cardCompany, container.customer)}
             {row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), { mono: true })}
-            {row(AR.cardWeightGross, container.weight === '' ? '—' : container.weight)}
-            {row(AR.cardWeightNet, container.weightNet === '' ? '—' : container.weightNet)}
+            {/* The two weights and the driver's name are the gate's optional
+                fields; a dash on the card is what "not recorded" looks like. */}
+            {row(AR.cardWeightGross, container.weight === '' ? '—' : container.weight, {
+              ltr: true,
+            })}
+            {row(AR.cardWeightNet, container.weightNet === '' ? '—' : container.weightNet, {
+              ltr: true,
+            })}
             {/* The seal of THIS gate moment: the one it came under on the
                 entry card, the one it leaves under on the exit card. */}
             {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, { mono: true })}
             {/* Always the date it went INTO store — on the exit card too,
                 where `at` is the departure and would be the wrong answer. */}
-            {row(AR.cardStoredAt, dateFormat.format(new Date(container.enteredAt)))}
-            {row(AR.cardTruck, truck === '' ? '—' : truck)}
+            {row(AR.cardStoredAt, dateFormat.format(new Date(container.enteredAt)), { ltr: true })}
+            {row(AR.cardTruck, truck === '' ? '—' : truck, { ltr: true })}
             {row(AR.cardDriver, driver === '' ? '—' : driver)}
             {row(AR.cardHazmat, container.hazmat ? AR.hazmatYes : AR.hazmatNo, {
               wide: true,

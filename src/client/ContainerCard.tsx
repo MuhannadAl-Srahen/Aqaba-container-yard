@@ -2,6 +2,7 @@ import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, MovementDto, Permission } from '../shared/types';
 import { positionLabel } from '../shared/address';
+import { checkNumber } from '../shared/iso6346';
 import { fromLocalStamp, toLocalStamp } from '../shared/dates';
 import { AR } from './ar';
 import type { ContainerEditInput } from './api';
@@ -428,7 +429,7 @@ export function ContainerCard(props: {
                   }}
                 />
               </Field>
-              <Field label={AR.driver}>
+              <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
                 <input
                   className={inputClass}
                   value={driverOut}
@@ -440,10 +441,7 @@ export function ContainerCard(props: {
             </div>
             <div className="mt-5 flex gap-2">
               <Button
-                disabled={
-                  busy ||
-                  [truckOut, sealOut, driverOut].some((value) => value.trim() === '')
-                }
+                disabled={busy || [truckOut, sealOut].some((value) => value.trim() === '')}
                 onClick={() => {
                   setBusy(true);
                   setError(null);
@@ -526,22 +524,35 @@ function EditForm(props: {
 
   // The exit paperwork exists only once there has been an exit.
   const departed = props.container.exitedAt !== null;
+  // The same verdict the gate gives, so a correction cannot quietly turn a
+  // good number into a malformed one without saying so.
+  const numberCheck = checkNumber(number);
   const enteredIso = fromLocalStamp(enteredAt);
   const exitedIso = departed ? fromLocalStamp(exitedAt) : null;
   const datesSane =
     enteredIso !== null &&
     (!departed || (exitedIso !== null && Date.parse(exitedIso) >= Date.parse(enteredIso)));
 
-  // Same rule as the gate: everything but the notes must carry a value, and
-  // the exit paperwork only exists — and is only required — once it has left.
-  const filled = [number, customer, bill, weight, weightNet, truckIn, driverIn, sealIn]
-    .concat(departed ? [truckOut, driverOut, sealOut] : [])
+  // Same rule as the gate: the notes, the driver's name and the two weights
+  // may be left empty, everything else must carry a value. The exit paperwork
+  // only exists — and is only required — once the container has left.
+  const filled = [number, customer, bill, truckIn, sealIn]
+    .concat(departed ? [truckOut, sealOut] : [])
     .every((value) => value.trim() !== '');
   const ready = filled && datesSane && !props.busy;
 
   return (
     <div className="space-y-3 rounded-xl bg-sunken p-3.5">
-      <Field label={AR.containerNumber}>
+      <Field
+        label={AR.containerNumber}
+        hint={
+          numberCheck.valid ? (
+            <span className="text-emerald-600">{AR.numberOk}</span>
+          ) : (
+            <span className="text-amber-600">{AR.numberBad(numberCheck.expectedDigit)}</span>
+          )
+        }
+      >
         <input
           dir="ltr"
           className={`${inputClass} text-start font-mono`}
@@ -597,7 +608,7 @@ function EditForm(props: {
         </div>
       </Field>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={AR.weightGross}>
+        <Field label={AR.weightGross} hint={<span className="text-faint">{AR.optional}</span>}>
           <input
             dir="ltr"
             inputMode="numeric"
@@ -608,7 +619,7 @@ function EditForm(props: {
             }}
           />
         </Field>
-        <Field label={AR.weightNet}>
+        <Field label={AR.weightNet} hint={<span className="text-faint">{AR.optional}</span>}>
           <input
             dir="ltr"
             inputMode="numeric"
@@ -662,7 +673,7 @@ function EditForm(props: {
             }}
           />
         </Field>
-        <Field label={AR.driver}>
+        <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
           <input
             className={inputClass}
             value={driverIn}
@@ -711,7 +722,7 @@ function EditForm(props: {
                 }}
               />
             </Field>
-            <Field label={AR.driver}>
+            <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
               <input
                 className={inputClass}
                 value={driverOut}

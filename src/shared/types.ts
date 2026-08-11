@@ -160,19 +160,34 @@ export interface ContainerDto {
   /** The seal (الرصاصة) on the door at the gate — one each way. */
   readonly sealIn: string;
   readonly sealOut: string;
-  /** Serial of the printed entry card; null on rows from before the cards. */
+  /**
+   * Serial of the printed entry card; null on rows from before the cards.
+   * The count starts again at 1 every January, so a serial only identifies a
+   * card together with the year it was issued in — hence the pair.
+   */
   readonly cardIn: number | null;
+  readonly cardInYear: number | null;
   readonly truckOut: string;
   readonly driverOut: string;
   /** Serial of the exit card; null until the container leaves. */
   readonly cardOut: number | null;
+  readonly cardOutYear: number | null;
+}
+
+/** Up to four places, then the year it belongs to: «0091/2026». */
+export function cardSerial(number: number | null, year: number | null): string | null {
+  if (number === null) return null;
+  const padded = String(number).padStart(4, '0');
+  return year === null ? padded : `${padded}/${String(year)}`;
 }
 
 /** One row of كشف حركة الدخول/الخروج. */
 export interface GateReportRow {
   readonly containerId: number;
   readonly at: string;
+  /** The card's serial and the year that serial counts within. */
   readonly card: number | null;
+  readonly cardYear: number | null;
   readonly truck: string;
   readonly driver: string;
   readonly number: string;

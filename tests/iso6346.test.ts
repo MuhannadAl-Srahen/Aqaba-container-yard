@@ -34,6 +34,32 @@ describe('ISO 6346 number check', () => {
     expect(checkNumber('').valid).toBe(false);
   });
 
+  /**
+   * The accepted shape is four letters and seven digits, on the owner's
+   * instruction. A four-and-four designation used to be waved through as «the
+   * yard's own form»; it cannot carry a check digit, so it cannot be checked,
+   * and it is now flagged like anything else out of shape.
+   */
+  it('holds every number to four letters and seven digits', () => {
+    const short = checkNumber('MSCU1234');
+    expect(short.wellFormed).toBe(false);
+    expect(short.valid).toBe(false);
+    // Still normalized and still recorded — a warning, never a refusal.
+    expect(short.normalized).toBe('MSCU1234');
+
+    for (const wrong of ['MSC1234566', 'MSCU12345', 'MSCU12345667', 'MSCUABCDEFG']) {
+      expect(checkNumber(wrong).wellFormed, wrong).toBe(false);
+    }
+    expect(checkNumber('MSCU1234566').wellFormed).toBe(true);
+  });
+
+  it('separates being the right shape from being the right number', () => {
+    // Right shape, wrong check digit: well formed, not valid.
+    const typo = checkNumber('MSCU1234567');
+    expect(typo.wellFormed).toBe(true);
+    expect(typo.valid).toBe(false);
+  });
+
   it('records a remainder of ten as zero', () => {
     // Brute-force a serial whose weighted sum % 11 === 10, then assert its
     // expected digit is 0 — the (sum % 11) % 10 step, proven rather than read.

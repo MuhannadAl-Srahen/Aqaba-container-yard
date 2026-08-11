@@ -756,3 +756,78 @@ grantable permission is still refused the backup, the demo data, the wipe and
 the restore. The owner tools are proven by the round trip that matters —
 seed, back up, wipe, restore — coming back to the same yard, same staff, ids
 that continue instead of colliding, session still alive.
+
+## المرحلة 12 — الطباعة الصحيحة، الترقيم السنوي، الصيغة والاختياري — 2026-08-11
+
+Status: complete
+
+The owner printed the registers and sent back photographs of columns written
+on top of one another — bill numbers across seal numbers, container numbers
+across card numbers, headings sawn through the middle of a word.
+
+Built:
+
+- **The cause was arithmetic, not CSS.** Every cell carried a Tailwind
+  `text-[13px]` class, and a class on the cell beats a size inherited from the
+  table, so the print stylesheet's `font-size: 9.5px` on `.report-sheet table`
+  never applied to a single cell. An eighteen-column register was being
+  printed at screen type on a page sized for two thirds of it, and
+  `table-layout: fixed` does not shrink a cell that will not fit — it lets it
+  spill over its neighbour.
+- **`src/client/sheetGeometry.ts`**, the whole geometry with no React in it so
+  the promise it makes can be tested: what each column demands in characters,
+  the type size that makes all of them together come to exactly one page, and
+  the shares themselves. Three faults surfaced while proving it, each caught
+  by a measurement rather than by eye:
+  - **Padding is per column, not per character.** Sharing the page in
+    proportion to the text alone charges «الرقم» a fifth of a padding and
+    gives it a fifth of one. The share is now the text width PLUS the cell's
+    own chrome, which is why the unit test passes for the narrow columns and
+    did not before.
+  - **The actions column is not printed but was still paid for.** A column
+    whose cells are `display: none` keeps its share of a fixed layout, so ~6%
+    of every register was a reserved blank. Each `<col>` now carries its paper
+    width as a custom property, zero for that one.
+  - **The totals row was not counted at all.** «المجموع» sits in the narrowest
+    column on the sheet and was the last thing still drawn outside its ruling.
+- **The character-width estimate is measured, not guessed.** A flat 0.62em had
+  the browser breaking «الموظف» into «الموظ / ف»: Cairo's Arabic runs 0.634em
+  per character there. It is now 0.66em per character plus a fixed 0.5em for
+  the bearings at either end, both measured in Edge against the built client,
+  the second term because a one-character word like «ص» measures 1.19em.
+- **Long text can no longer break a sheet.** Free-text columns are capped, so
+  the codes keep their room; a row whose note is taller than the page is
+  allowed to break across pages, alone among rows, instead of falling off one.
+- **Card serials are per year.** «0091» meant nothing on its own once the count
+  restarts each January, so the year is stored beside the serial and printed
+  with it — «0091/2026» — with a counter per year per direction. Schema v12
+  adds the two columns and backfills: no card already printed is renumbered,
+  each year's counter resumes above the highest serial that year issued, and
+  the year comes from the Amman clock, so a card cut at 23:30 UTC on the 31st
+  of December belongs to the year the office was already in.
+- **Four fields became optional** — the notes, the driver's NAME and the two
+  weights — reversing part of «كل الخانات اجبارية» on the owner's later word. A
+  scale ticket can arrive after the truck, and refusing the whole record over a
+  driver's name only teaches the gate to invent one.
+- **The container number is four letters and seven digits**, the owner's
+  instruction, and the four-and-four «yard form» that used to pass as correct
+  no longer does: a number that short carries no check digit, so it cannot be
+  checked at all. Still a warning, never a refusal — the box is in the yard
+  whatever its paperwork says.
+- **The card stopped forcing Arabic into an LTR paragraph.** Only codes and
+  figures are `dir="ltr"` now; a name or a note is `auto`, so its full stop
+  stays at the end of the sentence instead of jumping to the other end.
+- **A 500 now leaves a line in the log.** Everything reaching the error handler
+  was answered with «حدث خطأ» and nothing else, which is unhelpful on a machine
+  at the office; it cost half an hour of this session to learn that a bodyless
+  POST with a JSON content-type is a Fastify 400 and not an app fault at all.
+
+Verified: **167 tests**, typecheck and lint clean, and — because the complaint
+was visual — measured in Edge at paper size rather than looked at: every cell
+of all four registers, on screen and in print media, checked for spilling its
+column AND for any word too wide for the line it is on, using the browser's own
+text metrics. 19/19. The exported PDF/Excel document is re-opened at page size
+and measured the same way: 6/6. The gate itself was driven end to end — a
+container received with the driver and both weights left blank, its wrong check
+digit warned about and recorded anyway, then sent out again with no driver
+named: 9/9. The existing 18-check UI sweep still passes unchanged.
