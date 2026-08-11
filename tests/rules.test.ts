@@ -209,27 +209,38 @@ describe('lifting, and the gravity that follows', () => {
 });
 
 describe('what is free right now', () => {
+  /** The room in one yard of the answer, whichever order it came back in. */
+  const roomIn = (free: ReturnType<typeof freeNow>, yard: number): { t20: number; t40: number } => {
+    const found = free.find((entry) => entry.yard === yard);
+    if (found === undefined) throw new Error(`no yard ${String(yard)} in the answer`);
+    return found;
+  };
+
   it('counts legal landings per yard, and tier B only once it has a floor', () => {
-    // Empty mini yard: every ground slot takes a 20; nothing supports tier B.
+    // The mini fixture keeps two yards on purpose, so the grouping itself is
+    // under test — the real plan is one yard, and one yard proves nothing.
     const empty = freeNow(MINI, []);
-    expect(empty.yard1.t20).toBe(6);
-    expect(empty.yard2.t20).toBe(2);
+    expect(empty.map((entry) => entry.yard)).toEqual([1, 2]);
+    expect(roomIn(empty, 1).t20).toBe(6);
+    expect(roomIn(empty, 2).t20).toBe(2);
     // 40 pairs on the ground: (01,03) and (03,05) at each of the two stacks —
     // and the mini yard 2 has exactly the one pair over its single stack.
-    expect(empty.yard1.t40).toBe(4);
-    expect(empty.yard2.t40).toBe(1);
+    expect(roomIn(empty, 1).t40).toBe(4);
+    expect(roomIn(empty, 2).t40).toBe(1);
 
     // One 20 down: its slot is gone, but the slot on its roof opened.
     const one = freeNow(MINI, [box(20, at(1, 1, 'A'))]);
-    expect(one.yard1.t20).toBe(6);
+    expect(roomIn(one, 1).t20).toBe(6);
     // Both pairs over bay 01's stack 1 lost their ground.
-    expect(one.yard1.t40).toBe(3);
+    expect(roomIn(one, 1).t40).toBe(3);
   });
 
   it('agrees with the official totals on the real empty yard', () => {
+    // The whole decoded drawing is SAHA 2: one yard, 681 ground slots, the
+    // 571 and 110 of the printed sheet being two parts of it.
     const empty = freeNow(ASEZA, []);
-    expect(empty.yard1.t20).toBe(571);
-    expect(empty.yard2.t20).toBe(110);
+    expect(empty).toHaveLength(1);
+    expect(roomIn(empty, 2).t20).toBe(681);
   });
 });
 

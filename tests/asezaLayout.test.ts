@@ -18,12 +18,17 @@ const zone = (name: string): ZoneDef => {
 };
 
 describe('the official ASEZA layout', () => {
-  it('matches the printed totals exactly: Y1 = 571, Y2 = 110, TOTAL = 681', () => {
-    const y1 = ASEZA.zones.filter((z) => z.yard === 1).reduce((s, z) => s + slotCount(z), 0);
-    const y2 = ASEZA.zones.filter((z) => z.yard === 2).reduce((s, z) => s + slotCount(z), 0);
-    expect(y1).toBe(571);
-    expect(y2).toBe(110);
-    expect(y1 + y2).toBe(681);
+  it('is all one yard — SAHA 2 — of 681 ground slots', () => {
+    // The printed sheet's 571 and 110 are two PARTS of this ground, not two
+    // yards: A+B+C+D and E. The owner's yards 1 and 3 are elsewhere and are
+    // not modelled, so nothing here may claim another number.
+    expect(ASEZA.zones.every((z) => z.yard === 2)).toBe(true);
+    const abcd = ASEZA.zones
+      .filter((z) => z.zone !== 'E')
+      .reduce((sum, z) => sum + slotCount(z), 0);
+    expect(abcd).toBe(571);
+    expect(slotCount(zone('E'))).toBe(110);
+    expect(ASEZA.zones.reduce((sum, z) => sum + slotCount(z), 0)).toBe(681);
   });
 
   it('carries the five zones with the drawing’s own shapes', () => {
@@ -35,10 +40,10 @@ describe('the official ASEZA layout', () => {
       slots: slotCount(z),
     }));
     expect(shapes).toEqual([
-      { zone: 'A', yard: 1, bays: 27, lastBay: 53, slots: 242 },
-      { zone: 'B', yard: 1, bays: 23, lastBay: 45, slots: 230 },
-      { zone: 'C', yard: 1, bays: 6, lastBay: 11, slots: 54 },
-      { zone: 'D', yard: 1, bays: 9, lastBay: 17, slots: 45 },
+      { zone: 'A', yard: 2, bays: 27, lastBay: 53, slots: 242 },
+      { zone: 'B', yard: 2, bays: 23, lastBay: 45, slots: 230 },
+      { zone: 'C', yard: 2, bays: 6, lastBay: 11, slots: 54 },
+      { zone: 'D', yard: 2, bays: 9, lastBay: 17, slots: 45 },
       { zone: 'E', yard: 2, bays: 14, lastBay: 27, slots: 110 },
     ]);
   });
@@ -48,7 +53,7 @@ describe('the official ASEZA layout', () => {
     expect(zone('A').stacks['1']).toEqual([3, 4, 5, 6, 7, 8, 9, 10]);
     expect(zone('A').stacks['11']).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(zone('A').stacks['53']).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
-    // Zone E's last bay is the clipped corner that makes Y2 exactly 110.
+    // Zone E's last bay is the clipped corner that makes its part exactly 110.
     expect(zone('E').stacks['27']).toHaveLength(6);
     expect(zone('E').stacks['25']).toHaveLength(8);
   });

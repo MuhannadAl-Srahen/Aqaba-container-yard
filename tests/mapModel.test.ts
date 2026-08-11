@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addressMatch,
   bayKey,
   bayLandings,
   buildBayLoads,
@@ -10,6 +11,7 @@ import {
   summarizeZone,
   targetBays,
 } from '../src/client/mapModel';
+import { ASEZA } from '../src/shared/asezaLayout';
 import type { ContainerDto, Position, Size, YardLayout, ZoneDef } from '../src/shared/types';
 
 const zoneA: ZoneDef = {
@@ -66,33 +68,27 @@ describe('bay loads', () => {
 
   it('counts a bay in TEU against the stacks the plan gives it', () => {
     const loads = buildBayLoads([box('A', at(1, 1, 'A')), box('B', at(1, 1, 'B'))]);
-    // Bay 01 has 2 stacks over the two ordinary tiers = 4 TEU of room. The
-    // third is the reserve and is not counted as room until it is opened.
+    // Bay 01 has 2 stacks × 3 tiers = 6 TEU of room.
     expect(countBay(zoneA, 1, loads.get(bayKey('A', 1)))).toEqual({
       used: 2,
-      total: 4,
+      total: 6,
       full: false,
       hazmat: false,
     });
-    // Bay 05 has a single usable stack over the two ordinary tiers.
+    // Bay 05 has a single usable stack over the three tiers.
     expect(countBay(zoneA, 5, undefined)).toEqual({
       used: 0,
-      total: 2,
+      total: 3,
       full: false,
       hazmat: false,
     });
   });
 
-  it('counts the reserve tier only in a bay that has opened it', () => {
-    const packed = [box('A', at(1, 1, 'A')), box('B', at(1, 1, 'B')), box('C', at(1, 1, 'C'))];
-    const loads = buildBayLoads(packed);
-    // Three standing in a two-tier bay would read «مشغول 3 من 4»; once the
-    // reserve is in use the bay is honestly three tiers deep.
-    expect(countBay(zoneA, 1, loads.get(bayKey('A', 1)))).toMatchObject({
-      used: 3,
-      total: 6,
-      full: false,
-    });
+  it('counts a bay three tiers deep, everywhere', () => {
+    const loads = buildBayLoads([box('A', at(1, 1, 'A')), box('B', at(1, 1, 'B'))]);
+    // Two stacks over three tiers — the yard stacks three high as standard.
+    expect(countBay(zoneA, 1, loads.get(bayKey('A', 1))).total).toBe(6);
+    expect(countBay(zoneA, 5, undefined).total).toBe(3);
   });
 
   it('flags a bay the moment one dangerous container stands in it', () => {
@@ -103,9 +99,59 @@ describe('bay loads', () => {
     expect(countBay(zoneA, 1, loads.get(bayKey('A', 1))).hazmat).toBe(false);
   });
 
+  it('finds the ground an address names, and who is standing on it', () => {
+    const onGround = box('A', at(3, 1, 'A'));
+    const hit = addressMatch(layout, [onGround, box('B', at(1, 1, 'A'))], '1-A-03-01-A');
+    expect(hit?.bay).toBe(3);
+    expect(hit?.containers.map((c) => c.number)).toEqual(['A']);
+    expect(hit?.position).toEqual({ zone: 'A', bay: 3, stack: 1, tier: 'A' });
+  });
+
+  it('reads an even bay through the odd one whose sheet draws it', () => {
+    // A 40 at bay 02 lies across bays 01 and 03; its sheet is bay 01.
+    const spanning = box('F', at(2, 1, 'A'), 40);
+    const hit = addressMatch(layout, [spanning], 'A-02-01-A');
+    expect(hit?.bay).toBe(1);
+    expect(hit?.containers.map((c) => c.number)).toEqual(['F']);
+  });
+
+  it('answers a bay-only question with everything standing in it', () => {
+    const hit = addressMatch(layout, [box('G', at(1, 1, 'A')), box('H', at(1, 2, 'A'))], 'A-01');
+    expect(hit?.position).toBeNull();
+    expect(hit?.containers).toHaveLength(2);
+  });
+
+  it('answers an empty slot with the slot itself, and nothing standing', () => {
+    const hit = addressMatch(layout, [], 'A-05-02-B');
+    expect(hit?.bay).toBe(5);
+    expect(hit?.containers).toEqual([]);
+  });
+
+  it('finds a real address on the real plan — 2-E-18-01-A', () => {
+    // The owner's own example: an even bay, so a 40's address, read through
+    // bay 17 whose sheet the plan draws.
+    const hit = addressMatch(ASEZA, [], '2-E-18-01-A');
+    expect(hit?.zone).toBe('E');
+    expect(hit?.bay).toBe(17);
+    expect(hit?.position).toEqual({ zone: 'E', bay: 18, stack: 1, tier: 'A' });
+
+    // Everything is SAHA 2 now, so a 1- prefix names ground that is not here.
+    expect(addressMatch(ASEZA, [], '1-E-18-01-A')).toBeNull();
+    expect(addressMatch(ASEZA, [], '2-A-03-05-A')?.bay).toBe(3);
+    // And the walls still bite: zone A bay 03 has no stacks 01–02 at all.
+    expect(addressMatch(ASEZA, [], '2-A-03-01-A')).toBeNull();
+  });
+
+  it('refuses ground the plan does not have', () => {
+    // Bay 05 of this zone has only stack 2, and there is no bay 09 at all.
+    expect(addressMatch(layout, [], 'A-05-01-A')).toBeNull();
+    expect(addressMatch(layout, [], 'A-09-01-A')).toBeNull();
+    expect(addressMatch(layout, [], 'TGHU1234567')).toBeNull();
+  });
+
   it('rolls a zone up for the panel header', () => {
     const loads = buildBayLoads([box('A', at(1, 1, 'A'))]);
-    expect(summarizeZone(zoneA, loads)).toEqual({ usedTeu: 1, totalTeu: 10 });
+    expect(summarizeZone(zoneA, loads)).toEqual({ usedTeu: 1, totalTeu: 15 });
     expect(maxStackOf(zoneA)).toBe(2);
   });
 });

@@ -1,6 +1,6 @@
 import type { ContainerDto, Position, Size, Tier, YardLayout, Zone, ZoneDef } from '../shared/types';
-import { ROUTINE_TIERS, TIERS } from '../shared/types';
-import { baySpan } from '../shared/address';
+import { TIERS } from '../shared/types';
+import { baySpan, parseAddress } from '../shared/address';
 import { buildOccupancy, canPlace, type Standing } from '../shared/rules';
 import { normalizeNumber } from '../shared/iso6346';
 
@@ -62,12 +62,8 @@ export function countBay(
   oddBay: number,
   load: readonly ContainerDto[] | undefined,
 ): BayCount {
-  // Two tiers is what the bay holds in the ordinary run of things. The
-  // reserve only joins the count once this bay has actually opened it —
-  // otherwise a bay using it would read «مشغول 25 من 20».
-  const reserveInUse = load?.some((container) => container.position?.tier === 'C') ?? false;
-  const stacks = zone.stacks[String(oddBay)]?.length ?? 0;
-  const total = stacks * (reserveInUse ? TIERS.length : ROUTINE_TIERS.length);
+  // Three tiers everywhere — the yard stacks three high as a matter of course.
+  const total = (zone.stacks[String(oddBay)]?.length ?? 0) * TIERS.length;
   // A 40 puts one TEU of itself on each odd bay it covers, so per-bay TEU is
   // simply the number of containers listed under the bay.
   const used = load?.length ?? 0;
@@ -243,6 +239,64 @@ export function searchMatches(
     }
   }
   return matches;
+}
+
+/**
+ * A location the search box was asked about: «2-E-18-01-A» — where is that,
+ * and what is standing on it. The address is resolved against the official
+ * plan, so a bay the drawing does not have answers nothing rather than
+ * opening an empty sheet for ground that is not there.
+ *
+ * An even bay is a 40's address, and it stands across the two odd bays
+ * either side; the sheet that shows it is the odd one, which is what `bay`
+ * comes back as.
+ */
+export interface AddressHit {
+  /** The odd bay whose sheet holds this address. */
+  readonly zone: Zone;
+  readonly bay: number;
+  /** The exact slot, when the query named one down to the tier. */
+  readonly position: Position | null;
+  /** Whoever is standing there — or on the bay, when only a bay was named. */
+  readonly containers: readonly ContainerDto[];
+}
+
+export function addressMatch(
+  layout: YardLayout,
+  containers: readonly ContainerDto[],
+  query: string,
+): AddressHit | null {
+  const asked = parseAddress(query);
+  if (asked === null) return null;
+
+  const zone = layout.zones.find((candidate) => candidate.zone === asked.zone);
+  if (zone === undefined) return null;
+  // A typed yard digit has to agree with the ground it names: the layout is
+  // the only thing that knows which yard a zone sits in.
+  if (asked.yard !== undefined && asked.yard !== zone.yard) return null;
+  // The sheet is always an odd bay's; an even bay is read through its left
+  // neighbour, which is the one the plan draws.
+  const sheetBay = asked.bay % 2 === 1 ? asked.bay : asked.bay - 1;
+  if (!zone.bays.includes(sheetBay)) return null;
+  if (asked.stack !== undefined && !(zone.stacks[String(sheetBay)] ?? []).includes(asked.stack)) {
+    return null;
+  }
+
+  const exact: Position | null =
+    asked.stack !== undefined && asked.tier !== undefined
+      ? { zone: asked.zone, bay: asked.bay, stack: asked.stack, tier: asked.tier }
+      : null;
+
+  const standing = containers.filter((container) => {
+    const at = container.position;
+    if (at === null || at.zone !== asked.zone) return false;
+    if (!baySpan(at.bay).includes(sheetBay)) return false;
+    if (asked.stack !== undefined && at.stack !== asked.stack) return false;
+    if (asked.tier !== undefined && at.tier !== asked.tier) return false;
+    return true;
+  });
+
+  return { zone: asked.zone, bay: sheetBay, position: exact, containers: standing };
 }
 
 /**

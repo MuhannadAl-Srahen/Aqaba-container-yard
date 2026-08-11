@@ -832,6 +832,40 @@ describe('مواد خطرة والوزنان', () => {
   });
 });
 
+describe('ثلاثة طوابق في كل مكان', () => {
+  it('takes a third tier on any bay, with no ceremony', async () => {
+    await gateIn('TIER0001', 20, slot('B', 1, 1, 'A'));
+    await gateIn('TIER0002', 20, slot('B', 1, 1, 'B'));
+    expect((await gateIn('TIER0003', 20, slot('B', 1, 1, 'C'))).status).toBe(201);
+
+    // And a fourth is air: three is the height of the yard.
+    const tooHigh = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: {
+        number: 'TIER0004',
+        size: 20,
+        customer: 'شركة',
+        bill: '1',
+        notes: '',
+        position: { zone: 'B', bay: 1, stack: 1, tier: 'D' },
+        truck: '500',
+        seal: 'JO1',
+        driver: 'سائق',
+        weight: '1',
+        weightNet: '1',
+      },
+    });
+    expect(tooHigh.status).toBe(400);
+  });
+
+  it('stacks forties three high too', async () => {
+    await gateIn('TIER0010', 40, slot('B', 2, 1, 'A'));
+    await gateIn('TIER0011', 40, slot('B', 2, 1, 'B'));
+    expect((await gateIn('TIER0012', 40, slot('B', 2, 1, 'C'))).status).toBe(201);
+  });
+});
+
 describe('كل الخانات إلزامية عدا الملاحظات', () => {
   const missing = (field: string): Promise<{ status: number; body: unknown }> => {
     const payload: Record<string, unknown> = {

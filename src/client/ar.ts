@@ -1,5 +1,5 @@
 import type { ErrorCode, Permission, Tier } from '../shared/types';
-import { ROUTINE_TIERS } from '../shared/types';
+import { TIERS } from '../shared/types';
 
 /**
  * Every sentence the user reads, in one file, in clear formal Arabic — on the
@@ -67,7 +67,7 @@ export const AR = {
   // ---- first-run setup ----
   setupTitle: 'تهيئة النظام',
   setupOnce:
-    'الساحة جاهزة من المخطط الرسمي — ساحة 1 وساحة 2، 681 موقعاً أرضياً. ' +
+    'الساحة جاهزة من المخطط الرسمي — ساحة 2 بزوناتها الخمسة، 681 موقعاً أرضياً. ' +
     'المطلوب كلمة سر للمالك فقط.',
   setupPassword: 'كلمة سر الموقع',
   setupPasswordAgain: 'أعد إدخال كلمة السر',
@@ -77,11 +77,11 @@ export const AR = {
   setupWorking: 'جارٍ التجهيز…',
 
   // ---- the map screen ----
-  searchPlaceholder: 'ابحث برقم الحاوية أو البوليصة أو اسم المالك…',
+  searchPlaceholder: 'ابحث برقم الحاوية أو البوليصة أو اسم المالك أو الموقع…',
   yardName: (yard: number): string => `ساحة ${String(yard)}`,
-  /** How much room is left per yard: legal landings for each size, right now. */
+  /** How much room is left in a yard: legal landings for each size, right now. */
   freeOfYard: (yard: number, t20: number, t40: number): string =>
-    `ساحة ${String(yard)} — متاح للعشرين: ${String(t20)} · للأربعين: ${String(t40)}`,
+    `ساحة ${String(yard)} — المتاح للعشرين: ${String(t20)} · للأربعين: ${String(t40)}`,
   freeTitle: 'المتاح',
   inYardCount: (n: number): string => `${String(n)} حاوية في الساحة`,
   fit: 'ملء الشاشة',
@@ -99,9 +99,9 @@ export const AR = {
 
   // ---- zones and bays ----
   zoneTitle: (zone: string, yard: number): string => `زون ${zone} · ساحة ${String(yard)}`,
-  /** `ستاكات حتى 10 × طابقان + احتياطي` — how this zone's bays are built. */
+  /** `ستاكات حتى 10 × 3 طوابق` — how this zone's bays are built. */
   zoneBuild: (maxStack: number): string =>
-    `ستاكات حتى ${String(maxStack)} × ${String(ROUTINE_TIERS.length)} طوابق + احتياطي`,
+    `ستاكات حتى ${String(maxStack)} × ${String(TIERS.length)} طوابق`,
   /** `مشغول 6 · متاح 10` — the split the owner reads at a glance (TEU). */
   fullAndFree: (full: number, free: number): string =>
     `مشغول ${String(full)} · متاح ${String(free)}`,
@@ -111,9 +111,6 @@ export const AR = {
   tierAName: 'طابق A — الأرضي',
   tierBName: 'طابق B — الثاني',
   tierCName: 'طابق C — الاحتياطي',
-  /** The reserve tier is folded away until a bay actually needs it. */
-  showReserveTier: 'إظهار الطابق الاحتياطي',
-  hideReserveTier: 'إخفاء الطابق الاحتياطي',
   tierShort: (tier: Tier): string => tier,
   stackShort: (stack: number): string => String(stack).padStart(2, '0'),
   /** A stack position the wall swallows — it does not exist on the plan. */
@@ -356,6 +353,13 @@ export const AR = {
   searchBillRow: (bill: string, count: number): string =>
     `بوليصة ${bill} — ${String(count)} حاوية`,
   searchBillTitle: 'بوالص',
+  /** Searching a location code: «2-E-18-01-A» opens the ground it names. */
+  searchAddressRow: (count: number): string =>
+    count === 0
+      ? 'الموقع — فارغ، اضغط للانتقال إليه'
+      : count === 1
+        ? 'الموقع — فيه حاوية واحدة'
+        : `الموقع — فيه ${String(count)} حاويات`,
   colOperation: 'العملية',
   colFrom: 'من',
   colTo: 'إلى',

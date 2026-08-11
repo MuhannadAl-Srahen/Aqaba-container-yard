@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ContainerDto, Permission, Position, Zone } from '../shared/types';
 import { ASEZA } from '../shared/asezaLayout';
-import { positionLabel } from '../shared/address';
+import { bayLabel, positionLabel } from '../shared/address';
 import { freeNow, zoneOf } from '../shared/rules';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
@@ -10,7 +10,15 @@ import { YardMap, computeLayout } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard } from './PrintCard';
-import { bayKey, billMatches, buildBayLoads, searchMatches, targetBays, toStanding } from './mapModel';
+import {
+  addressMatch,
+  bayKey,
+  billMatches,
+  buildBayLoads,
+  searchMatches,
+  targetBays,
+  toStanding,
+} from './mapModel';
 import { downloadBlob } from './sheetKit';
 import { usePanZoom } from './usePanZoom';
 import { GateInSheet } from './GateInSheet';
@@ -98,7 +106,19 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const loads = useMemo(() => buildBayLoads(containers), [containers]);
   const layout = useMemo(() => computeLayout(ASEZA), []);
 
-  const matches = useMemo(() => searchMatches(containers, search), [containers, search]);
+  /**
+   * A typed address is a search too: «2-E-18-01-A» asks where that is, and
+   * the answer is the bay itself — this is a map, so the search opens it.
+   */
+  const addressHit = useMemo(() => addressMatch(ASEZA, containers, search), [containers, search]);
+
+  const matches = useMemo(() => {
+    const found = searchMatches(containers, search);
+    // An address lights whatever is standing on it, so the map answers
+    // «وين هي» before the dropdown is even touched.
+    for (const container of addressHit?.containers ?? []) found.add(container.id);
+    return found;
+  }, [containers, search, addressHit]);
   const searchActive = search.trim() !== '';
   /** The bills the query touches — each row a doorway to its own sheet. */
   const billRows = useMemo(() => billMatches(containers, search), [containers, search]);
@@ -286,8 +306,35 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                   a cell somewhere off screen: the standing hits come first,
                   each with its full official code. */}
               {searchActive &&
-                (standingResults.length > 0 || departedResults.length > 0 || billRows.length > 0) && (
+                (standingResults.length > 0 ||
+                  departedResults.length > 0 ||
+                  billRows.length > 0 ||
+                  addressHit !== null) && (
                 <div className="absolute top-full z-20 mt-1 max-h-80 w-full overflow-y-auto rounded-xl border border-line bg-surface shadow-lg">
+                  {/* An address row goes to the ground it names — the bay
+                      sheet, open, with whatever is standing there. */}
+                  {addressHit !== null && (
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-2 border-b border-line px-3 py-2.5 text-sm hover:bg-sunken"
+                      onClick={() => {
+                        setOpenBay({ zone: addressHit.zone, bay: addressHit.bay });
+                        setSearch('');
+                      }}
+                    >
+                      <span className="font-semibold text-blue-800 dark:text-blue-300">
+                        {AR.searchAddressRow(addressHit.containers.length)}
+                      </span>
+                      <span
+                        className="shrink-0 rounded-md bg-blue-700 px-1.5 py-0.5 font-mono text-xs font-bold text-white"
+                        dir="ltr"
+                      >
+                        {addressHit.position === null
+                          ? bayLabel(addressHit.zone, addressHit.bay)
+                          : positionLabel(addressHit.position)}
+                      </span>
+                    </button>
+                  )}
                   {/* A bill row is a doorway: the whole group, on its own sheet. */}
                   {billRows.length > 0 && may('REPORTS') && (
                     <p className="bg-sunken px-3 py-1.5 text-xs font-bold text-muted">
@@ -480,10 +527,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             <LegendChip color="var(--yard-match)" label={AR.legendNoted} dot />
           )}
 
-          {/* «قديش باقي» per yard: what can actually land, kept by size. */}
+          {/* How much room is left, per yard the plan actually holds: one
+              chip today, since the whole drawing is one yard. */}
           <span className="ms-auto flex flex-wrap items-center gap-1.5">
-            <FreeChip label={AR.freeOfYard(1, free.yard1.t20, free.yard1.t40)} />
-            <FreeChip label={AR.freeOfYard(2, free.yard2.t20, free.yard2.t40)} />
+            {free.map((room) => (
+              <FreeChip key={room.yard} label={AR.freeOfYard(room.yard, room.t20, room.t40)} />
+            ))}
           </span>
         </div>
       </header>

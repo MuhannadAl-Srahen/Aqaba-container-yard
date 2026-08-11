@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import type { ErrorCode, Position, Size, Zone } from '../shared/types';
-import { ROUTINE_TIERS, TIERS } from '../shared/types';
+import { TIERS } from '../shared/types';
 import { ASEZA } from '../shared/asezaLayout';
 import { bayLabel, baySpan } from '../shared/address';
 import { canPlace, type Standing } from '../shared/rules';
@@ -315,11 +315,11 @@ export function seedDemoYard(db: DatabaseSync): {
 
   // One bay is filled to the brim on purpose, so the owner can see what a
   // full bay looks like on the map and in the sheet without waiting for the
-  // yard to fill up on its own. Every ordinary tier of it, ground and second.
+  // yard to fill up on its own. All three tiers of it, ground to top.
   const target = fillableBay(standing);
   const packed: Position[] = [];
   if (target !== null) {
-    for (const tier of ROUTINE_TIERS) {
+    for (const tier of TIERS) {
       for (const stack of target.stacks) {
         packed.push({ zone: target.zone, bay: target.bay, stack, tier });
       }

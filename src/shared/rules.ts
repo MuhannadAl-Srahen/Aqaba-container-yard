@@ -1,5 +1,5 @@
 import type { ErrorCode, Position, Size, Tier, YardLayout, Zone, ZoneDef } from './types';
-import { ROUTINE_TIERS, TIERS, sizeOfBay, tierAbove, tierBelow } from './types';
+import { TIERS, sizeOfBay, tierAbove, tierBelow } from './types';
 import { baySpan, samePosition } from './address';
 
 /**
@@ -243,23 +243,32 @@ export function canMove(
   return canPlace(layout, settled, container.size, to, container.id);
 }
 
-/** How much room is left for one size: legal landings, right now. */
+/**
+ * How much room is left, one entry per yard the layout actually contains —
+ * one today, because the whole decoded drawing is SAHA 2, and however many
+ * the day another yard is decoded. Ordered by yard number.
+ */
 export interface FreeNow {
-  readonly yard1: { readonly t20: number; readonly t40: number };
-  readonly yard2: { readonly t20: number; readonly t40: number };
+  readonly yard: number;
+  readonly t20: number;
+  readonly t40: number;
 }
 
-export function freeNow(layout: YardLayout, standing: readonly Standing[]): FreeNow {
+export function freeNow(layout: YardLayout, standing: readonly Standing[]): FreeNow[] {
   const occupancy = buildOccupancy(standing);
-  const totals = { yard1: { t20: 0, t40: 0 }, yard2: { t20: 0, t40: 0 } };
+  const totals = new Map<number, { t20: number; t40: number }>();
   for (const zone of layout.zones) {
-    const bucket = zone.yard === 1 ? totals.yard1 : totals.yard2;
+    let bucket = totals.get(zone.yard);
+    if (bucket === undefined) {
+      bucket = { t20: 0, t40: 0 };
+      totals.set(zone.yard, bucket);
+    }
     const lastBay = zone.bays[zone.bays.length - 1] ?? 0;
     for (const bay of zone.bays) {
       for (const stack of zone.stacks[String(bay)] ?? []) {
-        // The reserve tier is not counted as available room — it is what the
-        // yard opens when the room has run out, not part of the room.
-        for (const tier of ROUTINE_TIERS) {
+        // Three tiers everywhere: the yard stacks three high as a matter of
+        // course, so all three are room and all three are counted.
+        for (const tier of TIERS) {
           const spot = { zone: zone.zone, bay, stack, tier };
           if (canPlace(layout, standing, 20, spot, undefined, occupancy) === null) bucket.t20 += 1;
           // The even bay between this odd bay and the next, inside the zone.
@@ -271,5 +280,7 @@ export function freeNow(layout: YardLayout, standing: readonly Standing[]): Free
       }
     }
   }
-  return totals;
+  return [...totals.entries()]
+    .map(([yard, counts]) => ({ yard, ...counts }))
+    .sort((a, b) => a.yard - b.yard);
 }

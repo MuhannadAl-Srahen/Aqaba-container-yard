@@ -4,14 +4,15 @@
  *
  * Since schema v9 the yard is the official ASEZA yard: the ground truth lives
  * in `asezaLayout.ts`, generated from the authority's own drawing and locked
- * by tests to its printed totals (Y1 = 571, Y2 = 110, TOTAL = 681).
+ * by tests to its printed totals (A+B+C+D = 571, E = 110, TOTAL = 681 — all
+ * of it SAHA 2; yards 1 and 3 are other grounds, not modelled yet).
  */
 
 /** The two container sizes this yard receives, in feet. */
 export const SIZES = [20, 40] as const;
 export type Size = (typeof SIZES)[number];
 
-/** The five zones of the official plan. E stands alone as yard 2. */
+/** The five zones of the official plan, all of them inside SAHA 2. */
 export const ZONES = ['A', 'B', 'C', 'D', 'E'] as const;
 export type Zone = (typeof ZONES)[number];
 
@@ -21,15 +22,6 @@ export type Zone = (typeof ZONES)[number];
  */
 export const TIERS = ['A', 'B', 'C'] as const;
 export type Tier = (typeof TIERS)[number];
-
-/**
- * The tiers the yard works day to day. C is legal to stack on — the rules
- * never stop you — but it is the RESERVE: the bay sheet keeps it folded away
- * until somebody asks for it, and the capacity and free-space figures are
- * counted without it, so «المتاح» means room in the ordinary two tiers rather
- * than room only a busy week would ever use.
- */
-export const ROUTINE_TIERS = ['A', 'B'] as const;
 
 /** The tier physically under this one; null on the ground. */
 export function tierBelow(tier: Tier): Tier | null {
@@ -43,9 +35,16 @@ export function tierAbove(tier: Tier): Tier | null {
   return index >= TIERS.length - 1 ? null : (TIERS[index + 1] ?? null);
 }
 
-/** Which yard a zone belongs to — the address digit nobody types by hand. */
-export function yardOf(zone: Zone): 1 | 2 {
-  return zone === 'E' ? 2 : 1;
+/**
+ * Which yard a zone belongs to — the address digit nobody types by hand.
+ *
+ * Every zone this system knows is in SAHA 2: the whole decoded drawing is
+ * that one ground, and the owner's yards 1 and 3 are separate grounds it does
+ * not model yet. So every address reads `2-…`. When another yard is decoded,
+ * this stops being a constant and starts reading the zone's own layout entry.
+ */
+export function yardOf(_zone: Zone): number {
+  return 2;
 }
 
 /**
@@ -82,7 +81,7 @@ export interface Rect {
 /** One zone as the official drawing defines it. */
 export interface ZoneDef extends Rect {
   readonly zone: Zone;
-  readonly yard: 1 | 2;
+  readonly yard: number;
   /** The odd bay numbers, in drawing order. */
   readonly bays: readonly number[];
   /** Usable stacks per odd bay, keyed by the bay number as a string. */
