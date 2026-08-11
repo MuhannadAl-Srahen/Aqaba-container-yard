@@ -22,8 +22,8 @@ import type {
 import { OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
 import { ammanDay, daysBetween } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
-import type { Refusal as RuleRefusal } from '../shared/rules';
-import { canMove, canPlace, canRemove } from '../shared/rules';
+import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
+import { canMove, canPlace, planRemoval } from '../shared/rules';
 import { ASEZA } from '../shared/asezaLayout';
 import {
   SESSION_COOKIE,
@@ -397,6 +397,41 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return { dto, position: dto.position };
   };
 
+  /**
+   * Gravity, written down. Whatever was resting on the container that just
+   * left comes down one tier — lowest first — and each descent is its own
+   * `DROP` movement carrying the number of the container that caused it, so
+   * the log never claims a member of staff carried a box they never touched.
+   */
+  const settleAbove = (
+    descents: readonly Descent[],
+    at: string,
+    cause: string,
+    userId: number | null,
+  ): void => {
+    for (const descent of descents) {
+      store.setPosition(db, descent.container.id, descent.to);
+      store.recordMovement(
+        db,
+        descent.container.id,
+        'DROP',
+        at,
+        descent.container.position,
+        descent.to,
+        cause,
+        userId,
+      );
+    }
+  };
+
+  /** The lift plan for a standing container, refusing if the stack cannot fall. */
+  const liftPlan = (standing: readonly Standing[], mover: Standing): readonly Descent[] => {
+    const plan = planRemoval(ASEZA, standing, mover);
+    if (!plan.ok) refuseRule(plan.refusal);
+    if (!plan.ok) throw new Error('unreachable');
+    return plan.descents;
+  };
+
   app.post('/api/containers/:id/move', (request) => {
     const actor = requirePerm(request, 'MOVE');
     const id = idParam(request);
@@ -406,13 +441,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const { dto, position } = standingContainer(id);
       const standing = store.listStanding(db);
       const mover = { id, number: dto.number, size: dto.size, position };
-      // The lift AND the landing: buried refuses, then the target's own rules.
+      // The lift AND the landing — and the landing is judged against the yard
+      // as it stands AFTER the stack above has come down.
       const refusal = canMove(ASEZA, standing, mover, body.to);
       if (refusal !== null) refuseRule(refusal);
+      const descents = liftPlan(standing, mover);
 
       const at = now();
       store.setPosition(db, id, body.to);
       store.recordMovement(db, id, 'MOVE', at, position, body.to, '', actorId(actor));
+      settleAbove(descents, at, dto.number, actorId(actor));
       return store.getContainer(db, id);
     });
   });
@@ -424,11 +462,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
     return transaction(db, () => {
       const { dto, position } = standingContainer(id);
-      // Zero-mistake tracking cuts both ways: a container with another one
-      // standing on top cannot leave — that one comes down first.
+      // A buried container no longer refuses to leave: whatever stands on it
+      // comes down a tier as it goes, exactly as the yard restacks.
       const standing = store.listStanding(db);
-      const lift = canRemove(standing, { id, number: dto.number, size: dto.size, position });
-      if (lift !== null) refuseRule(lift);
+      const descents = liftPlan(standing, { id, number: dto.number, size: dto.size, position });
       const at = now();
       store.markExited(db, id, at, {
         truck: gate.truck,
@@ -437,6 +474,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         cardOut: store.nextCardNumber(db, 'out'),
       });
       store.recordMovement(db, id, 'OUT', at, position, null, '', actorId(actor));
+      settleAbove(descents, at, dto.number, actorId(actor));
       return store.getContainer(db, id);
     });
   });
@@ -550,10 +588,25 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (existing === null) refuse(404, 'NOT_FOUND');
       if (existing === null) throw new Error('unreachable');
 
+      // Striking the record empties its slot, so the same gravity applies —
+      // without this, deleting a buried container left the one above it
+      // standing on air.
+      const position = existing.position;
+      const descents =
+        position === null
+          ? []
+          : liftPlan(store.listStanding(db), {
+              id,
+              number: existing.number,
+              size: existing.size,
+              position,
+            });
+
       const at = now();
       store.softDelete(db, id, at);
       // The mistake itself goes on the record — audits hide nothing.
       store.recordMovement(db, id, 'DELETE', at, existing.position, null, '', actorId(actor));
+      settleAbove(descents, at, existing.number, actorId(actor));
       return { ok: true };
     });
   });

@@ -110,7 +110,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(10);
+    ).toBe(11);
     db.close();
   });
 

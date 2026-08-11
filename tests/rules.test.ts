@@ -5,6 +5,7 @@ import {
   canPlace,
   canRemove,
   freeNow,
+  planRemoval,
   slotUsable,
   type Standing,
 } from '../src/shared/rules';
@@ -52,6 +53,13 @@ const box = (size: Size, position: Position): Standing => ({
   size,
   position,
 });
+
+/** Who comes down, and onto which tier, when this one is lifted out. */
+const descents = (yard: readonly Standing[], lifted: Standing): Array<[string, string]> => {
+  const plan = planRemoval(MINI, yard, lifted);
+  if (!plan.ok) throw new Error(`refused with ${plan.refusal.code}`);
+  return plan.descents.map((descent) => [descent.container.number, descent.to.tier]);
+};
 
 describe('slot existence', () => {
   it('knows the plan: real slots exist, the walls do not', () => {
@@ -123,14 +131,21 @@ describe('the reserve third tier', () => {
     expect(canPlace(MINI, [ground, middle], 20, at(1, 1, 'C'))).toBeNull();
   });
 
-  it('a container under tier C is buried until C comes down', () => {
+  it('lifting from under tier C brings the whole stack down one', () => {
     const ground = box(20, at(1, 1, 'A'));
     const middle = box(20, at(1, 1, 'B'));
     const top = box(20, at(1, 1, 'C'));
     const all = [ground, middle, top];
-    expect(canRemove(all, middle)?.code).toBe('BURIED');
-    expect(canRemove(all, middle)?.other).toBe(top.number);
-    expect(canRemove(all, top)).toBeNull();
+    // C,B,A minus A becomes B,A — and the descents come lowest first, so no
+    // box ever lands on a slot that has yet to be vacated.
+    expect(descents(all, ground)).toEqual([
+      [middle.number, 'A'],
+      [top.number, 'B'],
+    ]);
+    // C,B,A minus B becomes B,A as well: only what stood above it falls.
+    expect(descents(all, middle)).toEqual([[top.number, 'B']]);
+    // The top of the stack takes nothing with it.
+    expect(descents(all, top)).toEqual([]);
   });
 
   it('forties stack three high too: 40 on 40 on 40', () => {
@@ -142,33 +157,54 @@ describe('the reserve third tier', () => {
   });
 });
 
-describe('lifting', () => {
-  it('refuses the buried: something on top must come down first', () => {
+describe('lifting, and the gravity that follows', () => {
+  it('the box above comes down instead of refusing to let go', () => {
     const below = box(20, at(1, 1, 'A'));
     const above = box(20, at(1, 1, 'B'));
-    const lift = canRemove([below, above], below);
-    expect(lift?.code).toBe('BURIED');
-    expect(lift?.other).toBe(above.number);
-    expect(canRemove([below, above], above)).toBeNull();
+    expect(canRemove(MINI, [below, above], below)).toBeNull();
+    expect(descents([below, above], below)).toEqual([[above.number, 'A']]);
+    expect(descents([below, above], above)).toEqual([]);
   });
 
-  it('a 40 lying over either half buries the 20 underneath', () => {
+  it('forties come down on forties, three high', () => {
+    const first = box(40, at(2, 1, 'A'));
+    const second = box(40, at(2, 1, 'B'));
+    const third = box(40, at(2, 1, 'C'));
+    expect(descents([first, second, third], first)).toEqual([
+      [second.number, 'A'],
+      [third.number, 'B'],
+    ]);
+  });
+
+  it('a 40 bridging two 20s cannot fall when only one leg is lifted', () => {
     const left = box(20, at(1, 1, 'A'));
     const right = box(20, at(3, 1, 'A'));
     const lid = box(40, at(2, 1, 'B'));
-    expect(canRemove([left, right, lid], left)?.code).toBe('BURIED');
-    expect(canRemove([left, right, lid], right)?.code).toBe('BURIED');
-    expect(canRemove([left, right, lid], lid)).toBeNull();
+    const yard = [left, right, lid];
+    // The lid has nowhere to land — its other leg still stands there. The
+    // refusal names the lid, because relocating it is the way out.
+    expect(canRemove(MINI, yard, left)?.code).toBe('BLOCKED_DESCENT');
+    expect(canRemove(MINI, yard, left)?.other).toBe(lid.number);
+    expect(canRemove(MINI, yard, right)?.other).toBe(lid.number);
+    // Lift the lid itself and nothing is stranded.
+    expect(canRemove(MINI, yard, lid)).toBeNull();
+    // With both legs gone the question never arises: lifting the lid first,
+    // either 20 is then free.
+    expect(canRemove(MINI, [left, right], left)).toBeNull();
   });
 
-  it('a move is a lift plus a landing, and the same slot has its own word', () => {
+  it('a move is a lift plus a landing, judged after the stack settles', () => {
     const mover = box(20, at(1, 1, 'A'));
     expect(canMove(MINI, [mover], mover, at(1, 1, 'A'))?.code).toBe('SAME_SLOT');
     expect(canMove(MINI, [mover], mover, at(3, 1, 'A'))).toBeNull();
-    const lid = box(20, at(1, 1, 'B'));
-    expect(canMove(MINI, [mover, lid], mover, at(3, 1, 'A'))?.code).toBe('BURIED');
-    // Moving up onto its own head is not a landing.
+    // Moving up onto its own head, with nothing above to come down, is air.
     expect(canMove(MINI, [mover], mover, at(1, 1, 'B'))?.code).toBe('NO_SUPPORT');
+
+    const lid = box(20, at(1, 1, 'B'));
+    // Carrying a lid no longer blocks the move — the lid simply drops.
+    expect(canMove(MINI, [mover, lid], mover, at(3, 1, 'A'))).toBeNull();
+    // And the slot the lid just left is a legal landing, standing on the lid.
+    expect(canMove(MINI, [mover, lid], mover, at(1, 1, 'B'))).toBeNull();
   });
 });
 

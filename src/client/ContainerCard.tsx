@@ -35,6 +35,9 @@ function Badge(props: {
 const MOVEMENT_TONES = {
   IN: 'blue',
   MOVE: 'sky',
+  // Gravity wears the same colour as a move, because that is what it is —
+  // the yard moved it, not a person.
+  DROP: 'sky',
   OUT: 'slate',
   EDIT: 'amber',
   DELETE: 'red',
@@ -59,9 +62,15 @@ function MovementRow(props: { movement: MovementDto }): ReactElement {
       detail = movement.to === null ? null : <Addr text={positionLabel(movement.to)} />;
       break;
     case 'MOVE':
+    case 'DROP':
       detail =
         movement.from !== null && movement.to !== null ? (
-          <Addr text={`${positionLabel(movement.from)} → ${positionLabel(movement.to)}`} />
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+            <Addr text={`${positionLabel(movement.from)} → ${positionLabel(movement.to)}`} />
+            {movement.type === 'DROP' && movement.note !== '' ? (
+              <span className="text-xs text-muted">{AR.droppedAfter(movement.note)}</span>
+            ) : null}
+          </span>
         ) : null;
       break;
     case 'OUT':

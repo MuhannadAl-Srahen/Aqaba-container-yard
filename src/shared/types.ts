@@ -218,7 +218,14 @@ export interface LogReportRow {
   readonly deleted: boolean;
 }
 
-export type MovementType = 'IN' | 'MOVE' | 'OUT' | 'EDIT' | 'DELETE' | 'RESTORE';
+/**
+ * `DROP` is gravity, not a person: when a container is lifted out, everything
+ * resting on it comes down one tier, and each of those descents is its own
+ * movement so the log never claims a member of staff moved a box they never
+ * touched. Its `note` carries the number of the container whose removal
+ * caused the descent.
+ */
+export type MovementType = 'IN' | 'MOVE' | 'DROP' | 'OUT' | 'EDIT' | 'DELETE' | 'RESTORE';
 
 export interface MovementDto {
   readonly id: number;
@@ -258,8 +265,12 @@ export const ERROR_CODES = [
   'OCCUPIED',
   /** Tier B with nothing (or the wrong thing) underneath. */
   'NO_SUPPORT',
-  /** A container with another one standing on top of it. */
-  'BURIED',
+  /**
+   * Lifting this one out would leave the container above it with nowhere to
+   * land — the classic case is a 40 bridging two 20s when only one of the two
+   * is being removed. `details.other` names the container to relocate first.
+   */
+  'BLOCKED_DESCENT',
   'SAME_SLOT',
   'NUMBER_IN_YARD',
   'ALREADY_OUT',

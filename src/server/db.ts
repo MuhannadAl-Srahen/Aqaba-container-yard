@@ -79,6 +79,19 @@ export function migrate(db: DatabaseSync, file: string): void {
     upgradeV9toV10(db);
   }
 
+  // v11: مواد خطرة on the container, and gravity on the grid. The hazmat flag
+  // is a plain defaulted column, so it goes in place; the DROP movement type
+  // widens a CHECK, so movements are rebuilt the same way v10 rebuilt
+  // containers. Both non-destructive, both read from the file's own SQL.
+  const v10ContainersSql = tableSql('containers');
+  if (v10ContainersSql !== undefined && !v10ContainersSql.includes('hazmat')) {
+    db.exec('ALTER TABLE containers ADD COLUMN hazmat INTEGER NOT NULL DEFAULT 0');
+  }
+  const v10MovementsSql = tableSql('movements');
+  if (v10MovementsSql !== undefined && !v10MovementsSql.includes("'DROP'")) {
+    upgradeMovementsV11(db);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -136,6 +149,9 @@ export function migrate(db: DatabaseSync, file: string): void {
       driver_out    TEXT    NOT NULL DEFAULT '',
       seal_out      TEXT    NOT NULL DEFAULT '',
       card_out      INTEGER,
+      -- مواد خطرة: this box carries dangerous goods. Drawn red everywhere and
+      -- printed on both gate cards, so nobody has to remember which one it is.
+      hazmat        INTEGER NOT NULL DEFAULT 0,
       -- Soft delete for a record that was a mistake. Never removed.
       deleted_at    TEXT
     );
@@ -154,7 +170,9 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE TABLE IF NOT EXISTS movements (
       id           INTEGER PRIMARY KEY AUTOINCREMENT,
       container_id INTEGER NOT NULL REFERENCES containers (id),
-      type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
+      -- DROP is gravity, not a person: the descent of a container whose floor
+      -- was lifted out from under it. Its note names the container that left.
+      type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
       at           TEXT    NOT NULL,
       from_zone    TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
       to_zone      TEXT, to_bay   INTEGER, to_stack   INTEGER, to_tier   TEXT,
@@ -166,7 +184,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 10;
+    PRAGMA user_version = 11;
   `);
 }
 
@@ -215,6 +233,44 @@ function upgradeV9toV10(db: DatabaseSync): void {
       FROM containers;
       DROP TABLE containers;
       ALTER TABLE containers_v10 RENAME TO containers;
+    `);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+/**
+ * v10 → v11: the movements CHECK gains `DROP`, the descent a container makes
+ * when the box under it is lifted away. Same rebuild dance as v10, same
+ * promise — every recorded movement rides across untouched.
+ */
+function upgradeMovementsV11(db: DatabaseSync): void {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`
+      CREATE TABLE movements_v11 (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        container_id INTEGER NOT NULL REFERENCES containers (id),
+        type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
+        at           TEXT    NOT NULL,
+        from_zone    TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
+        to_zone      TEXT, to_bay   INTEGER, to_stack   INTEGER, to_tier   TEXT,
+        note         TEXT    NOT NULL DEFAULT '',
+        user_id      INTEGER REFERENCES users (id)
+      );
+      INSERT INTO movements_v11
+        (id, container_id, type, at, from_zone, from_bay, from_stack, from_tier,
+         to_zone, to_bay, to_stack, to_tier, note, user_id)
+      SELECT id, container_id, type, at, from_zone, from_bay, from_stack, from_tier,
+             to_zone, to_bay, to_stack, to_tier, note, user_id
+      FROM movements;
+      DROP TABLE movements;
+      ALTER TABLE movements_v11 RENAME TO movements;
     `);
     db.exec('COMMIT');
   } catch (error) {

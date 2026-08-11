@@ -320,32 +320,43 @@ describe('move', () => {
     expect((same.body as { code: string }).code).toBe('SAME_SLOT');
   });
 
-  it('a buried container cannot move until the one on top comes down', async () => {
+  it('moving out from under a stack brings it down a tier, on the record', async () => {
     const below = await gateIn('BURY0001', 20, slot('B', 1, 1, 'A'));
     const above = await gateIn('BURY0002', 20, slot('B', 1, 1, 'B'));
 
+    const moved = await call({
+      method: 'POST',
+      url: `/api/containers/${String(below.body.id)}/move`,
+      payload: { to: slot('B', 3, 1, 'A') },
+    });
+    expect(moved.status).toBe(200);
+
+    // The one that was on top is now standing on the ground it vacated.
+    const settled = await call({ method: 'GET', url: `/api/containers/${String(above.body.id)}` });
+    expect((settled.body as { container: { position: Position } }).container.position).toEqual(
+      slot('B', 1, 1, 'A'),
+    );
+
+    // And gravity signed its own name in the history, not the employee's.
+    const history = (settled.body as { movements: Array<{ type: string; note: string }> }).movements;
+    const drop = history.find((movement) => movement.type === 'DROP');
+    expect(drop?.note).toBe('BURY0001');
+  });
+
+  it('a 40 bridging two 20s must be relocated before either leg moves', async () => {
+    const left = await gateIn('LEGS0001', 20, slot('B', 1, 1, 'A'));
+    await gateIn('LEGS0002', 20, slot('B', 3, 1, 'A'));
+    await gateIn('LEGS0040', 40, slot('B', 2, 1, 'B'));
+
     const stuck = await call({
       method: 'POST',
-      url: `/api/containers/${String(below.body.id)}/move`,
-      payload: { to: slot('B', 3, 1, 'A') },
-    });
-    expect(stuck.status).toBe(409);
-    expect((stuck.body as { code: string; details?: { other?: string } }).code).toBe('BURIED');
-    expect((stuck.body as { details?: { other?: string } }).details?.other).toBe('BURY0002');
-
-    // The top one moves freely; then the bottom one is free too.
-    const liftTop = await call({
-      method: 'POST',
-      url: `/api/containers/${String(above.body.id)}/move`,
-      payload: { to: slot('B', 3, 1, 'A') },
-    });
-    expect(liftTop.status).toBe(200);
-    const nowFree = await call({
-      method: 'POST',
-      url: `/api/containers/${String(below.body.id)}/move`,
+      url: `/api/containers/${String(left.body.id)}/move`,
       payload: { to: slot('B', 5, 5, 'A') },
     });
-    expect(nowFree.status).toBe(200);
+    expect(stuck.status).toBe(409);
+    expect((stuck.body as { code: string }).code).toBe('BLOCKED_DESCENT');
+    // The refusal names the box to shift, not the one blocking underneath.
+    expect((stuck.body as { details?: { other?: string } }).details?.other).toBe('LEGS0040');
   });
 
   it('a move onto thin air is refused like any landing', async () => {
@@ -375,16 +386,35 @@ describe('gate out', () => {
     expect((search.body as { results: unknown[] }).results).toHaveLength(1);
   });
 
-  it('zero-mistake works both ways: the buried cannot leave', async () => {
-    const below = await gateIn('EXIT0003', 20, slot('B', 1, 1, 'A'));
-    const above = await gateIn('EXIT0004', 20, slot('B', 1, 1, 'B'));
+  it('a whole stack settles when the bottom one leaves', async () => {
+    const ground = await gateIn('EXIT0003', 20, slot('B', 1, 1, 'A'));
+    const middle = await gateIn('EXIT0004', 20, slot('B', 1, 1, 'B'));
+    const top = await gateIn('EXIT0005', 20, slot('B', 1, 1, 'C'));
 
-    const refused = await gateOut(below.body.id);
-    expect(refused.status).toBe(409);
-    expect((refused.body as { code: string }).code).toBe('BURIED');
+    expect((await gateOut(ground.body.id)).status).toBe(200);
 
-    expect((await gateOut(above.body.id)).status).toBe(200);
-    expect((await gateOut(below.body.id)).status).toBe(200);
+    const where = async (id: number): Promise<Position | null> => {
+      const card = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
+      return (card.body as { container: { position: Position | null } }).container.position;
+    };
+    expect(await where(middle.body.id)).toEqual(slot('B', 1, 1, 'A'));
+    expect(await where(top.body.id)).toEqual(slot('B', 1, 1, 'B'));
+  });
+
+  it('deleting a record settles the stack too, instead of stranding it', async () => {
+    const ground = await gateIn('EXIT0006', 20, slot('B', 5, 1, 'A'));
+    const above = await gateIn('EXIT0007', 20, slot('B', 5, 1, 'B'));
+
+    const struck = await call({
+      method: 'DELETE',
+      url: `/api/containers/${String(ground.body.id)}`,
+    });
+    expect(struck.status).toBe(200);
+
+    const card = await call({ method: 'GET', url: `/api/containers/${String(above.body.id)}` });
+    expect((card.body as { container: { position: Position } }).container.position).toEqual(
+      slot('B', 5, 1, 'A'),
+    );
   });
 
   it('gating out twice is refused', async () => {

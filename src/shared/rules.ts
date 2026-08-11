@@ -107,27 +107,129 @@ export function canPlace(
   return null;
 }
 
-/**
- * May this container be lifted out (for a move or an exit)? Not while
- * another one stands on top of it — that one comes down first. The top of
- * the stack is always free to go.
- */
-export function canRemove(
-  standing: readonly Standing[],
-  container: Standing,
-  occupancy?: ReadonlyMap<string, Standing>,
-): Refusal | null {
-  const roof = tierAbove(container.position.tier);
-  if (roof === null) return null;
-  const cells = occupancy ?? buildOccupancy(standing);
-  for (const oddBay of baySpan(container.position.bay)) {
-    const above = cells.get(cellKey(container.position.zone, oddBay, container.position.stack, roof));
-    if (above !== undefined) return { code: 'BURIED', other: above.number };
-  }
-  return null;
+/** One container coming down a tier because what held it up has gone. */
+export interface Descent {
+  readonly container: Standing;
+  /** Same zone, bay and stack — one tier lower. */
+  readonly to: Position;
 }
 
-/** A move is a lift plus a landing; the same-slot case gets its own word. */
+/** What lifting a container does to the stack above it, or why it cannot. */
+export type Removal =
+  | { readonly ok: true; readonly descents: readonly Descent[] }
+  | { readonly ok: false; readonly refusal: Refusal };
+
+/** The yard as it would stand once `removed` is gone and the rest has settled. */
+function project(
+  standing: readonly Standing[],
+  removedId: number,
+  descents: readonly Descent[],
+): Standing[] {
+  const landings = new Map(descents.map((descent) => [descent.container.id, descent.to]));
+  const settled: Standing[] = [];
+  for (const container of standing) {
+    if (container.id === removedId) continue;
+    const landing = landings.get(container.id);
+    settled.push(landing === undefined ? container : { ...container, position: landing });
+  }
+  return settled;
+}
+
+/**
+ * Gravity. Lifting a container out no longer refuses because something stands
+ * on it: everything resting above comes down exactly one tier, the way the
+ * yard itself restacks. Returns those descents — lowest tier first, so the
+ * writes never collide — or the reason the stack cannot come down.
+ *
+ * Only one thing can go wrong, and it is real: a descending container may
+ * find its landing cell still held by somebody who is not moving. A 40 lying
+ * across two 20s when only one of them is lifted is the case — it has to be
+ * relocated by hand first, and the refusal names it.
+ *
+ * Support after a descent is not reasoned about twice; the resulting yard is
+ * projected and re-checked with `canPlace` itself.
+ */
+export function planRemoval(
+  layout: YardLayout,
+  standing: readonly Standing[],
+  container: Standing,
+): Removal {
+  const cells = buildOccupancy(standing);
+
+  // Breadth-first up the stack: whoever covers a cell directly above a cell
+  // we are emptying loses its floor and follows it down.
+  const queue: Standing[] = [container];
+  const falling: Standing[] = [];
+  const seen = new Set<number>([container.id]);
+  while (queue.length > 0) {
+    const below = queue.shift();
+    if (below === undefined) break;
+    const roof = tierAbove(below.position.tier);
+    if (roof === null) continue;
+    for (const oddBay of baySpan(below.position.bay)) {
+      const above = cells.get(cellKey(below.position.zone, oddBay, below.position.stack, roof));
+      if (above === undefined || seen.has(above.id)) continue;
+      seen.add(above.id);
+      falling.push(above);
+      queue.push(above);
+    }
+  }
+  falling.sort((a, b) => TIERS.indexOf(a.position.tier) - TIERS.indexOf(b.position.tier));
+
+  const descents: Descent[] = [];
+  for (const faller of falling) {
+    const floor = tierBelow(faller.position.tier);
+    // Nothing standing on something else can already be on the ground.
+    if (floor === null) return { ok: false, refusal: { code: 'BLOCKED_DESCENT', other: faller.number } };
+    descents.push({ container: faller, to: { ...faller.position, tier: floor } });
+  }
+
+  // Is every landing cell actually being vacated? This is asked against the
+  // yard as it stands, not the projection, because an occupancy map holds one
+  // container per cell — two boxes claiming the same cell would silently
+  // overwrite each other there, and the clash would vanish exactly where it
+  // matters. A 40 bridging two 20s with only one leg lifted lives here.
+  const dropping = new Set(descents.map((descent) => descent.container.id));
+  for (const descent of descents) {
+    for (const oddBay of baySpan(descent.to.bay)) {
+      const holder = cells.get(cellKey(descent.to.zone, oddBay, descent.to.stack, descent.to.tier));
+      if (holder !== undefined && holder.id !== container.id && !dropping.has(holder.id)) {
+        return { ok: false, refusal: { code: 'BLOCKED_DESCENT', other: descent.container.number } };
+      }
+    }
+  }
+
+  // With the cells provably free, the projection is faithful — so support can
+  // be re-checked by the placement rules themselves rather than argued about.
+  const settled = project(standing, container.id, descents);
+  const after = buildOccupancy(settled);
+  for (const descent of descents) {
+    const landed = { ...descent.container, position: descent.to };
+    if (canPlace(layout, settled, landed.size, landed.position, landed.id, after) !== null) {
+      return { ok: false, refusal: { code: 'BLOCKED_DESCENT', other: landed.number } };
+    }
+  }
+  return { ok: true, descents };
+}
+
+/**
+ * May this container be lifted out at all? Only the blocked-descent case
+ * refuses now — everything else simply comes down with it.
+ */
+export function canRemove(
+  layout: YardLayout,
+  standing: readonly Standing[],
+  container: Standing,
+): Refusal | null {
+  const plan = planRemoval(layout, standing, container);
+  return plan.ok ? null : plan.refusal;
+}
+
+/**
+ * A move is a lift plus a landing; the same-slot case gets its own word. The
+ * landing is judged against the yard AFTER the stack above has settled —
+ * moving a container up into the slot its own roof just vacated is legal.
+ */
 export function canMove(
   layout: YardLayout,
   standing: readonly Standing[],
@@ -135,9 +237,10 @@ export function canMove(
   to: Position,
 ): Refusal | null {
   if (samePosition(container.position, to)) return { code: 'SAME_SLOT' };
-  const lift = canRemove(standing, container);
-  if (lift !== null) return lift;
-  return canPlace(layout, standing, container.size, to, container.id);
+  const plan = planRemoval(layout, standing, container);
+  if (!plan.ok) return plan.refusal;
+  const settled = project(standing, container.id, plan.descents);
+  return canPlace(layout, settled, container.size, to, container.id);
 }
 
 /** «قديش باقي» for one size: how many legal landings exist right now. */

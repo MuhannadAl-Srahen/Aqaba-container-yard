@@ -167,6 +167,9 @@ export const AR = {
   movementsTitle: 'الحركات',
   movementIn: 'إدخال',
   movementMove: 'نقل',
+  movementDrop: 'نزول طابق',
+  /** Gravity names its cause: this box came down when that one left. */
+  droppedAfter: (number: string): string => `نزلت بعد خروج ${number}`,
   movementOut: 'إخراج',
   movementEdit: 'تعديل بيانات',
   movementDelete: 'حذف السجل',
@@ -299,6 +302,7 @@ export const AR = {
   operationName: {
     IN: 'دخول',
     MOVE: 'نقل',
+    DROP: 'نزول طابق',
     OUT: 'خروج',
     EDIT: 'تعديل',
     DELETE: 'حذف',
@@ -340,7 +344,8 @@ export const AR = {
     BAD_SLOT: 'هالخانة مش موجودة بالمخطط — حيط، أو مقاس على باي غلط.',
     OCCUPIED: 'الخانة مشغولة.',
     NO_SUPPORT: 'ما في أرضية تحتها — الطابق الثاني بدو حاوية تحته من نفس المقاس.',
-    BURIED: 'فوقها حاوية — نزّلها الأول.',
+    BLOCKED_DESCENT:
+      'الحاوية اللي فوقها ما بتلاقي مكان تنزل عليه — لازم تنقلها لموقع ثاني قبل.',
     SAME_SLOT: 'هذا نفس مكانها الحالي.',
     NUMBER_IN_YARD: 'هذا الرقم موجود بالساحة هلأ. راجع الأوراق.',
     ALREADY_OUT: 'هاي الحاوية طلعت من الساحة أصلًا.',
@@ -348,7 +353,9 @@ export const AR = {
     NOT_DELETED: 'هذا السجل مش محذوف أصلًا.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
-  errorWith: (code: 'BURIED' | 'OCCUPIED', other: string): string =>
-    code === 'BURIED' ? `فوقها ${other} — نزّلها الأول.` : `الخانة مشغولة — واقفة فيها ${other}.`,
+  errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>
+    code === 'BLOCKED_DESCENT'
+      ? `الحاوية ${other} اللي فوقها ما بتلاقي مكان تنزل عليه — انقل ${other} لموقع ثاني قبل.`
+      : `الخانة مشغولة — واقفة فيها ${other}.`,
   networkError: 'ما قدرنا نوصل للخادم. تأكد من الإنترنت وجرّب كمان مرة.',
 } as const;

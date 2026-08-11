@@ -60,7 +60,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // sentence can say WHO is on top or already standing there.
       const other = body.details?.['other'];
       const arabic =
-        (body.code === 'BURIED' || body.code === 'OCCUPIED') && typeof other === 'string'
+        (body.code === 'BLOCKED_DESCENT' || body.code === 'OCCUPIED') && typeof other === 'string'
           ? AR.errorWith(body.code, other)
           : (AR.errors[body.code] ?? AR.networkError);
       throw new ApiFailure(body.code, arabic, body.details);
