@@ -159,7 +159,7 @@ export function BaySheet(props: {
       onClick={props.onClose}
     >
       <div
-        className="max-h-[88dvh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
+        className="max-h-[88dvh] w-full max-w-6xl overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
         onClick={(event) => {
           event.stopPropagation();
         }}
@@ -183,14 +183,14 @@ export function BaySheet(props: {
 
         {/* The grid, LTR like the plan: stack 01 first, tier B over tier A.
             A cell is never narrower than a full container number — a truncated
-            «TCLU1757…» is the one thing this sheet exists to show. Ten stacks
-            at that width can outrun a phone, so the grid scrolls sideways
-            rather than squeezing. */}
+            «TCLU1757…» is the one thing this sheet exists to show — and the
+            sheet is wide enough that ten of them fit without scrolling on any
+            desk. A phone still gets the sideways scroll it needs. */}
         <div className="-mx-1 mt-4 space-y-1.5 overflow-x-auto px-1 pb-1" dir="ltr">
           <div
             className="grid gap-1.5"
             style={{
-              gridTemplateColumns: `2.6rem repeat(${String(maxStack)}, minmax(5.75rem, 1fr))`,
+              gridTemplateColumns: `2.4rem repeat(${String(maxStack)}, minmax(5.25rem, 1fr))`,
             }}
           >
             <div />
