@@ -177,6 +177,11 @@ export function ContainerCard(props: {
           </p>
         )}
 
+        {/* Correcting a container REPLACES its details rather than unrolling
+            a second copy of them underneath: same card, same place, one set
+            of values on screen at a time. */}
+        {!editing && (
+          <>
         <dl className="space-y-2 text-sm">
           <div className="flex justify-between gap-3">
             <dt className="shrink-0 text-muted">{AR.customer}</dt>
@@ -306,6 +311,8 @@ export function ContainerCard(props: {
             </Button>
           )}
         </div>
+          </>
+        )}
 
         <ErrorLine message={error} />
 
@@ -373,14 +380,16 @@ export function ContainerCard(props: {
           />
         )}
 
-        <div>
-          <h3 className="mb-2 text-sm font-bold text-ink">{AR.movementsTitle}</h3>
-          <ol className="space-y-2 border-s-2 border-line ps-3">
-            {(detail.data?.movements ?? []).map((movement) => (
-              <MovementRow key={movement.id} movement={movement} />
-            ))}
-          </ol>
-        </div>
+        {!editing && (
+          <div>
+            <h3 className="mb-2 text-sm font-bold text-ink">{AR.movementsTitle}</h3>
+            <ol className="space-y-2 border-s-2 border-line ps-3">
+              {(detail.data?.movements ?? []).map((movement) => (
+                <MovementRow key={movement.id} movement={movement} />
+              ))}
+            </ol>
+          </div>
+        )}
       </div>
 
       {confirming === 'exit' && (
