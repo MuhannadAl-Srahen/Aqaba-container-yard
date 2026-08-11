@@ -249,6 +249,7 @@ export const AR = {
   cardSeal: 'رقم الرصاصة',
   cardSlot: 'موقع الحاوية',
   cardStoredAt: 'تاريخ تخزين الحاوية',
+  cardIssuedAt: 'تاريخ إصدار البطاقة',
   cardHazmat: 'مواد خطرة',
   cardNotes: 'ملاحظات',
   /**

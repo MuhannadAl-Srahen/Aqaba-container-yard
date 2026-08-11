@@ -111,7 +111,11 @@ export function PrintCard(props: {
               </span>
               <span className="text-[10px] font-semibold opacity-80">{AR.appName}</span>
             </div>
-            <div className="gate-stamp flex w-36 flex-col justify-center gap-0.5 border-s border-white/25 px-3 py-2.5 text-[12px]">
+            <div className="gate-stamp flex w-40 flex-col justify-center gap-0.5 border-s border-white/25 px-3 py-2.5 text-[12px]">
+              {/* Two dates live on this card and they are not the same thing:
+                  this one is when the card itself was issued, the one in the
+                  table is when the container went into store. */}
+              <span className="text-[10px] font-semibold opacity-80">{AR.cardIssuedAt}</span>
               <span className="font-bold">{at === null ? '—' : dayFormat.format(new Date(at))}</span>
               <span dir="ltr" className="opacity-90">
                 {at === null ? '—' : dateFormat.format(new Date(at))}
@@ -123,7 +127,10 @@ export function PrintCard(props: {
           </div>
 
           {/* The receipt itself: what the two signatures below attest to. It
-              says «المبينة معلوماتها أدناه», so it stands above the table. */}
+              says «المبينة معلوماتها أدناه», so it stands above the table —
+              and only on the entry card, since it attests to taking the
+              container IN. A departure receipts nothing. */}
+          {kind === 'in' && (
           <p className="gate-statement border-b-2 border-rule-strong px-3.5 py-3 text-[13px] font-semibold leading-7 text-ink">
             {AR.cardStatementBefore}{' '}
             {/* Ruled slots, not spaces: a run of spaces collapses in HTML and
@@ -137,6 +144,7 @@ export function PrintCard(props: {
             </span>{' '}
             {AR.cardStatementAfter}
           </p>
+          )}
 
           {/* The container number is what the gate checker actually reads —
               it stands alone, big, above the table. */}
@@ -157,7 +165,9 @@ export function PrintCard(props: {
             {/* The seal of THIS gate moment: the one it came under on the
                 entry card, the one it leaves under on the exit card. */}
             {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, { mono: true })}
-            {row(AR.cardStoredAt, at === null ? '—' : dateFormat.format(new Date(at)))}
+            {/* Always the date it went INTO store — on the exit card too,
+                where `at` is the departure and would be the wrong answer. */}
+            {row(AR.cardStoredAt, dateFormat.format(new Date(container.enteredAt)))}
             {row(AR.cardTruck, truck === '' ? '—' : truck)}
             {row(AR.cardDriver, driver === '' ? '—' : driver)}
             {row(AR.cardHazmat, container.hazmat ? AR.hazmatYes : AR.hazmatNo, {
