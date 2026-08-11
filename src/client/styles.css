@@ -193,6 +193,14 @@ body {
     display: none !important;
   }
 
+  /* A gate card can be opened from inside a register, so both print areas are
+     mounted at once. The card is the one the person asked for; the register
+     behind it steps off the paper entirely. */
+  .printing-card .report-sheet,
+  .printing-card .report-sheet * {
+    display: none !important;
+  }
+
   /* The gate voucher was designed at 448px on screen; on the ~182mm A4 text
      block the same pixel sizes print spindly. Paper re-scales the semantic
      parts in mm/pt; the screen keeps the compact card. */

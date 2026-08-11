@@ -60,11 +60,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const may = (permission: Permission): boolean =>
     isOwner || (me?.permissions.includes(permission) ?? false);
 
+  // The map is the shared picture of the ground, so it is the fastest poll:
+  // whatever the gate does has to reach the office within a few seconds.
   const state = useQuery({
     queryKey: ['state'],
     queryFn: api.state,
-    refetchInterval: 15_000,
-    refetchOnWindowFocus: true,
+    refetchInterval: 8_000,
   });
 
   // A dead session sends us back to the door exactly once. The latch matters:
@@ -131,6 +132,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     void queryClient.invalidateQueries({ queryKey: ['state'] });
     void queryClient.invalidateQueries({ queryKey: ['container'] });
     void queryClient.invalidateQueries({ queryKey: ['search'] });
+    // A register open on this same device must not go stale behind the
+    // operation that just happened in front of it.
+    for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-truck', 'report-bill', 'report-log']) {
+      void queryClient.invalidateQueries({ queryKey: [key] });
+    }
     setToast(message);
     setSelected(null);
     setOpenBay(null);
@@ -191,18 +197,23 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   const openZone = openBay === null ? null : zoneOf(ASEZA, openBay.zone);
 
+  /**
+   * The screen the app is on. It is a VALUE, not an early return, because the
+   * overlays below have to outlive it: the gate card is opened from inside a
+   * register, and while a register owned the whole render the card had
+   * nothing to mount into — it appeared only once the register was closed.
+   */
+  let screen: ReactElement;
   if (usersView && isOwner) {
-    return (
+    screen = (
       <UsersScreen
         onBack={() => {
           setUsersView(false);
         }}
       />
     );
-  }
-
-  if (reporting !== false) {
-    return (
+  } else if (reporting !== false) {
+    screen = (
       <ReportsScreen
         initialBill={typeof reporting === 'string' ? reporting : undefined}
         onCard={(kind, containerId) => {
@@ -217,19 +228,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         }}
       />
     );
-  }
-
-  if (logView) {
-    return (
+  } else if (logView) {
+    screen = (
       <LogScreen
         onBack={() => {
           setLogView(false);
         }}
       />
     );
-  }
-
-  return (
+  } else {
+    screen = (
     <div className="flex h-dvh flex-col bg-canvas">
       <header className="z-10 border-b border-line bg-surface px-3 py-2 shadow-sm lg:px-5">
         <div className="flex flex-wrap items-center gap-2 lg:gap-4">
@@ -586,16 +594,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         />
       )}
 
-      {printCard !== null && (
-        <PrintCard
-          kind={printCard.kind}
-          container={printCard.container}
-          onClose={() => {
-            setPrintCard(null);
-          }}
-        />
-      )}
-
       {confirmMove !== null && (
         <Confirm
           title={AR.confirmMoveTitle}
@@ -608,9 +606,26 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
         />
       )}
-
-      {toast !== null && <Toast message={toast} />}
     </div>
+    );
+  }
+
+  // The overlays sit OUTSIDE the screen choice, so a gate card opened from a
+  // register appears over the register instead of waiting for it to close.
+  return (
+    <>
+      {screen}
+      {printCard !== null && (
+        <PrintCard
+          kind={printCard.kind}
+          container={printCard.container}
+          onClose={() => {
+            setPrintCard(null);
+          }}
+        />
+      )}
+      {toast !== null && <Toast message={toast} />}
+    </>
   );
 }
 

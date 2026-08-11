@@ -106,6 +106,8 @@ export function LogScreen(props: {
     queryKey: ['report-log', fromIso, toIso],
     queryFn: () => api.reportLog(fromIso, toIso),
     enabled: valid,
+    // The audit trail of a yard three people are working at once.
+    refetchInterval: 20_000,
   });
   const rows = useMemo(() => log.data?.rows ?? [], [log.data]);
 

@@ -134,6 +134,10 @@ export function ContainerCard(props: {
   const detail = useQuery({
     queryKey: ['container', container.id],
     queryFn: () => api.detail(container.id),
+    // An open card keeps up with the yard — a container can descend a tier
+    // because a neighbour left from another device. Except while somebody is
+    // correcting it: nothing may move under a form being filled in.
+    refetchInterval: editing ? false : 10_000,
   });
 
   const inYard = container.position !== null;

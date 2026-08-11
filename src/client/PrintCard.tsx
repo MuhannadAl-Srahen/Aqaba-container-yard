@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react';
+import { useEffect, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto } from '../shared/types';
 import { positionLabel } from '../shared/address';
@@ -30,6 +30,16 @@ export function PrintCard(props: {
 }): ReactElement {
   const { kind, container } = props;
   useEscape(props.onClose);
+
+  // A card can now be opened on top of an open register, and both carry the
+  // .print-area class that survives printing — without this the printer would
+  // spit out the whole register behind the card. The card wins while it is up.
+  useEffect(() => {
+    document.documentElement.classList.add('printing-card');
+    return () => {
+      document.documentElement.classList.remove('printing-card');
+    };
+  }, []);
 
   // The card names the slot of the gate moment itself: where the container
   // landed on entry, or stood right before it left.

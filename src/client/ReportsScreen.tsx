@@ -285,30 +285,40 @@ export function ReportsScreen(props: {
   const truckReady = truck.trim() !== '';
   const billReady = bill.trim() !== '';
 
+  // A register left open on the office screen keeps up with the gate on its
+  // own. Slower than the map — a sheet being read should not reshuffle under
+  // the reader every few seconds.
+  const LIVE = 20_000;
+
   const gate = useQuery({
     queryKey: ['report-gate', tab, fromIso, toIso],
     queryFn: () => api.reportGate(tab === 'in' ? 'IN' : 'OUT', fromIso, toIso),
     enabled: valid && (tab === 'in' || tab === 'out'),
+    refetchInterval: LIVE,
   });
   const daily = useQuery({
     queryKey: ['report-daily', fromIso, toIso],
     queryFn: () => api.reportDaily(fromIso, toIso),
     enabled: valid && tab === 'daily',
+    refetchInterval: LIVE,
   });
   const truckReport = useQuery({
     queryKey: ['report-truck', truck.trim(), fromIso, toIso],
     queryFn: () => api.reportTruck(truck.trim(), fromIso, toIso),
     enabled: valid && tab === 'truck' && truckReady,
+    refetchInterval: LIVE,
   });
   const standing = useQuery({
     queryKey: ['report-standing'],
     queryFn: api.reportStanding,
     enabled: tab === 'standing',
+    refetchInterval: LIVE,
   });
   const billReport = useQuery({
     queryKey: ['report-bill', bill.trim()],
     queryFn: () => api.reportBill(bill.trim()),
     enabled: tab === 'bill' && billReady,
+    refetchInterval: LIVE,
   });
 
   const baseTitle = TABS.find(([key]) => key === tab)?.[1] ?? '';
