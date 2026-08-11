@@ -266,9 +266,8 @@ export const AR = {
    * The receipt line the storage directorate and الحق sign under. The date is
    * left open on the paper so it is filled in by hand at the gate.
    */
-  cardStatementBefore: 'تم بتاريخ',
-  cardStatementAfter:
-    'استلام وتخزين الحاوية المبينة معلوماتها أدناه في الموقع المخصص ' +
+  cardStatement:
+    'تم استلام وتخزين الحاوية المبينة معلوماتها أدناه في الموقع المخصص ' +
     'بإشراف مندوب مديرية إدارة التخزين وشركة الحق تحت وضع الرصاص الجمركي:',
   cardWorkerSign: 'توقيع موظف مديرية إدارة التخزين',
   cardSupervisorSign: 'توقيع شركة الحق',

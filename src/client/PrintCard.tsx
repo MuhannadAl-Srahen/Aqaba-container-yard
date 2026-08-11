@@ -131,19 +131,9 @@ export function PrintCard(props: {
               and only on the entry card, since it attests to taking the
               container IN. A departure receipts nothing. */}
           {kind === 'in' && (
-          <p className="gate-statement border-b-2 border-rule-strong px-3.5 py-3 text-[13px] font-semibold leading-7 text-ink">
-            {AR.cardStatementBefore}{' '}
-            {/* Ruled slots, not spaces: a run of spaces collapses in HTML and
-                leaves nothing to write the date on. */}
-            <span className="gate-date" dir="ltr">
-              <span className="gate-date-slot" />
-              <span className="gate-date-sep">/</span>
-              <span className="gate-date-slot" />
-              <span className="gate-date-sep">/</span>
-              <span className="gate-date-slot gate-date-year" />
-            </span>{' '}
-            {AR.cardStatementAfter}
-          </p>
+            <p className="gate-statement border-b-2 border-rule-strong px-3.5 py-3 text-[13px] font-semibold leading-7 text-ink">
+              {AR.cardStatement}
+            </p>
           )}
 
           {/* The container number is what the gate checker actually reads —

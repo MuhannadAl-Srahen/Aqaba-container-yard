@@ -11,8 +11,16 @@ AqabaYard-Setup/
   app/
     src/          ← server + shared source (runs under tsx)
     dist/         ← the PRE-BUILT client (bun run build before packaging)
+    node_modules/ ← the PRODUCTION runtime, shipped (npm --omit=dev)
     package.json
 ```
+
+`node_modules` rides in the package on purpose. Installing used to run `npm
+install` on the target, which is the slowest and most fragile step there is —
+it needs the internet, it can hang on a slow registry, and it made the office
+sit watching a stalled window. Shipping it makes the install offline and
+instant; the installer only falls back to npm if the folder arrives without
+it (which means half a copy).
 
 To cut a new setup package from this repo:
 
@@ -23,6 +31,16 @@ Remove-Item -Recurse -Force $pkg -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force "$pkg\app" | Out-Null
 Copy-Item -Recurse src, dist, package.json "$pkg\app\"
 Copy-Item deploy\install.ps1, "deploy\اقرأني.txt", "deploy\الأوامر.txt" $pkg\
+
+# The production runtime, built in a scratch folder so the repo's dev tree is
+# never shipped by accident.
+$mods = "$env:TEMP\yard-prod-modules"
+Remove-Item -Recurse -Force $mods -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $mods | Out-Null
+Copy-Item package.json "$mods\package.json"
+Push-Location $mods; npm install --omit=dev --no-audit --no-fund --loglevel=error; Pop-Location
+robocopy "$mods\node_modules" "$pkg\app\node_modules" /MIR /NFL /NDL /NJH /NJS | Out-Null
+
 Compress-Archive -Path $pkg -DestinationPath "$env:USERPROFILE\Desktop\AqabaYard-Setup.zip" -Force
 ```
 

@@ -123,28 +123,6 @@ body {
   pointer-events: none;
 }
 
-/* The storage receipt is dated by hand at the gate, so its date needs room to
-   be written in — ruled slots rather than spaces, which HTML would collapse
-   to nothing. Sized for a pen, on screen and on paper alike. */
-.gate-date {
-  display: inline-flex;
-  align-items: flex-end;
-  gap: 0.25rem;
-  margin: 0 0.15rem;
-  vertical-align: baseline;
-}
-.gate-date-slot {
-  display: inline-block;
-  width: 2.6rem;
-  border-bottom: 1.5px solid var(--color-rule-strong);
-}
-.gate-date-year {
-  width: 4rem;
-}
-.gate-date-sep {
-  color: var(--color-muted);
-}
-
 /* A stack position the wall swallows — hatched, like the plan's dead ground. */
 .slot-wall {
   background: repeating-linear-gradient(

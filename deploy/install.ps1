@@ -4,11 +4,12 @@
 # ============================================================================
 #  ماذا يفعل:
 #   1. يتأكد من Node.js 24 (ينزّله وينصّبه إذا مش موجود)
-#   2. ينسخ التطبيق إلى C:\AqabaYard\app  (البيانات منفصلة في C:\AqabaYard\data)
-#   3. ينصّب حزم التشغيل (npm)
-#   4. يسجّل التشغيل التلقائي مع إقلاع الجهاز (Scheduled Task باسم AqabaYard)
-#   5. يفتح منفذ 8787 على جدار الحماية (للوصول من شبكة المكتب)
-#   6. ينصّب Tailscale لرابط https مجاني من الإنترنت
+#   2. يوقف السيرفر القديم (لازم قبل النسخ، وإلا ما بتنستبدل الملفات)
+#   3. ينسخ التطبيق إلى C:\AqabaYard\app  (البيانات منفصلة في C:\AqabaYard\data)
+#   4. يفحص حزم التشغيل — وهي جاهزة مع المجلد، بدون تنزيل
+#   5. يسجّل التشغيل التلقائي مع إقلاع الجهاز (Scheduled Task باسم AqabaYard)
+#   6. يفتح منفذ 8787 على جدار الحماية (للوصول من شبكة المكتب)
+#   7. ينصّب Tailscale لرابط https مجاني من الإنترنت
 #  إعادة تشغيل السكربت آمنة: يحدّث التطبيق ولا يلمس البيانات أبداً.
 # ============================================================================
 
@@ -65,21 +66,31 @@ Start-Sleep -Seconds 3
 Write-Host '  [3/7] نسخ التطبيق إلى C:\AqabaYard\app ...' -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path $AppDir, (Join-Path $Root 'data'), (Join-Path $Root 'logs') | Out-Null
 # التطبيق يُستبدل بالكامل عند التحديث؛ البيانات في data\ خارجه ولا تُلمس.
-# node_modules مستثنى: هو ناتج npm مش جزء من الحزمة، ومسحه كل مرة يعني إعادة
-# تنزيل 102 حزمة بلا داعٍ.
-robocopy (Join-Path $Here 'app') $AppDir /MIR /XD node_modules /NFL /NDL /NJH /NJS | Out-Null
+# الحزمة فيها حزم التشغيل جاهزة، والمرآة بتنقلها كما هي — robocopy بينقل
+# المتغيّر بس، فالتحديث بياخد ثواني.
+robocopy (Join-Path $Here 'app') $AppDir /MIR /NFL /NDL /NJH /NJS | Out-Null
 if ($LASTEXITCODE -ge 8) {
   throw 'robocopy failed — تأكد إنو ما في نسخة ثانية من السيرفر شغالة'
 }
 $global:LASTEXITCODE = 0
 
 # ── 4. حزم التشغيل ───────────────────────────────────────────────────────────
-Write-Host '  [4/7] تنصيب حزم التشغيل (npm)...' -ForegroundColor Yellow
-Push-Location $AppDir
-& npm install --omit=dev --no-audit --no-fund --loglevel=error
-if ($LASTEXITCODE -ne 0) { Pop-Location; throw 'npm install failed' }
-Pop-Location
-Write-Host '        تم' -ForegroundColor Green
+# الحزم تجي جاهزة مع المجلد، فما في تنزيل ولا انتظار إنترنت هون. الاحتياط تحت
+# للحالة الوحيدة اللي بتخليها ناقصة: نسخ نص المجلد.
+Write-Host '  [4/7] فحص حزم التشغيل...' -ForegroundColor Yellow
+$tsx = Join-Path $AppDir 'node_modules\tsx\dist\cli.mjs'
+if (Test-Path $tsx) {
+  Write-Host '        الحزم جاهزة مع الحزمة — بدون تنزيل' -ForegroundColor Green
+} else {
+  Write-Host '        الحزم ناقصة، جارٍ تنزيلها (بتحتاج إنترنت، كم دقيقة)...' -ForegroundColor Yellow
+  Push-Location $AppDir
+  & npm install --omit=dev --no-audit --no-fund --loglevel=error
+  $npmCode = $LASTEXITCODE
+  Pop-Location
+  if ($npmCode -ne 0) { throw 'npm install failed' }
+  if (-not (Test-Path $tsx)) { throw 'حزم التشغيل ما اكتملت' }
+  Write-Host '        تم' -ForegroundColor Green
+}
 
 # ── 5. التشغيل التلقائي ──────────────────────────────────────────────────────
 Write-Host '  [5/7] تسجيل التشغيل التلقائي...' -ForegroundColor Yellow
