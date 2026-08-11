@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AR } from './ar';
 import { ApiFailure, api, formatDate } from './api';
@@ -36,17 +36,47 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  /** Anything here can change the whole yard, so everything is re-read after. */
+  // Longer than the map's three and a half seconds: these messages carry
+  // counts the owner is meant to read, not just an acknowledgement.
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 7000);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [toast]);
+
+  /**
+   * Anything here can change the whole yard, so everything is re-read after.
+   *
+   * A refusal is raised as a TOAST as well as a line at the top of the page.
+   * The wipe sits at the bottom of a long screen, so its «كلمة السر غير
+   * صحيحة» appeared above the fold, out of sight, and a refused wipe was
+   * indistinguishable from a button that did nothing at all.
+   */
   const run = (work: Promise<unknown>, done: (result: unknown) => string): void => {
     setBusy(true);
     setError(null);
     work
       .then((result) => {
-        void queryClient.resetQueries();
+        // INVALIDATE, never reset. `resetQueries` puts every query back to
+        // having no data at all — including `['me']`, and the yard screen
+        // decides whether to show this screen from `me.owner`. So the owner
+        // stopped being the owner for the length of one refetch, this screen
+        // was torn off the page mid-operation, and its message went with it:
+        // the wipe ran, said nothing, and dropped him back on the map, which
+        // is exactly «الحذف ما بيحذف» from the other side of the screen.
+        // Invalidating refetches everything just the same while the answers
+        // already in hand stay in hand.
+        void queryClient.invalidateQueries();
         setToast(done(result));
       })
       .catch((failure: unknown) => {
-        setError(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+        const message = failure instanceof ApiFailure ? failure.arabic : AR.networkError;
+        setError(message);
+        setToast(message);
       })
       .finally(() => {
         setBusy(false);
@@ -239,9 +269,12 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
           danger
           busy={busy}
           onConfirm={() => {
-            run(api.wipeData(wipeWord), () => {
+            run(api.wipeData(wipeWord), (result) => {
+              const cleared = result as { containers: number; movements: number; left: number };
               setWipeWord('');
-              return AR.toolsWipeDone;
+              return cleared.left > 0
+                ? AR.toolsWipeIncomplete(cleared.left)
+                : AR.toolsWipeDone(cleared.containers, cleared.movements);
             });
           }}
           onCancel={() => {

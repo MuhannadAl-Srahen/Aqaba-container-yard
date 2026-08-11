@@ -96,15 +96,24 @@ export function registerOwnerTools(
     if (!verifySecret(stored, body.password)) refuse(403, 'BAD_PASSWORD');
 
     const kept = snapshot(db, 'before-wipe');
-    transaction(db, () => {
+    const count = (table: string): number =>
+      (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+
+    const cleared = transaction(db, () => {
+      const containers = count('containers');
+      const movements = count('movements');
       db.exec('DELETE FROM movements');
       db.exec('DELETE FROM containers');
       // One counter per year now, so the wipe clears the whole family.
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
       db.exec("DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements')");
+      // Counted back AFTER the delete, from the table itself. The screen says
+      // what actually went, so «it did not delete anything» is a claim either
+      // the number confirms or contradicts, rather than an impression.
+      return { containers, movements, left: count('containers') };
     });
-    return { ok: true, backup: path.basename(kept) };
+    return { ok: true, ...cleared, backup: path.basename(kept) };
   });
 
   /** Fill the yard with believable practice data. */

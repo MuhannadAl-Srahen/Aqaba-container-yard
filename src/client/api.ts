@@ -254,7 +254,16 @@ export const api = {
   setWipePassword: (password: string): Promise<{ ok: boolean }> =>
     request('/api/owner/wipe-password', { method: 'POST', body: JSON.stringify({ password }) }),
 
-  wipeData: (password: string): Promise<{ ok: boolean; backup: string }> =>
+  wipeData: (
+    password: string,
+  ): Promise<{
+    ok: boolean;
+    /** What actually went, counted from the tables themselves. */
+    containers: number;
+    movements: number;
+    left: number;
+    backup: string;
+  }> =>
     request('/api/owner/wipe', { method: 'POST', body: JSON.stringify({ password }) }),
 
   seedDemo: (): Promise<{ added: number; departed: number; fullBay: string | null }> =>

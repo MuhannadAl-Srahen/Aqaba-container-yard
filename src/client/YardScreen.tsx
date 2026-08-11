@@ -67,16 +67,47 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   // person is allowed to do. The server is still the one that refuses.
   const meQuery = useQuery({ queryKey: ['me'], queryFn: api.me });
   const me = meQuery.data ?? null;
-  const isOwner = me?.owner ?? false;
+  /**
+   * The owner does not stop being the owner while `me` is being re-read.
+   * Without this latch, any moment when that answer is briefly absent drops
+   * `isOwner` to false and tears an owner-only screen off the page in the
+   * middle of what he is doing — which is how a wipe came to run, say nothing,
+   * and leave him looking at the map wondering whether it had.
+   *
+   * It only decides what the SCREEN offers. Every route still refuses on its
+   * own authority, so a stale latch can permit nothing.
+   */
+  const knownOwner = useRef(false);
+  useEffect(() => {
+    if (meQuery.data !== undefined) knownOwner.current = meQuery.data.owner;
+  }, [meQuery.data]);
+  const isOwner = meQuery.data?.owner ?? knownOwner.current;
   const may = (permission: Permission): boolean =>
     isOwner || (me?.permissions.includes(permission) ?? false);
+
+  /**
+   * Is the map itself the thing on screen? This component owns every screen —
+   * the register, the log, the staff list, the owner's tools are all values it
+   * renders — so it stays mounted behind all of them, and its poll went on
+   * running underneath.
+   *
+   * That poll is not cheap: each answer rebuilds the whole yard model — the
+   * load of every one of 681 ground slots, the free-space arithmetic, the
+   * search index — and then re-renders whatever screen is actually in front.
+   * Every eight seconds, while somebody is typing an employee's name. It is
+   * paid for gladly when the map is on screen, since that IS the map, and it
+   * is pure waste when it is not.
+   */
+  const mapShown = !usersView && !toolsView && reporting === false && !logView;
 
   // The map is the shared picture of the ground, so it is the fastest poll:
   // whatever the gate does has to reach the office within a few seconds.
   const state = useQuery({
     queryKey: ['state'],
     queryFn: api.state,
-    refetchInterval: 8_000,
+    refetchInterval: mapShown ? 8_000 : false,
+    // Nor on coming back to the window while another screen is in front.
+    refetchOnWindowFocus: mapShown,
   });
 
   // A dead session sends us back to the door exactly once. The latch matters:

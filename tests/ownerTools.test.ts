@@ -212,6 +212,14 @@ describe('حذف البيانات', () => {
     expect(wiped.status).toBe(200);
     expect(await standingCount()).toBe(0);
 
+    // It reports what actually went, counted from the tables themselves, and
+    // that nothing was left behind. «حذفت ولا ما حذفت» is then a number on the
+    // screen rather than an impression of one.
+    const cleared = wiped.body as { containers: number; movements: number; left: number };
+    expect(cleared.containers).toBeGreaterThan(0);
+    expect(cleared.movements).toBeGreaterThan(0);
+    expect(cleared.left).toBe(0);
+
     // The staff, the passwords and the session all survive it.
     const staff = await call({ method: 'GET', url: '/api/users' });
     expect((staff.body as { users: unknown[] }).users).toHaveLength(1);
@@ -220,6 +228,20 @@ describe('حذف البيانات', () => {
     expect(readdirSync(path.join(dir, 'backups')).some((f) => f.startsWith('before-wipe'))).toBe(
       true,
     );
+
+    // Every surface that reads containers must agree the yard is empty — the
+    // registers and the log included, since those are what the owner opens to
+    // check whether the clearing really happened.
+    const period = `from=${new Date(Date.now() - 90 * 86_400_000).toISOString()}&to=${new Date().toISOString()}`;
+    for (const url of [
+      '/api/reports/standing',
+      `/api/reports/gate?type=IN&${period}`,
+      `/api/reports/gate?type=OUT&${period}`,
+      `/api/reports/log?${period}`,
+    ]) {
+      const sheet = await call({ method: 'GET', url });
+      expect((sheet.body as { rows: unknown[] }).rows, url).toHaveLength(0);
+    }
 
     // Card serials restart, because this is a fresh exercise.
     const fresh = await call({

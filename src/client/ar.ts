@@ -431,7 +431,17 @@ export const AR = {
   toolsWipeConfirm:
     'ستُحذف جميع الحاويات والحركات، وستُحفظ نسخة احتياطية من الوضع الحالي قبل ذلك. ' +
     'هل تريد المتابعة؟',
-  toolsWipeDone: 'تم حذف البيانات، والموظفون كما هم.',
+  /**
+   * The count comes from the tables after the delete, so the screen states
+   * what actually went instead of asserting that something did.
+   */
+  toolsWipeDone: (containers: number, movements: number): string =>
+    containers === 0 && movements === 0
+      ? 'لم تكن هناك بيانات لحذفها — الساحة فارغة أصلاً، والموظفون كما هم.'
+      : `تم حذف ${String(containers)} حاوية و${String(movements)} حركة. الساحة فارغة الآن، والموظفون كما هم.`,
+  /** The delete ran but the yard is not empty — the one answer that is a fault. */
+  toolsWipeIncomplete: (left: number): string =>
+    `تحذير: بقيت ${String(left)} حاوية بعد الحذف. راجع المطوّر قبل المتابعة.`,
 
   // ---- backup ----
   backup: 'نسخة احتياطية',
