@@ -22,6 +22,15 @@ export type Zone = (typeof ZONES)[number];
 export const TIERS = ['A', 'B', 'C'] as const;
 export type Tier = (typeof TIERS)[number];
 
+/**
+ * The tiers the yard works day to day. C is legal to stack on — the rules
+ * never stop you — but it is the RESERVE: the bay sheet keeps it folded away
+ * until somebody asks for it, and the capacity and free-space figures are
+ * counted without it, so «المتاح» means room in the ordinary two tiers rather
+ * than room only a busy week would ever use.
+ */
+export const ROUTINE_TIERS = ['A', 'B'] as const;
+
 /** The tier physically under this one; null on the ground. */
 export function tierBelow(tier: Tier): Tier | null {
   const index = TIERS.indexOf(tier);

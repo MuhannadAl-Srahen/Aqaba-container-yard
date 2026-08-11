@@ -66,19 +66,32 @@ describe('bay loads', () => {
 
   it('counts a bay in TEU against the stacks the plan gives it', () => {
     const loads = buildBayLoads([box('A', at(1, 1, 'A')), box('B', at(1, 1, 'B'))]);
-    // Bay 01 has 2 stacks × 3 tiers = 6 TEU of room.
+    // Bay 01 has 2 stacks over the two ordinary tiers = 4 TEU of room. The
+    // third is the reserve and is not counted as room until it is opened.
     expect(countBay(zoneA, 1, loads.get(bayKey('A', 1)))).toEqual({
       used: 2,
-      total: 6,
+      total: 4,
       full: false,
       hazmat: false,
     });
-    // Bay 05 has a single usable stack over the three tiers.
+    // Bay 05 has a single usable stack over the two ordinary tiers.
     expect(countBay(zoneA, 5, undefined)).toEqual({
       used: 0,
-      total: 3,
+      total: 2,
       full: false,
       hazmat: false,
+    });
+  });
+
+  it('counts the reserve tier only in a bay that has opened it', () => {
+    const packed = [box('A', at(1, 1, 'A')), box('B', at(1, 1, 'B')), box('C', at(1, 1, 'C'))];
+    const loads = buildBayLoads(packed);
+    // Three standing in a two-tier bay would read «مشغول 3 من 4»; once the
+    // reserve is in use the bay is honestly three tiers deep.
+    expect(countBay(zoneA, 1, loads.get(bayKey('A', 1)))).toMatchObject({
+      used: 3,
+      total: 6,
+      full: false,
     });
   });
 
@@ -92,7 +105,7 @@ describe('bay loads', () => {
 
   it('rolls a zone up for the panel header', () => {
     const loads = buildBayLoads([box('A', at(1, 1, 'A'))]);
-    expect(summarizeZone(zoneA, loads)).toEqual({ usedTeu: 1, totalTeu: 15 });
+    expect(summarizeZone(zoneA, loads)).toEqual({ usedTeu: 1, totalTeu: 10 });
     expect(maxStackOf(zoneA)).toBe(2);
   });
 });

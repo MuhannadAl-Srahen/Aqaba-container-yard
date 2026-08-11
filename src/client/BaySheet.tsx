@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState, type ReactElement } from 'react';
 import type { ContainerDto, Position, Tier, ZoneDef } from '../shared/types';
-import { TIERS } from '../shared/types';
+import { ROUTINE_TIERS, TIERS } from '../shared/types';
 import { ASEZA } from '../shared/asezaLayout';
 import { positionLabel, bayLabel } from '../shared/address';
 import { canPlace } from '../shared/rules';
@@ -79,10 +79,24 @@ export function BaySheet(props: {
   }, [picked, placing, standing, zone, bay]);
 
   const mayPlace = placing === null ? props.canGateIn : props.canMove;
-  const capacity = (zone.stacks[String(bay)]?.length ?? 0) * TIERS.length;
+
+  /**
+   * The third tier is the reserve: folded away until this bay needs it. It
+   * unfolds on request, and never folds back while something is standing up
+   * there — a hidden container is a lost container.
+   */
+  const [reserveAsked, setReserveAsked] = useState(false);
+  const reserveInUse = props.load.some((container) => container.position?.tier === 'C');
+  const showReserve = reserveAsked || reserveInUse;
+
+  const stacks_ = zone.stacks[String(bay)]?.length ?? 0;
+  const capacity = stacks_ * (reserveInUse ? TIERS.length : ROUTINE_TIERS.length);
   const used = props.load.length;
   /** Drawn the way the stack stands: the top tier first, the ground last. */
-  const tiersTopDown = useMemo(() => [...TIERS].reverse(), []);
+  const tiersTopDown = useMemo(
+    () => [...(showReserve ? TIERS : ROUTINE_TIERS)].reverse(),
+    [showReserve],
+  );
 
   const cell = (stack: number, tier: Tier): ReactElement => {
     const view = slotView(zone, bay, stack, tier, props.load);
@@ -209,9 +223,24 @@ export function BaySheet(props: {
             ))}
           </div>
         </div>
-        <p className="mt-2 text-xs leading-5 text-faint" dir="rtl">
-          {AR.tierCName} · {AR.tierBName} · {AR.tierAName} — {AR.fortySpans}
-        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2" dir="rtl">
+          <p className="text-xs leading-5 text-faint">
+            {showReserve ? `${AR.tierCName} · ` : ''}
+            {AR.tierBName} · {AR.tierAName} — {AR.fortySpans}
+          </p>
+          {/* Opening the reserve is a decision, so it is a button. It stays
+              open by itself once something is standing on it. */}
+          {!reserveInUse && (
+            <Button
+              kind="quiet"
+              onClick={() => {
+                setReserveAsked(!reserveAsked);
+              }}
+            >
+              {reserveAsked ? AR.hideReserveTier : AR.showReserveTier}
+            </Button>
+          )}
+        </div>
 
         {/* The landing choices for the picked empty slot. */}
         {picked !== null && (

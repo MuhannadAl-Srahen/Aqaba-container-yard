@@ -121,6 +121,37 @@ describe('البيانات التجريبية', () => {
     expect(days.size).toBeGreaterThan(1);
   });
 
+  it('packs one bay solid so a full bay can actually be seen', async () => {
+    const seeded = await call({ method: 'POST', url: '/api/owner/seed' });
+    const label = (seeded.body as { fullBay: string | null }).fullBay;
+    expect(label).not.toBeNull();
+
+    // Every ordinary tier of that bay is standing — and nothing left it.
+    const state = await call({ method: 'GET', url: '/api/state' });
+    const containers = (state.body as { containers: ContainerDto[] }).containers;
+    const [zoneName, bayText] = (label ?? '').split('-');
+    const bay = Number(bayText);
+    const zone = ASEZA.zones.find((z) => z.zone === zoneName);
+    const stacks = zone?.stacks[String(bay)] ?? [];
+    expect(stacks.length).toBeGreaterThan(2);
+
+    for (const tier of ['A', 'B']) {
+      for (const stack of stacks) {
+        const found = containers.some((container) => {
+          const at = container.position;
+          return (
+            at !== null &&
+            at.zone === zoneName &&
+            at.bay === bay &&
+            at.stack === stack &&
+            at.tier === tier
+          );
+        });
+        expect(found, `${label} stack ${String(stack)} tier ${tier}`).toBe(true);
+      }
+    }
+  });
+
   it('places every demo container on a legal slot of the official plan', async () => {
     await call({ method: 'POST', url: '/api/owner/seed' });
     const state = await call({ method: 'GET', url: '/api/state' });

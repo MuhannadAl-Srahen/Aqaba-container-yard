@@ -206,8 +206,12 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
           busy={busy}
           onConfirm={() => {
             run(api.seedDemo(), (result) => {
-              const counts = result as { added: number; departed: number };
-              return AR.toolsSeedDone(counts.added, counts.departed);
+              const counts = result as {
+                added: number;
+                departed: number;
+                fullBay: string | null;
+              };
+              return AR.toolsSeedDone(counts.added, counts.departed, counts.fullBay);
             });
           }}
           onCancel={() => {

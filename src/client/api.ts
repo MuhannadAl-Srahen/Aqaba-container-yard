@@ -255,7 +255,7 @@ export const api = {
   wipeData: (password: string): Promise<{ ok: boolean; backup: string }> =>
     request('/api/owner/wipe', { method: 'POST', body: JSON.stringify({ password }) }),
 
-  seedDemo: (): Promise<{ added: number; departed: number }> =>
+  seedDemo: (): Promise<{ added: number; departed: number; fullBay: string | null }> =>
     request('/api/owner/seed', { method: 'POST', body: JSON.stringify({}) }),
 
   /** Upload a .db backup and put the whole snapshot back. */

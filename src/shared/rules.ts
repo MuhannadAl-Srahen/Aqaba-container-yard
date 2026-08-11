@@ -1,5 +1,5 @@
 import type { ErrorCode, Position, Size, Tier, YardLayout, Zone, ZoneDef } from './types';
-import { TIERS, sizeOfBay, tierAbove, tierBelow } from './types';
+import { ROUTINE_TIERS, TIERS, sizeOfBay, tierAbove, tierBelow } from './types';
 import { baySpan, samePosition } from './address';
 
 /**
@@ -243,7 +243,7 @@ export function canMove(
   return canPlace(layout, settled, container.size, to, container.id);
 }
 
-/** «قديش باقي» for one size: how many legal landings exist right now. */
+/** How much room is left for one size: legal landings, right now. */
 export interface FreeNow {
   readonly yard1: { readonly t20: number; readonly t40: number };
   readonly yard2: { readonly t20: number; readonly t40: number };
@@ -257,7 +257,9 @@ export function freeNow(layout: YardLayout, standing: readonly Standing[]): Free
     const lastBay = zone.bays[zone.bays.length - 1] ?? 0;
     for (const bay of zone.bays) {
       for (const stack of zone.stacks[String(bay)] ?? []) {
-        for (const tier of TIERS) {
+        // The reserve tier is not counted as available room — it is what the
+        // yard opens when the room has run out, not part of the room.
+        for (const tier of ROUTINE_TIERS) {
           const spot = { zone: zone.zone, bay, stack, tier };
           if (canPlace(layout, standing, 20, spot, undefined, occupancy) === null) bucket.t20 += 1;
           // The even bay between this odd bay and the next, inside the zone.

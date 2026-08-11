@@ -1,5 +1,5 @@
 import type { ErrorCode, Permission, Tier } from '../shared/types';
-import { TIERS } from '../shared/types';
+import { ROUTINE_TIERS } from '../shared/types';
 
 /**
  * Every sentence the user reads, in one file, in clear formal Arabic — on the
@@ -99,9 +99,9 @@ export const AR = {
 
   // ---- zones and bays ----
   zoneTitle: (zone: string, yard: number): string => `زون ${zone} · ساحة ${String(yard)}`,
-  /** `ستاكات حتى 10 × 3 طوابق` — how this zone's bays are built. */
+  /** `ستاكات حتى 10 × طابقان + احتياطي` — how this zone's bays are built. */
   zoneBuild: (maxStack: number): string =>
-    `ستاكات حتى ${String(maxStack)} × ${String(TIERS.length)} طوابق`,
+    `ستاكات حتى ${String(maxStack)} × ${String(ROUTINE_TIERS.length)} طوابق + احتياطي`,
   /** `مشغول 6 · متاح 10` — the split the owner reads at a glance (TEU). */
   fullAndFree: (full: number, free: number): string =>
     `مشغول ${String(full)} · متاح ${String(free)}`,
@@ -111,6 +111,9 @@ export const AR = {
   tierAName: 'طابق A — الأرضي',
   tierBName: 'طابق B — الثاني',
   tierCName: 'طابق C — الاحتياطي',
+  /** The reserve tier is folded away until a bay actually needs it. */
+  showReserveTier: 'إظهار الطابق الاحتياطي',
+  hideReserveTier: 'إخفاء الطابق الاحتياطي',
   tierShort: (tier: Tier): string => tier,
   stackShort: (stack: number): string => String(stack).padStart(2, '0'),
   /** A stack position the wall swallows — it does not exist on the plan. */
@@ -387,8 +390,9 @@ export const AR = {
     'خرج، وفيها بوالص ومواد خطرة — لعرض النظام على الآخرين.',
   toolsSeedAction: 'تعبئة بيانات تجريبية',
   toolsSeedConfirm: 'ستُضاف حاويات تجريبية إلى الموجود حالياً. هل تريد المتابعة؟',
-  toolsSeedDone: (added: number, departed: number): string =>
-    `تمت إضافة ${String(added)} حاوية تجريبية، خرجت منها ${String(departed)}.`,
+  toolsSeedDone: (added: number, departed: number, fullBay: string | null): string =>
+    `تمت إضافة ${String(added)} حاوية تجريبية، خرجت منها ${String(departed)}.` +
+    (fullBay === null ? '' : ` والباي ${fullBay} ممتلئ بالكامل للتجربة.`),
   toolsBackupTitle: 'نسخة احتياطية',
   toolsBackupBody: 'تُحفظ نسخة كاملة على الخادم ويُنزَّل الملف نفسه على جهازك.',
   toolsRestoreTitle: 'استرجاع نسخة احتياطية',

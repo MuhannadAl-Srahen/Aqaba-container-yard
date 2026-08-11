@@ -3,9 +3,10 @@ import { rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import type { ErrorCode, Position, Size } from '../shared/types';
-import { TIERS } from '../shared/types';
+import type { ErrorCode, Position, Size, Zone } from '../shared/types';
+import { ROUTINE_TIERS, TIERS } from '../shared/types';
 import { ASEZA } from '../shared/asezaLayout';
+import { bayLabel, baySpan } from '../shared/address';
 import { canPlace, type Standing } from '../shared/rules';
 import { checkNumber } from '../shared/iso6346';
 import { databaseFile, getSetting, openDatabase, setSetting, snapshot, transaction } from './db';
@@ -301,25 +302,46 @@ function pickSlot(standing: readonly Standing[], size: Size, rnd: () => number):
  * SAME timestamps as the containers, so the daily report and the operations
  * log agree with the cards.
  */
-export function seedDemoYard(db: DatabaseSync): { added: number; departed: number } {
+export function seedDemoYard(db: DatabaseSync): {
+  added: number;
+  departed: number;
+  fullBay: string | null;
+} {
   const rnd = generator(20_260_811);
   const standing: Standing[] = store.listStanding(db);
   const bills = ['3210', '4187', '5502', '6741', '7130'];
   const day = 86_400_000;
   const now = Date.now();
 
+  // One bay is filled to the brim on purpose, so the owner can see what a
+  // full bay looks like on the map and in the sheet without waiting for the
+  // yard to fill up on its own. Every ordinary tier of it, ground and second.
+  const target = fillableBay(standing);
+  const packed: Position[] = [];
+  if (target !== null) {
+    for (const tier of ROUTINE_TIERS) {
+      for (const stack of target.stacks) {
+        packed.push({ zone: target.zone, bay: target.bay, stack, tier });
+      }
+    }
+  }
+
   let added = 0;
   let departed = 0;
-  for (let index = 0; index < 45; index += 1) {
-    const size: Size = rnd() < 0.35 ? 40 : 20;
-    const slot = pickSlot(standing, size, rnd);
+  for (let index = 0; index < 45 + packed.length; index += 1) {
+    // The packed bay goes in first, ground tier before second, so each one
+    // lands on the box below it.
+    const forced = packed[index];
+    const size: Size = forced !== undefined ? 20 : rnd() < 0.35 ? 40 : 20;
+    const slot = forced ?? pickSlot(standing, size, rnd);
     if (slot === null) continue;
 
     // Spread over the last three weeks, at working hours rather than midnight.
     const enteredAt = new Date(
       now - Math.floor(rnd() * 21) * day - Math.floor(rnd() * 11 + 6) * 3_600_000,
     ).toISOString();
-    const leaves = rnd() < 0.27;
+    // Nothing leaves the packed bay — it has to still be full when he looks.
+    const leaves = forced === undefined && rnd() < 0.27;
     const number = demoNumber(rnd, index);
     const seal = `JO${String(10_000 + Math.floor(rnd() * 89_999))}`;
     const gross = 20_000 + Math.floor(rnd() * 12_000);
@@ -364,5 +386,34 @@ export function seedDemoYard(db: DatabaseSync): { added: number; departed: numbe
     // Only what is still standing can hold ground for the next one.
     standing.push({ id, number, size, position: slot });
   }
-  return { added, departed };
+  return {
+    added,
+    departed,
+    fullBay: target === null ? null : bayLabel(target.zone, target.bay),
+  };
+}
+
+/**
+ * A bay with nothing in it at all, small enough to fill without swallowing
+ * the whole demo. Empty matters: a half-used bay would leave the packed one
+ * looking like an accident rather than a full bay.
+ */
+function fillableBay(
+  standing: readonly Standing[],
+): { zone: Zone; bay: number; stacks: readonly number[] } | null {
+  const busy = new Set<string>();
+  for (const container of standing) {
+    for (const oddBay of baySpan(container.position.bay)) {
+      busy.add(`${container.position.zone}|${String(oddBay)}`);
+    }
+  }
+  for (const zone of ASEZA.zones) {
+    for (const bay of zone.bays) {
+      const stacks = zone.stacks[String(bay)] ?? [];
+      if (stacks.length < 3 || stacks.length > 6) continue;
+      if (busy.has(`${zone.zone}|${String(bay)}`)) continue;
+      return { zone: zone.zone, bay, stacks };
+    }
+  }
+  return null;
 }

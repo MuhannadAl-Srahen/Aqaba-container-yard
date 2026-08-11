@@ -1,5 +1,5 @@
 import type { ContainerDto, Position, Size, Tier, YardLayout, Zone, ZoneDef } from '../shared/types';
-import { TIERS } from '../shared/types';
+import { ROUTINE_TIERS, TIERS } from '../shared/types';
 import { baySpan } from '../shared/address';
 import { buildOccupancy, canPlace, type Standing } from '../shared/rules';
 import { normalizeNumber } from '../shared/iso6346';
@@ -62,7 +62,12 @@ export function countBay(
   oddBay: number,
   load: readonly ContainerDto[] | undefined,
 ): BayCount {
-  const total = (zone.stacks[String(oddBay)]?.length ?? 0) * TIERS.length;
+  // Two tiers is what the bay holds in the ordinary run of things. The
+  // reserve only joins the count once this bay has actually opened it —
+  // otherwise a bay using it would read «مشغول 25 من 20».
+  const reserveInUse = load?.some((container) => container.position?.tier === 'C') ?? false;
+  const stacks = zone.stacks[String(oddBay)]?.length ?? 0;
+  const total = stacks * (reserveInUse ? TIERS.length : ROUTINE_TIERS.length);
   // A 40 puts one TEU of itself on each odd bay it covers, so per-bay TEU is
   // simply the number of containers listed under the bay.
   const used = load?.length ?? 0;
