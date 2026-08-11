@@ -223,6 +223,13 @@ body {
     display: none !important;
   }
 
+  /* A register prints whole by default — every row is in the DOM and the
+     printer un-hides the ones the screen paged away. «طباعة الصفحة الحالية»
+     asks for just what is on screen, so those rows stay hidden. */
+  .printing-page .report-sheet tr.row-off {
+    display: none !important;
+  }
+
   /* The gate voucher was designed at 448px on screen; on the ~182mm A4 text
      block the same pixel sizes print spindly. Paper re-scales the semantic
      parts in mm/pt; the screen keeps the compact card. */

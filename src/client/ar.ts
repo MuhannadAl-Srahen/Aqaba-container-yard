@@ -287,6 +287,9 @@ export const AR = {
   rangeFrom: 'من',
   rangeTo: 'إلى',
   print: 'طباعة',
+  /** A paginated register still prints whole unless the page alone is asked for. */
+  printAll: 'طباعة الكشف كاملاً',
+  printPage: 'طباعة الصفحة الحالية',
   colSeq: 'الرقم',
   colStatement: 'البيان',
   colDay: 'اليوم',

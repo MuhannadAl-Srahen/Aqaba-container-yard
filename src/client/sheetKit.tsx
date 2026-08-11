@@ -261,6 +261,22 @@ export function SheetScreen(props: {
     downloadBlob(blob, `${props.sheetTitle}.xls`);
   };
 
+  /**
+   * Rows off the current page are in the DOM but hidden, and un-hide for the
+   * printer. Printing just this page means re-hiding them for the duration of
+   * the print, which a class on the root does — and which must come off again
+   * whether the dialog was used or cancelled.
+   */
+  const printSheet = (scope: 'all' | 'page'): void => {
+    const root = document.documentElement;
+    if (scope === 'page') root.classList.add('printing-page');
+    try {
+      window.print();
+    } finally {
+      root.classList.remove('printing-page');
+    }
+  };
+
   const exportPdf = (): void => {
     if (pdfBusy) return;
     setPdfBusy(true);
@@ -344,14 +360,29 @@ export function SheetScreen(props: {
             </select>
           </label>
           <div className="ms-auto flex items-center gap-1.5">
+            {/* Every row is in the DOM, so the printer can have the whole
+                register regardless of the page shown — but nothing on screen
+                said so. Now it is a choice, and the whole register is the
+                one that reads as the default. */}
             <Button
               onClick={() => {
-                window.print();
+                printSheet('all');
               }}
               disabled={!hasRows}
             >
-              {AR.print}
+              {AR.printAll}
             </Button>
+            {pages > 1 && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  printSheet('page');
+                }}
+                disabled={!hasRows}
+              >
+                {AR.printPage}
+              </Button>
+            )}
             <Button kind="quiet" onClick={exportPdf} disabled={!hasRows || pdfBusy}>
               {pdfBusy ? AR.pdfWorking : AR.exportPdf}
             </Button>
@@ -417,7 +448,8 @@ export function SheetScreen(props: {
                       <tr
                         key={rowIndex}
                         className={
-                          (onPage ? '' : 'hidden print:table-row ') + 'odd:bg-surface even:bg-sunken'
+                          (onPage ? '' : 'row-off hidden print:table-row ') +
+                          'odd:bg-surface even:bg-sunken'
                         }
                       >
                         {row.map((cell, cellIndex) => (
