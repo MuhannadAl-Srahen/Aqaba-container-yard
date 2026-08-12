@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../src/server/db';
+import { nextCardNumber } from '../src/server/store';
 
 /**
  * v9 is a cutover, not a carry-over: the owner ordered the old test-era
@@ -300,6 +301,87 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(
       upgraded.prepare("SELECT key FROM settings WHERE key LIKE 'card%'").all(),
     ).toHaveLength(0);
+    upgraded.close();
+  });
+
+  /**
+   * «when I install the update, is it going to change the رقم التسلسلي?»
+   *
+   * No. Not one card already issued is renumbered by the upgrade. What the
+   * upgrade changes is where the NEXT number comes from: the records instead
+   * of a counter — so a number that was skipped over a struck-out record is
+   * filled rather than lost, which is the whole point of the change.
+   */
+  it('renumbers no card already issued when the update lands', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'office-serials.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      -- The counter had run to 6, because number 5 was issued and then struck.
+      INSERT INTO settings VALUES ('password', 'x'), ('card_in_next:2026', '6'),
+                                  ('card_out_next:2026', '3');
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, pin_hash TEXT NOT NULL,
+        perms TEXT NOT NULL DEFAULT '', deleted_at TEXT
+      );
+      CREATE TABLE containers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT NOT NULL, number_valid INTEGER NOT NULL,
+        size INTEGER NOT NULL CHECK (size IN (20, 40)), customer TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '', entered_at TEXT NOT NULL, exited_at TEXT,
+        bill TEXT NOT NULL DEFAULT '',
+        zone TEXT CHECK (zone IN ('A', 'B', 'C', 'D', 'E')), bay INTEGER, stack INTEGER,
+        tier TEXT CHECK (tier IN ('A', 'B', 'C')),
+        weight TEXT NOT NULL DEFAULT '', weight_net TEXT NOT NULL DEFAULT '',
+        truck_in TEXT NOT NULL DEFAULT '',
+        driver_in TEXT NOT NULL DEFAULT '', seal_in TEXT NOT NULL DEFAULT '', card_in INTEGER,
+        truck_out TEXT NOT NULL DEFAULT '', driver_out TEXT NOT NULL DEFAULT '',
+        seal_out TEXT NOT NULL DEFAULT '', card_out INTEGER,
+        card_in_year INTEGER, card_out_year INTEGER,
+        hazmat INTEGER NOT NULL DEFAULT 0, deleted_at TEXT
+      );
+      -- Four standing, one gone out, one struck out — a month of real work.
+      INSERT INTO containers (id, number, number_valid, size, customer, entered_at, exited_at,
+                              zone, bay, stack, tier, card_in, card_in_year,
+                              card_out, card_out_year, seal_in, deleted_at)
+        VALUES (1, 'AAAA0001', 1, 20, 'ش', '2026-08-01T09:00:00.000Z', NULL, 'B', 1, 1, 'A', 1, 2026, NULL, NULL, 'J1', NULL),
+               (2, 'AAAA0002', 1, 20, 'ش', '2026-08-02T09:00:00.000Z', NULL, 'B', 3, 1, 'A', 2, 2026, NULL, NULL, 'J2', NULL),
+               (3, 'AAAA0003', 1, 20, 'ش', '2026-08-03T09:00:00.000Z', '2026-08-09T09:00:00.000Z', NULL, NULL, NULL, NULL, 3, 2026, 1, 2026, 'J3', NULL),
+               (4, 'AAAA0004', 1, 20, 'ش', '2026-08-04T09:00:00.000Z', '2026-08-10T09:00:00.000Z', NULL, NULL, NULL, NULL, 4, 2026, 2, 2026, 'J4', NULL),
+               (5, 'AAAA0005', 1, 20, 'ش', '2026-08-05T09:00:00.000Z', NULL, NULL, NULL, NULL, NULL, 5, 2026, NULL, NULL, 'J5', '2026-08-05T10:00:00.000Z');
+      CREATE TABLE movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL REFERENCES containers (id),
+        type TEXT NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
+        at TEXT NOT NULL,
+        from_zone TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
+        to_zone TEXT, to_bay INTEGER, to_stack INTEGER, to_tier TEXT,
+        note TEXT NOT NULL DEFAULT '', user_id INTEGER REFERENCES users (id)
+      );
+      PRAGMA user_version = 12;
+    `);
+    db.close();
+
+    const upgraded = openDatabase(file);
+    // Every serial is exactly what it was, deleted record included.
+    const after = upgraded
+      .prepare('SELECT id, card_in, card_in_year, card_out, card_out_year FROM containers ORDER BY id')
+      .all();
+    expect(after).toEqual([
+      { id: 1, card_in: 1, card_in_year: 2026, card_out: null, card_out_year: null },
+      { id: 2, card_in: 2, card_in_year: 2026, card_out: null, card_out_year: null },
+      { id: 3, card_in: 3, card_in_year: 2026, card_out: 1, card_out_year: 2026 },
+      { id: 4, card_in: 4, card_in_year: 2026, card_out: 2, card_out_year: 2026 },
+      { id: 5, card_in: 5, card_in_year: 2026, card_out: null, card_out_year: null },
+    ]);
+
+    // The next entry card takes 5 — the number the struck-out record was
+    // holding — instead of 6, which is the hole being filled rather than a
+    // number being taken from anybody.
+    expect(nextCardNumber(upgraded, 'in', 2026)).toBe(5);
+    // And the exits carry on from where they truly are.
+    expect(nextCardNumber(upgraded, 'out', 2026)).toBe(3);
+    // A year the office has not reached yet starts at one.
+    expect(nextCardNumber(upgraded, 'in', 2027)).toBe(1);
     upgraded.close();
   });
 
