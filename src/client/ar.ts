@@ -152,7 +152,8 @@ export const AR = {
    */
   handling: 'آلية المناولة',
   handlingHint: 'ما الذي أنزل الحاوية عن السيارة',
-  handlingName: { CRANE: 'رافعة', STRADDLE: 'سترادل' } as Record<string, string>,
+  /** The yard's own words for the two machines, on the owner's call. */
+  handlingName: { CRANE: 'ونش', STRADDLE: 'عقرب' } as Record<string, string>,
   notes: 'ملاحظات (اختياري)',
   notesHint: 'حالة الحاوية وما يلزم ذكره: انبعاج، قفل مفتوح، حجز جمركي…',
   /**

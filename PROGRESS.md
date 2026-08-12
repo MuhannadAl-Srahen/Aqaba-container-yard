@@ -918,3 +918,36 @@ exit card. The ink is measured rather than looked at — every element of each
 card's head is read for a background more than 15% away from white, and both
 come back with none. The other sweeps are unchanged: 19/19 print, 18/18 UI,
 6/6 export and PDF.
+
+## المرحلة 15 — البوليصة في الخانة، والآلة باسمها — 2026-08-12
+
+Status: complete
+
+Built:
+
+- **Every bay-sheet cell names its bill.** The grid already carried the
+  container number and the class; the third fact is the one the owner opens a
+  bay to settle — «لحتى اقدر اعرف اذا هذول الحاويات من نفس البوليصة او
+  الحاويات ب بوليصة منفصلة». So the cell reads number on top, class and bill
+  beneath, and a bay holding five bills says so at a glance. The column floor
+  went from 6rem to 6.75rem — exactly what the added number needs — so the
+  widest bay the plan has, ten stacks, still stands whole on a desk screen
+  with no sideways scroll.
+- **The two machines by the yard's own names**: `CRANE` reads **ونش** and
+  `STRADDLE` reads **عقرب**. Labels only — the wire still carries the codes,
+  so nothing in the database moved and no record already written changed. The
+  words follow the field wherever it shows: the gate sheet, the container
+  card, the edit form, and the entry card that gets printed.
+
+Verified: 185 tests, typecheck and lint clean, and two browser sweeps. The bay
+sheet: 9/9 at two screen widths, nothing clipped in any occupied cell, five
+distinct bills legible in one bay. The naming: 16/16 — the gate offers both
+words and still refuses to receive a container until one is chosen, the card
+and the entry card print what the gate chose, the edit form changes it and the
+change sticks, and the old words are gone from every surface and from the
+shipped bundle itself.
+
+Noticed, not fixed: a chooser button inside a field's `<label>` takes its
+accessible name from the label and its neighbour — the ونش button announces as
+«آلية المناولة عقرب». It affects the 20/40 chooser the same way. Nothing on
+screen is wrong; it is what a screen reader would say.
