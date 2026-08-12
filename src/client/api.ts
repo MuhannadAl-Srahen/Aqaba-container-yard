@@ -89,7 +89,6 @@ export interface ContainerEditInput {
   sealIn: string;
   truckOut: string;
   driverOut: string;
-  sealOut: string;
   enteredAt: string;
   exitedAt: string | null;
 }
@@ -108,7 +107,6 @@ export function editPayloadOf(container: ContainerDto): ContainerEditInput {
     sealIn: container.sealIn,
     truckOut: container.truckOut,
     driverOut: container.driverOut,
-    sealOut: container.sealOut,
     enteredAt: container.enteredAt,
     exitedAt: container.exitedAt,
   };
@@ -182,10 +180,7 @@ export const api = {
       body: JSON.stringify({ to }),
     }),
 
-  exit: (
-    id: number,
-    gate: { truck: string; seal: string; driver: string },
-  ): Promise<ContainerDto> =>
+  exit: (id: number, gate: { truck: string; driver: string }): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}/exit`, {
       method: 'POST',
       body: JSON.stringify(gate),

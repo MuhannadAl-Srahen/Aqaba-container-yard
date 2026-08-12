@@ -140,11 +140,9 @@ export const AR = {
   truck: 'رقم السيارة',
   bill: 'رقم البوليصة',
   billHint: 'بوليصة الشحن التابعة لها الحاوية.',
+  /** One seal per container, recorded at entry — the exit no longer asks. */
   seal: 'رقم الرصاصة',
-  sealOut: 'رصاصة الخروج',
   sealHint: 'الرصاصة الموضوعة على باب الحاوية',
-  sealWas: (seal: string): string => `دخلت برصاصة ${seal}`,
-  sealChanged: 'الرصاصة مختلفة عن رصاصة الدخول',
   driver: 'اسم السائق',
   /** One weight only, on the owner's call: «الوزن القائم» became «الوزن». */
   weight: 'الوزن بالكغم',
@@ -206,7 +204,6 @@ export const AR = {
       sealIn: 'رصاصة الدخول',
       truckOut: 'سيارة الخروج',
       driverOut: 'سائق الخروج',
-      sealOut: 'رصاصة الخروج',
       enteredAt: 'تاريخ الدخول',
       exitedAt: 'تاريخ الخروج',
     };

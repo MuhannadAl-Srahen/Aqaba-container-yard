@@ -127,9 +127,6 @@ export function ContainerCard(props: {
   const [editing, setEditing] = useState(false);
   const [truckOut, setTruckOut] = useState('');
   const [driverOut, setDriverOut] = useState('');
-  // Pre-filled with the seal it came in under: the common case is unchanged,
-  // and an actual change is then a deliberate edit, not a typo.
-  const [sealOut, setSealOut] = useState(props.container.sealIn);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -165,10 +162,6 @@ export function ContainerCard(props: {
           <Badge text={AR.feet(container.size)} tone="slate" />
           {!container.numberValid && <Badge text={AR.numberNotVerified} tone="amber" />}
           {!inYard && <Badge text={AR.outOfYard} tone="slate" />}
-          {/* Two different seals means the door was opened inside the yard. */}
-          {container.sealOut !== '' && container.sealOut !== container.sealIn && (
-            <Badge text={AR.sealChanged} tone="red" />
-          )}
         </div>
 
         {/* Correcting a container REPLACES its details rather than unrolling
@@ -228,20 +221,6 @@ export function ContainerCard(props: {
               <dt className="text-muted">{AR.seal}</dt>
               <dd className="font-mono font-semibold text-ink" dir="ltr">
                 {container.sealIn}
-              </dd>
-            </div>
-          )}
-          {container.sealOut !== '' && (
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted">{AR.sealOut}</dt>
-              <dd
-                className={
-                  'font-mono font-semibold ' +
-                  (container.sealOut === container.sealIn ? 'text-ink' : 'text-red-600')
-                }
-                dir="ltr"
-              >
-                {container.sealOut}
               </dd>
             </div>
           )}
@@ -397,23 +376,6 @@ export function ContainerCard(props: {
                   autoFocus
                 />
               </Field>
-              <Field
-                label={AR.sealOut}
-                hint={
-                  container.sealIn !== '' ? (
-                    <span className="text-faint">{AR.sealWas(container.sealIn)}</span>
-                  ) : undefined
-                }
-              >
-                <input
-                  dir="ltr"
-                  className={`${inputClass} text-start font-mono`}
-                  value={sealOut}
-                  onChange={(event) => {
-                    setSealOut(event.target.value);
-                  }}
-                />
-              </Field>
               <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
                 <input
                   className={inputClass}
@@ -426,14 +388,13 @@ export function ContainerCard(props: {
             </div>
             <div className="mt-5 flex gap-2">
               <Button
-                disabled={busy || [truckOut, sealOut].some((value) => value.trim() === '')}
+                disabled={busy || truckOut.trim() === ''}
                 onClick={() => {
                   setBusy(true);
                   setError(null);
                   api
                     .exit(container.id, {
                       truck: truckOut.trim(),
-                      seal: sealOut.trim(),
                       driver: driverOut.trim(),
                     })
                     .then((departed) => {
@@ -499,7 +460,6 @@ function EditForm(props: {
   const [sealIn, setSealIn] = useState(props.container.sealIn);
   const [truckOut, setTruckOut] = useState(props.container.truckOut);
   const [driverOut, setDriverOut] = useState(props.container.driverOut);
-  const [sealOut, setSealOut] = useState(props.container.sealOut);
   const [enteredAt, setEnteredAt] = useState(toLocalStamp(props.container.enteredAt));
   const [exitedAt, setExitedAt] = useState(
     props.container.exitedAt === null ? '' : toLocalStamp(props.container.exitedAt),
@@ -520,7 +480,7 @@ function EditForm(props: {
   // left empty, everything else must carry a value. The exit paperwork only
   // exists — and is only required — once the container has left.
   const filled = [number, bill, truckIn, sealIn]
-    .concat(departed ? [truckOut, sealOut] : [])
+    .concat(departed ? [truckOut] : [])
     .every((value) => value.trim() !== '');
   const ready = filled && datesSane && !props.busy;
 
@@ -679,16 +639,6 @@ function EditForm(props: {
                 }}
               />
             </Field>
-            <Field label={AR.sealOut}>
-              <input
-                dir="ltr"
-                className={`${inputClass} text-start font-mono`}
-                value={sealOut}
-                onChange={(event) => {
-                  setSealOut(event.target.value);
-                }}
-              />
-            </Field>
             <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
               <input
                 className={inputClass}
@@ -744,7 +694,6 @@ function EditForm(props: {
               sealIn: sealIn.trim(),
               truckOut: truckOut.trim(),
               driverOut: driverOut.trim(),
-              sealOut: sealOut.trim(),
               enteredAt: enteredIso,
               exitedAt: exitedIso,
             });

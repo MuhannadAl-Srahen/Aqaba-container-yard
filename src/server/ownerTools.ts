@@ -378,7 +378,6 @@ export function seedDemoYard(db: DatabaseSync): {
       store.markExited(db, id, exitedAt, {
         truck: String(100 + Math.floor(rnd() * 899)),
         driver: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? DRIVERS[0] ?? '',
-        sealOut: seal,
         cardOut: store.nextCardNumber(db, 'out', ammanYear(exitedAt)),
         cardOutYear: ammanYear(exitedAt),
       });

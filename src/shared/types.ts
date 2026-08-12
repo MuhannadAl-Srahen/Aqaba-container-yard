@@ -159,9 +159,11 @@ export interface ContainerDto {
   readonly handling: Handling | null;
   readonly truckIn: string;
   readonly driverIn: string;
-  /** The seal (الرصاصة) on the door at the gate — one each way. */
+  /**
+   * الرصاصة on the door, recorded once at entry. The exit stopped asking for
+   * a second one, so this is the container's seal wherever it is shown.
+   */
   readonly sealIn: string;
-  readonly sealOut: string;
   /**
    * Serial of the printed entry card; null on rows from before the cards.
    * The count starts again at 1 every January, so a serial only identifies a

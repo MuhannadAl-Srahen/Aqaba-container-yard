@@ -100,10 +100,13 @@ const gateInSchema = z.object({
   handling: z.enum(HANDLING),
 });
 
+/**
+ * The exit no longer asks for a seal, on the owner's instruction. A container
+ * carries ONE seal — the one recorded at the gate it came in through — and
+ * that is the one every card and every register names from here on.
+ */
 const gateOutSchema = z.object({
   truck: z.string().trim().min(1).max(30),
-  /** The seal on the door as it leaves — a different one means it was opened. */
-  seal: z.string().trim().min(1).max(30),
   driver: z.string().trim().max(60).default(''),
 });
 
@@ -127,7 +130,6 @@ const editSchema = z.object({
   sealIn: z.string().trim().min(1).max(30),
   truckOut: z.string().trim().max(30).default(''),
   driverOut: z.string().trim().max(60).default(''),
-  sealOut: z.string().trim().max(30).default(''),
   /** The gate instants themselves — a wrong date puts a box in the wrong register. */
   enteredAt: z.string().datetime({ offset: true }).or(z.string().datetime()),
   exitedAt: z
@@ -544,7 +546,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       store.markExited(db, id, at, {
         truck: gate.truck,
         driver: gate.driver,
-        sealOut: gate.seal,
         cardOut: store.nextCardNumber(db, 'out', year),
         cardOutYear: year,
       });
@@ -585,14 +586,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // The exit paperwork only exists once there has been an exit; offering
       // it on a standing container would invent a departure that never was.
       const stillStanding = existing.exitedAt === null;
-      const exitFields = [body.truckOut, body.driverOut, body.sealOut];
+      const exitFields = [body.truckOut, body.driverOut];
       if (stillStanding && (body.exitedAt !== null || exitFields.some((v) => v !== ''))) {
         refuse(409, 'VALIDATION');
       }
       // Once it has left, its exit paperwork is as mandatory as its entry's —
       // the driver's name excepted, which is optional in both directions.
-      const requiredOnExit = [body.truckOut, body.sealOut];
-      if (!stillStanding && (body.exitedAt === null || requiredOnExit.some((v) => v === ''))) {
+      if (!stillStanding && (body.exitedAt === null || body.truckOut === '')) {
         refuse(409, 'VALIDATION');
       }
 
@@ -624,7 +624,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       diff('sealIn', body.sealIn, existing.sealIn);
       diff('truckOut', body.truckOut, existing.truckOut);
       diff('driverOut', body.driverOut, existing.driverOut);
-      diff('sealOut', body.sealOut, existing.sealOut);
       diff('enteredAt', body.enteredAt, existing.enteredAt);
       diff('exitedAt', body.exitedAt ?? '', existing.exitedAt ?? '');
 
@@ -642,7 +641,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           sealIn: body.sealIn,
           truckOut: body.truckOut,
           driverOut: body.driverOut,
-          sealOut: body.sealOut,
           enteredAt: body.enteredAt,
           exitedAt: body.exitedAt,
         });

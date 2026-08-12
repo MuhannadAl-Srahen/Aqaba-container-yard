@@ -44,7 +44,6 @@ function box(number: string, position: Position | null, size: Size = 20): Contai
     cardInYear: 2026,
     truckOut: '',
     driverOut: '',
-    sealOut: '',
     cardOut: null,
     cardOutYear: null,
   };

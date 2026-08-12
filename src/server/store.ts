@@ -85,7 +85,6 @@ function toDto(row: ContainerRow): ContainerDto {
     cardInYear: row.card_in_year,
     truckOut: row.truck_out,
     driverOut: row.driver_out,
-    sealOut: row.seal_out,
     cardOut: row.card_out,
     cardOutYear: row.card_out_year,
   };
@@ -321,17 +320,21 @@ export function setPosition(db: DatabaseSync, id: number, position: Position | n
 export interface GateOut {
   truck: string;
   driver: string;
-  sealOut: string;
   cardOut: number;
   cardOutYear: number;
 }
 
+/**
+ * `seal_out` is not written: the exit stopped asking for a seal, so the one
+ * recorded at entry is the container's seal and the only one anything shows.
+ * The column stays where it is, holding what the old exits recorded.
+ */
 export function markExited(db: DatabaseSync, id: number, at: string, gate: GateOut): void {
   db.prepare(
     `UPDATE containers SET exited_at = ?, zone = NULL, bay = NULL, stack = NULL, tier = NULL,
-       truck_out = ?, driver_out = ?, seal_out = ?, card_out = ?, card_out_year = ?
+       truck_out = ?, driver_out = ?, card_out = ?, card_out_year = ?
      WHERE id = ?`,
-  ).run(at, gate.truck, gate.driver, gate.sealOut, gate.cardOut, gate.cardOutYear, id);
+  ).run(at, gate.truck, gate.driver, gate.cardOut, gate.cardOutYear, id);
 }
 
 export interface ContainerEdit {
@@ -347,7 +350,6 @@ export interface ContainerEdit {
   sealIn: string;
   truckOut: string;
   driverOut: string;
-  sealOut: string;
   enteredAt: string;
   exitedAt: string | null;
 }
@@ -357,7 +359,7 @@ export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdi
     `UPDATE containers SET number = ?, number_valid = ?, bill = ?, size = ?,
        notes = ?, weight = ?, handling = ?,
        truck_in = ?, driver_in = ?, seal_in = ?,
-       truck_out = ?, driver_out = ?, seal_out = ?,
+       truck_out = ?, driver_out = ?,
        entered_at = ?, exited_at = ?
      WHERE id = ?`,
   ).run(
@@ -373,7 +375,6 @@ export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdi
     edit.sealIn,
     edit.truckOut,
     edit.driverOut,
-    edit.sealOut,
     edit.enteredAt,
     edit.exitedAt,
     id,
@@ -650,7 +651,9 @@ export function listGateMovements(
     cardYear: type === 'IN' ? row.card_in_year : row.card_out_year,
     truck: type === 'IN' ? row.truck_in : row.truck_out,
     driver: type === 'IN' ? row.driver_in : row.driver_out,
-    seal: type === 'IN' ? row.seal_in : row.seal_out,
+    // One seal per container — the one it came in under. The exit stopped
+    // recording a second, so both directions name the same one.
+    seal: row.seal_in,
     number: row.number,
     bill: row.bill,
     weight: row.weight,
@@ -789,7 +792,9 @@ export function listTruckMovements(
       cardYear: type === 'IN' ? row.card_in_year : row.card_out_year,
       truck: type === 'IN' ? row.truck_in : row.truck_out,
       driver: type === 'IN' ? row.driver_in : row.driver_out,
-      seal: type === 'IN' ? row.seal_in : row.seal_out,
+      // One seal per container — the one it came in under. The exit stopped
+    // recording a second, so both directions name the same one.
+    seal: row.seal_in,
       number: row.number,
       bill: row.bill,
       weight: row.weight,

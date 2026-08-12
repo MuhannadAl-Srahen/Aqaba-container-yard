@@ -293,7 +293,12 @@ describe('gate in — the official grid decides', () => {
     expect(fortyOnForty.status).toBe(201);
   });
 
-  it('the seal is mandatory at the gate, both ways', async () => {
+  /**
+   * One seal per container, recorded at entry and mandatory there. The exit
+   * no longer asks for a second — the owner's instruction: «ازل ايضا رصاصة
+   * الخروج عند اخراج الحاوية».
+   */
+  it('demands the seal at entry, and never asks for one at the exit', async () => {
     const noSeal = await call({
       method: 'POST',
       url: '/api/containers',
@@ -313,12 +318,27 @@ describe('gate in — the official grid decides', () => {
     expect(noSeal.status).toBe(400);
 
     const entered = await gateIn('SEAL0002', 20, slot('B', 9, 1, 'A'));
-    const exitNoSeal = await call({
+    const left = await call({
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/exit`,
-      payload: { truck: '66', seal: '', driver: 'سائق' },
+      payload: { truck: '66', driver: 'سائق' },
     });
-    expect(exitNoSeal.status).toBe(400);
+    expect(left.status).toBe(200);
+    // The record carries one seal, and it is the one it came in under.
+    expect(left.body).toMatchObject({ sealIn: 'JO100001' });
+    expect(JSON.stringify(left.body).includes('"sealOut"')).toBe(false);
+
+    // Both registers name that same seal, in either direction.
+    const range = wideRange();
+    for (const type of ['IN', 'OUT']) {
+      const sheet = await call({
+        method: 'GET',
+        url: `/api/reports/gate?type=${type}&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+      });
+      expect((sheet.body as { rows: Array<{ seal: string }> }).rows[0]?.seal, type).toBe(
+        'JO100001',
+      );
+    }
   });
 
   it('refuses a number already standing in the yard, allows it after it left', async () => {
@@ -1333,14 +1353,14 @@ describe('الخانات الإلزامية والاختيارية', () => {
     expect(noDriver.status).toBe(200);
   });
 
-  it('still demands the truck and the seal at the exit', async () => {
+  it('still demands the truck at the exit', async () => {
     const entered = await gateIn('MAND0004', 20, slot('B', 5, 1, 'A'));
-    const noSeal = await call({
+    const noTruck = await call({
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/exit`,
-      payload: { truck: '522', seal: '', driver: 'سائق' },
+      payload: { truck: '', driver: 'سائق' },
     });
-    expect(noSeal.status).toBe(400);
+    expect(noTruck.status).toBe(400);
   });
 
   /** A correction may empty the same optional fields, and no others. */

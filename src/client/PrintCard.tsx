@@ -72,7 +72,8 @@ export function PrintCard(props: {
   const serialText = serial === null ? '—' : String(serial).padStart(4, '0');
   const truck = kind === 'in' ? container.truckIn : container.truckOut;
   const driver = kind === 'in' ? container.driverIn : container.driverOut;
-  const sealShown = kind === 'in' ? container.sealIn : container.sealOut;
+  // One seal, recorded at entry: the exit stopped asking for a second.
+  const sealShown = container.sealIn;
 
   /**
    * One labelled cell of the voucher grid. `wide` spans both columns for the
@@ -142,11 +143,15 @@ export function PrintCard(props: {
                 </span>
               )}
             </div>
-            <div className="flex flex-1 flex-col items-center justify-center px-2 py-2.5">
+            {/* The title alone. The yard's name was printed under it, and it
+                is already on the page in the screen behind, in the browser's
+                own print header, and in the receipt clause below — «موجودة
+                كثير في بطاقة الدخول». Nobody handed this card is in doubt
+                about which yard issued it. */}
+            <div className="flex flex-1 items-center justify-center px-2 py-2.5">
               <span className="text-lg font-extrabold leading-6">
                 {kind === 'in' ? AR.cardInTitle : AR.cardOutTitle}
               </span>
-              <span className="text-[10px] font-semibold text-muted">{AR.appName}</span>
             </div>
             <div className="gate-stamp flex w-40 flex-col justify-center gap-0.5 border-s border-rule-strong px-3 py-2.5 text-[12px]">
               {/* Two dates live on this card and they are not the same thing:
@@ -197,8 +202,6 @@ export function PrintCard(props: {
                 AR.cardHandling,
                 container.handling === null ? '—' : (AR.handlingName[container.handling] ?? '—'),
               )}
-            {/* The seal of THIS gate moment: the one it came under on the
-                entry card, the one it leaves under on the exit card. */}
             {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, { mono: true })}
             {/* Always the date it went INTO store — on the exit card too,
                 where `at` is the departure and would be the wrong answer. */}

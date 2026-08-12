@@ -161,7 +161,6 @@ export function LogScreen(props: {
           sealIn: text('sealIn') ?? payload.sealIn,
           truckOut: text('truckOut') ?? payload.truckOut,
           driverOut: text('driverOut') ?? payload.driverOut,
-          sealOut: text('sealOut') ?? payload.sealOut,
           enteredAt: text('enteredAt') ?? payload.enteredAt,
           // A blank recorded exit means it had not left yet at the time.
           exitedAt:
