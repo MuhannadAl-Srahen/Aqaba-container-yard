@@ -113,7 +113,11 @@ export function BaySheet(props: {
               ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
               : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950')
           }
-          title={container.number}
+          title={
+            container.bill === ''
+              ? container.number
+              : `${container.number} — ${AR.bill} ${container.bill}`
+          }
         >
           <span
             className="w-full font-mono text-[13px] font-bold tracking-tight text-ink"
@@ -121,13 +125,25 @@ export function BaySheet(props: {
           >
             {container.number}
           </span>
-          {/* The class is read across a bay sheet at arm's length, so it is set
-              at the size of the number itself rather than as a footnote. */}
-          <span
-            className="rounded bg-surface px-1.5 text-[13px] font-extrabold leading-4 text-ink"
-            dir="ltr"
-          >
-            {container.size === 40 ? AR.size40Chip : AR.size20Chip}
+          {/* Three facts, and the bay sheet is where all three are wanted at
+              once: which box, what class, and whose bill. The bill is what
+              answers «هل هذول من نفس البوليصة ولا منفصلة» without opening a
+              single container — so it is read straight off the grid. */}
+          <span className="flex w-full items-center justify-center gap-1">
+            <span
+              className="shrink-0 rounded bg-surface px-1.5 text-[13px] font-extrabold leading-4 text-ink"
+              dir="ltr"
+            >
+              {container.size === 40 ? AR.size40Chip : AR.size20Chip}
+            </span>
+            {container.bill !== '' && (
+              <span
+                className="min-w-0 truncate rounded bg-surface px-1 font-mono text-[11px] font-bold leading-4 text-muted"
+                dir="ltr"
+              >
+                {container.bill}
+              </span>
+            )}
           </span>
         </button>
       );
@@ -187,15 +203,15 @@ export function BaySheet(props: {
         {/* The grid, LTR like the plan: stack 01 first, tier B over tier A.
             A cell is never narrower than a full container number AT THE SIZE
             IT IS PRINTED — a truncated «TCLU1757…» is the one thing this sheet
-            exists to show — but the floor is set to exactly that and no more,
-            so the widest bay on the plan fits a desk screen whole. Wider
-            screens spread the cells out; only a phone still gets the sideways
-            scroll it cannot avoid. */}
+            exists to show — plus the class and the bill beneath it. The floor
+            is set to exactly that and no more, so the widest bay on the plan
+            still fits a desk screen whole. Wider screens spread the cells out;
+            only a phone gets the sideways scroll it cannot avoid. */}
         <div className="-mx-1 mt-4 space-y-1.5 overflow-x-auto px-1 pb-1" dir="ltr">
           <div
             className="grid gap-1.5"
             style={{
-              gridTemplateColumns: `2.4rem repeat(${String(maxStack)}, minmax(6rem, 1fr))`,
+              gridTemplateColumns: `2.4rem repeat(${String(maxStack)}, minmax(6.75rem, 1fr))`,
             }}
           >
             <div />
