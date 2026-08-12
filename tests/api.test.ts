@@ -706,6 +706,73 @@ describe('gate paperwork', () => {
   });
 
   /**
+   * «هل في حال التعديل على الحاوية بأي شكل من الأشكال يتم تغيير الرقم
+   * التسلسلي؟» — no. Correcting what a person typed is not issuing a card, so
+   * every editable field is corrected here in turn and the serial is read back
+   * after each one, the gate dates included.
+   */
+  it('never renumbers a card because a field was corrected', async () => {
+    const entered = await gateIn('EDIT9000', 20, slot('B', 17, 1, 'A'));
+    const id = entered.body.id;
+    const serial = entered.body.cardIn;
+    const year = entered.body.cardInYear;
+    expect(serial).toBe(1);
+
+    const corrections: Array<Record<string, unknown>> = [
+      { number: 'MSCU1234566' },
+      { bill: '9999' },
+      { notes: 'الباب مبعوج' },
+      { weight: '31000' },
+      { weight: '' },
+      { truckIn: '777' },
+      { driverIn: 'أبو خالد' },
+      { driverIn: '' },
+      { sealIn: 'JO555' },
+      // The gate instant itself, which re-times the movement under it.
+      { enteredAt: new Date(Date.now() - 5 * 86_400_000).toISOString() },
+    ];
+    for (const patch of corrections) {
+      const fixed = await editWith(id, patch);
+      expect(fixed.status, JSON.stringify(patch)).toBe(200);
+      expect(fixed.body, JSON.stringify(patch)).toMatchObject({
+        cardIn: serial,
+        cardInYear: year,
+      });
+    }
+
+    // Nor did all that correcting consume a serial: the next one is still 2.
+    const next = await gateIn('EDIT9001', 20, slot('B', 19, 1, 'A'));
+    expect(next.body.cardIn).toBe(2);
+
+    // And the exit card is minted once, then survives its own corrections.
+    const left = await gateOut(id);
+    const exitSerial = (left.body as { cardOut: number }).cardOut;
+    expect(exitSerial).toBe(1);
+    const afterExit = await editWith(id, { sealOut: 'JO777', driverOut: '' });
+    expect(afterExit.body).toMatchObject({ cardIn: serial, cardOut: exitSerial });
+  });
+
+  /**
+   * The one case worth being explicit about: correcting the gate date into a
+   * DIFFERENT YEAR does not re-date the card either. The serial and its year
+   * are what was printed and handed over; the paper in somebody's hand cannot
+   * be corrected from here, so the record goes on agreeing with it.
+   */
+  it('keeps the card’s own year when the gate date is corrected into another', async () => {
+    const entered = await gateIn('YEAR9000', 20, slot('B', 23, 1, 'A'));
+    const year = entered.body.cardInYear;
+    const backdated = await editWith(entered.body.id, {
+      enteredAt: '2025-11-20T09:00:00.000Z',
+    });
+    expect(backdated.status).toBe(200);
+    expect(backdated.body).toMatchObject({
+      enteredAt: '2025-11-20T09:00:00.000Z',
+      cardIn: 1,
+      cardInYear: year,
+    });
+  });
+
+  /**
    * «في حال حذف الحاوية او سجل خطأ يجب ان لا يتم القفز عن الرقم التسلسلي» —
    * a record struck out at once hands its number straight back.
    */
@@ -817,6 +884,73 @@ describe('reports', () => {
     );
     expect(moveRow?.from).toEqual({ zone: 'B', bay: 21, stack: 4, tier: 'A' });
     expect(moveRow?.to).toEqual(here);
+  });
+
+  /**
+   * «اذا تم ازالة الطابق الأول يتم التعديل ايضا على المواقع في الطوابق الأخرى
+   * في بطاقات الدخول» — lifting the bottom box out drops everything above it a
+   * tier, and the cards and the registers of those boxes must say so. Nobody
+   * moved them by hand and nobody will reprint their cards by hand either.
+   */
+  it('follows the containers that came down when the bottom one was lifted', async () => {
+    const ground = await gateIn('DROP0001', 20, slot('B', 25, 1, 'A'));
+    const middle = await gateIn('DROP0002', 20, slot('B', 25, 1, 'B'));
+    const top = await gateIn('DROP0003', 20, slot('B', 25, 1, 'C'));
+
+    // The bottom one leaves; gravity does the rest.
+    expect((await gateOut(ground.body.id)).status).toBe(200);
+
+    // Each one is now a tier lower — on its own card first of all.
+    for (const [container, tier] of [
+      [middle, 'A'],
+      [top, 'B'],
+    ] as const) {
+      const card = await call({ method: 'GET', url: `/api/containers/${String(container.body.id)}` });
+      expect((card.body as { container: { position: unknown } }).container.position, tier).toEqual({
+        zone: 'B',
+        bay: 25,
+        stack: 1,
+        tier,
+      });
+    }
+
+    // And on the sheets: the entry register names each where it now stands.
+    const range = wideRange();
+    const gate = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=IN&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    const rows = (gate.body as {
+      rows: Array<{ number: string; position: { tier: string } | null }>;
+    }).rows;
+    expect(rows.find((row) => row.number === 'DROP0002')?.position?.tier).toBe('A');
+    expect(rows.find((row) => row.number === 'DROP0003')?.position?.tier).toBe('B');
+
+    const standing = await call({ method: 'GET', url: '/api/reports/standing' });
+    const stood = (standing.body as {
+      rows: Array<{ number: string; position: { tier: string } | null }>;
+    }).rows;
+    expect(stood.find((row) => row.number === 'DROP0002')?.position?.tier).toBe('A');
+    expect(stood.find((row) => row.number === 'DROP0003')?.position?.tier).toBe('B');
+
+    // Their serials did not move with them: gravity is not a gate event.
+    const stillOne = await call({ method: 'GET', url: `/api/containers/${String(middle.body.id)}` });
+    expect((stillOne.body as { container: { cardIn: number } }).container.cardIn).toBe(2);
+  });
+
+  /** Striking the bottom record out drops the stack the same way. */
+  it('follows them when the bottom record is struck out rather than gated out', async () => {
+    const ground = await gateIn('DROP0010', 20, slot('B', 27, 1, 'A'));
+    const above = await gateIn('DROP0011', 20, slot('B', 27, 1, 'B'));
+    expect((await call({ method: 'DELETE', url: `/api/containers/${String(ground.body.id)}` })).status).toBe(200);
+
+    const card = await call({ method: 'GET', url: `/api/containers/${String(above.body.id)}` });
+    expect((card.body as { container: { position: unknown } }).container.position).toEqual({
+      zone: 'B',
+      bay: 27,
+      stack: 1,
+      tier: 'A',
+    });
   });
 
   /** Once it has gone, the sheets name the slot it stood in as it left. */
