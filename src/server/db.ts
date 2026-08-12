@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { ammanYear } from '../shared/dates';
+import { applyCardFixes, renumberPlan } from './store';
 
 /**
  * SQLite through Node's own driver: one file, no native build step, and a
@@ -272,8 +273,26 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 14;
+    PRAGMA user_version = 15;
   `);
+
+  // v15: the register is rebuilt to run 1, 2, 3 … N with no hole in it. A
+  // deletion under an older version of this program left the numbers after it
+  // standing where they were, and the owner found that on the office machine:
+  // «صار خطأ ب التسلسل … بسبب الحذف». The repair is not a one-time script but
+  // the rule itself — it runs every time the file is opened, so a database
+  // arriving from anywhere (an older machine, a restored backup, a copy) is
+  // held to it. When the register is already whole this plans nothing and
+  // writes nothing, which is the normal case on every start after the first.
+  const repair = renumberPlan(db);
+  if (repair.length > 0) {
+    if (file !== ':memory:') {
+      const backup = `${file}.pre-renumber-backup.db`;
+      if (!existsSync(backup)) db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+    }
+    applyCardFixes(db, repair);
+    console.log(`[db] card serials rebuilt: ${String(repair.length)} corrected`);
+  }
 }
 
 /**

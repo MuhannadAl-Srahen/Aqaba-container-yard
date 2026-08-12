@@ -652,6 +652,11 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         if (changed.includes('exitedAt') && body.exitedAt !== null) {
           store.retimeMovement(db, id, 'OUT', body.exitedAt);
         }
+        // A gate date decides where the card sits in the year's count, so a
+        // corrected date re-seats it — and everything it passed on the way.
+        if (changed.includes('enteredAt') || changed.includes('exitedAt')) {
+          store.renumberCards(db);
+        }
 
         // The note carries machine keys AND the old values, so the log can
         // both name the change in Arabic and undo it later.
@@ -688,18 +693,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       }
       store.restoreContainer(db, id, wasAt);
 
-      // Its serial went back into circulation the moment it was struck out —
-      // that is what keeps the register free of holes — so by now it may be
-      // printed on somebody else's card. Two cards of one year may not carry
-      // one number, and the one already in a driver's hand is the one that
-      // keeps it: the record coming back takes the next free serial instead.
-      for (const kind of ['in', 'out'] as const) {
-        const serial = kind === 'in' ? existing.cardIn : existing.cardOut;
-        const year = kind === 'in' ? existing.cardInYear : existing.cardOutYear;
-        if (serial === null || year === null) continue;
-        if (!store.cardNumberTaken(db, kind, year, serial, id)) continue;
-        store.setCardNumber(db, id, kind, store.nextCardNumber(db, kind, year), year);
-      }
+      // Its serial went back into circulation the moment it was struck out,
+      // so by now it may be printed on somebody else's card. The record
+      // coming back takes its seat by its gate date and the year is counted
+      // through again: two cards of one year may never carry one number, and
+      // no number may be missing between the first and the last.
+      store.renumberCards(db);
 
       store.recordMovement(db, id, 'RESTORE', now(), null, wasAt, '', actorId(actor));
       return store.getContainer(db, id);
@@ -735,7 +734,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // The mistake itself goes on the record — audits hide nothing.
       store.recordMovement(db, id, 'DELETE', at, existing.position, null, '', actorId(actor));
       settleAbove(descents, at, existing.number, actorId(actor));
-      return { ok: true };
+      // And the year closes over the gap the struck-out record left, so the
+      // register never carries a missing number. Every card issued after it
+      // moves down one — which is the price of a register with no holes, and
+      // the owner's own call.
+      const resealed = store.renumberCards(db);
+      return { ok: true, resealed };
     });
   });
 

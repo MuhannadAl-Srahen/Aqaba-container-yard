@@ -211,6 +211,11 @@ function copyAcross(
       insertAll(db, 'settings', settings);
       if (cookieSecret !== null) setSetting(db, 'cookie_secret', cookieSecret);
 
+      // A snapshot may have been taken by an older version, whose deletions
+      // left holes in the year's card numbers. What comes back is held to the
+      // same rule as everything else: 1, 2, 3 … N, nothing missing.
+      store.renumberCards(db);
+
       // AUTOINCREMENT reads its next id from here, not from the table, so
       // without this the first new container would collide with a restored one.
       for (const table of ['users', 'containers', 'movements']) {
@@ -388,6 +393,10 @@ export function seedDemoYard(db: DatabaseSync): {
     // Only what is still standing can hold ground for the next one.
     standing.push({ id, number, size, position: slot });
   }
+  // The examples are written in a scattered order over three weeks, so their
+  // serials are counted through once at the end — the practice registers read
+  // 1, 2, 3 by date exactly as the real ones do.
+  store.renumberCards(db);
   return {
     added,
     departed,

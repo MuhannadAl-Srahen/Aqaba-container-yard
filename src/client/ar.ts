@@ -329,6 +329,18 @@ export const AR = {
   pageOf: (page: number, pages: number): string => `صفحة ${String(page)} من ${String(pages)}`,
   totalRow: 'المجموع',
   movementsCount: (n: number): string => `${String(n)} حركة`,
+  /**
+   * One box over every register, reading every column: the office does not
+   * know which column holds what it is looking for. What the search leaves is
+   * what the screen shows, what the printer prints and what the PDF and the
+   * Excel file carry — so the paper always says what it was filtered by.
+   */
+  sheetSearch: 'ابحث في الكشف عن أي معلومة',
+  sheetSearchLabel: 'بحث:',
+  sheetSearchFound: (shown: number, total: number): string =>
+    `${String(shown)} من ${String(total)}`,
+  sheetSearchRow: 'نتيجة البحث',
+  sheetSearchEmpty: 'لا توجد نتائج مطابقة للبحث في هذا الكشف.',
   exportExcel: 'تصدير Excel',
   exportPdf: 'تصدير PDF',
   pdfWorking: 'جارٍ تجهيز الـ PDF…',

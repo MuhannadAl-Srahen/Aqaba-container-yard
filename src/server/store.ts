@@ -543,44 +543,76 @@ export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out', year: numbe
   return (row.top ?? 0) + 1;
 }
 
-/**
- * Is this serial already on a live card of that year? Asked when a struck-out
- * record is brought back: its own number may have been handed on in the
- * meantime, and two cards of one year may not carry one number.
- */
-export function cardNumberTaken(
-  db: DatabaseSync,
-  kind: 'in' | 'out',
-  year: number,
-  serial: number,
-  exceptId: number,
-): boolean {
-  const column = kind === 'in' ? 'card_in' : 'card_out';
-  const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
-  const row = db
-    .prepare(
-      `SELECT 1 AS hit FROM containers
-        WHERE ${column} = ? AND ${stamped} = ? AND deleted_at IS NULL AND id <> ? LIMIT 1`,
-    )
-    .get(serial, year, exceptId) as { hit: number } | undefined;
-  return row !== undefined;
+/** One card that is sitting on the wrong serial, and the one it belongs on. */
+export interface CardFix {
+  readonly id: number;
+  readonly kind: 'in' | 'out';
+  readonly serial: number;
 }
 
-/** Give a restored record a serial of its own when its old one was taken. */
-export function setCardNumber(
-  db: DatabaseSync,
-  id: number,
-  kind: 'in' | 'out',
-  serial: number,
-  year: number,
-): void {
-  const column = kind === 'in' ? 'card_in' : 'card_out';
-  const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
-  db.prepare(`UPDATE containers SET ${column} = ?, ${stamped} = ? WHERE id = ?`).run(
-    serial,
-    year,
-    id,
-  );
+/**
+ * THE RULE THE REGISTER IS HELD TO: the live cards of one year carry 1, 2,
+ * 3 … N in the order the gate issued them, with no hole anywhere — not where
+ * a record was struck out, not where a counter of an older version of this
+ * program skipped a number. Deleting the third of five used to leave the
+ * fourth reading «0004» forever with nothing in front of it; the owner found
+ * exactly that on the office machine and asked for it to be rebuilt.
+ *
+ * This says what would have to change to make it true. Handing back the plan
+ * rather than doing it lets the caller take a copy of the file first, and
+ * lets the whole thing be asserted in a test without a write.
+ *
+ * The seat a card takes is decided by the gate date — the entry date for an
+ * entry card, the exit date for an exit one — and ties are broken by the
+ * serial already carried, so a register that is already whole plans nothing
+ * and running this twice changes nothing the second time.
+ */
+export function renumberPlan(db: DatabaseSync): CardFix[] {
+  const fixes: CardFix[] = [];
+  for (const kind of ['in', 'out'] as const) {
+    const column = kind === 'in' ? 'card_in' : 'card_out';
+    const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
+    const dated = kind === 'in' ? 'entered_at' : 'exited_at';
+    const rows = db
+      .prepare(
+        `SELECT id, ${stamped} AS year, ${column} AS serial FROM containers
+          WHERE ${stamped} IS NOT NULL AND ${column} IS NOT NULL AND deleted_at IS NULL
+          ORDER BY ${stamped}, ${dated}, ${column}, id`,
+      )
+      .all() as Array<{ id: number; year: number; serial: number }>;
+
+    let year: number | null = null;
+    let seat = 0;
+    for (const row of rows) {
+      if (row.year !== year) {
+        year = row.year;
+        seat = 0;
+      }
+      seat += 1;
+      if (row.serial !== seat) fixes.push({ id: row.id, kind, serial: seat });
+    }
+  }
+  return fixes;
+}
+
+export function applyCardFixes(db: DatabaseSync, fixes: readonly CardFix[]): void {
+  const seat = {
+    in: db.prepare('UPDATE containers SET card_in = ? WHERE id = ?'),
+    out: db.prepare('UPDATE containers SET card_out = ? WHERE id = ?'),
+  };
+  for (const fix of fixes) seat[fix.kind].run(fix.serial, fix.id);
+}
+
+/**
+ * Hold the register to the rule, and say how many cards had to move. Called
+ * after anything that changes which records are live — a deletion, a record
+ * brought back, a corrected gate date — so a hole never outlives the
+ * operation that opened it.
+ */
+export function renumberCards(db: DatabaseSync): number {
+  const fixes = renumberPlan(db);
+  applyCardFixes(db, fixes);
+  return fixes.length;
 }
 
 interface GateRow {

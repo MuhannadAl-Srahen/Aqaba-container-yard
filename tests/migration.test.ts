@@ -111,7 +111,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(14);
+    ).toBe(15);
     db.close();
   });
 
@@ -288,12 +288,15 @@ describe('schema v9 — the cutover to the official yard', () => {
     const cards = upgraded
       .prepare('SELECT id, card_in, card_in_year, card_out, card_out_year FROM containers ORDER BY id')
       .all() as Array<Record<string, number | null>>;
-    // Every serial survives untouched, now dated.
+    // Every serial is dated — and the hole in 2026 closes. The old file has
+    // entry cards 1 and 3 in that year with nothing at 2, which is the very
+    // fault the owner found on the office machine; the fourth record moves
+    // down onto it. 2025 was already whole and does not move.
     expect(cards).toEqual([
       { id: 1, card_in: 1, card_in_year: 2025, card_out: 1, card_out_year: 2025 },
       { id: 2, card_in: 2, card_in_year: 2025, card_out: null, card_out_year: null },
       { id: 3, card_in: 1, card_in_year: 2026, card_out: 1, card_out_year: 2026 },
-      { id: 4, card_in: 3, card_in_year: 2026, card_out: 2, card_out_year: 2026 },
+      { id: 4, card_in: 2, card_in_year: 2026, card_out: 2, card_out_year: 2026 },
     ]);
 
     // v13 in the same breath: the serial is read from the records now, so the
@@ -305,14 +308,76 @@ describe('schema v9 — the cutover to the official yard', () => {
   });
 
   /**
+   * The repair the office machine needs, on a file of the CURRENT shape: it
+   * is not a one-time upgrade step but the rule the register is held to, so
+   * it runs on every open — and takes a copy of the file the one time it has
+   * anything to change.
+   */
+  it('closes a hole in the numbering on open, keeping a copy first', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'holed.db');
+    const seed = openDatabase(file);
+    // Written straight in, the way an older version of this program left it:
+    // entry cards 1, 2 and 4 in 2026 with number 3 struck out and lost.
+    for (const [day, serial] of [
+      [1, 1],
+      [2, 2],
+      [4, 4],
+    ] as const) {
+      seed
+        .prepare(
+          `INSERT INTO containers (number, number_valid, size, entered_at, zone, bay, stack, tier,
+                                   card_in, card_in_year)
+           VALUES (?, 1, 20, ?, 'B', 3, ?, 'A', ?, 2026)`,
+        )
+        .run(
+          `HOLE000${String(serial)}`,
+          `2026-06-0${String(day)}T09:00:00.000Z`,
+          day,
+          serial,
+        );
+    }
+    seed.close();
+
+    const backup = `${file}.pre-renumber-backup.db`;
+    expect(existsSync(backup)).toBe(false);
+
+    const fixed = openDatabase(file);
+    const serials = (
+      fixed
+        .prepare('SELECT card_in AS serial FROM containers ORDER BY entered_at')
+        .all() as Array<{ serial: number }>
+    ).map((row) => row.serial);
+    expect(serials).toEqual([1, 2, 3]);
+    // The next card carries on from the end of a whole register.
+    expect(nextCardNumber(fixed, 'in', 2026)).toBe(4);
+    fixed.close();
+
+    // The file as it stood before the repair is beside it, holes and all.
+    expect(existsSync(backup)).toBe(true);
+    const kept = new DatabaseSync(backup, { readOnly: true });
+    expect(
+      (
+        kept.prepare('SELECT MAX(card_in) AS top FROM containers').get() as { top: number }
+      ).top,
+    ).toBe(4);
+    kept.close();
+
+    // Opening again has nothing to do and writes no second copy.
+    const bytes = readFileSync(backup).length;
+    openDatabase(file).close();
+    expect(readFileSync(backup).length).toBe(bytes);
+  });
+
+  /**
    * «when I install the update, is it going to change the رقم التسلسلي?»
    *
-   * No. Not one card already issued is renumbered by the upgrade. What the
-   * upgrade changes is where the NEXT number comes from: the records instead
-   * of a counter — so a number that was skipped over a struck-out record is
-   * filled rather than lost, which is the whole point of the change.
+   * Only where it has to. A year that already reads 1 … N is left exactly as
+   * it is — which is this file, where the struck-out record is the LAST one
+   * and the four live cards run 1, 2, 3, 4. A year with a hole in it is the
+   * other test, and closing that hole is what the owner asked for.
    */
-  it('renumbers no card already issued when the update lands', () => {
+  it('renumbers no card of a year that is already whole', () => {
     const dir = scratch();
     const file = path.join(dir, 'office-serials.db');
     const db = new DatabaseSync(file);
@@ -442,8 +507,10 @@ describe('schema v9 — the cutover to the official yard', () => {
     for (const gone of ['customer', 'weight_net', 'hazmat']) {
       expect(columnsOf(upgraded, 'containers'), gone).not.toContain(gone);
     }
-    // Everything else rode across: the container, its movement, its serial,
-    // its staff and the session secret that keeps them signed in.
+    // Everything else rode across: the container, its movement, its staff and
+    // the session secret that keeps them signed in. Its SERIAL is re-seated:
+    // the file carries one live record of 2026 holding card 8, which is seven
+    // numbers missing in front of it, and the register is held to 1 … N.
     const kept = upgraded
       .prepare('SELECT number, bill, zone, bay, weight, card_in, card_in_year, notes FROM containers')
       .get() as Record<string, unknown>;
@@ -453,7 +520,7 @@ describe('schema v9 — the cutover to the official yard', () => {
       zone: 'B',
       bay: 3,
       weight: '28000',
-      card_in: 8,
+      card_in: 1,
       card_in_year: 2026,
       notes: 'الباب مبعوج',
     });

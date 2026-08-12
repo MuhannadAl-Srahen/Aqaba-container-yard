@@ -120,7 +120,7 @@ export function BaySheet(props: {
           }
         >
           <span
-            className="w-full font-mono text-[13px] font-bold tracking-tight text-ink"
+            className="w-full font-mono text-[13px] font-bold leading-4 tracking-tight text-ink"
             dir="ltr"
           >
             {container.number}
@@ -128,23 +128,26 @@ export function BaySheet(props: {
           {/* Three facts, and the bay sheet is where all three are wanted at
               once: which box, what class, and whose bill. The bill is what
               answers «هل هذول من نفس البوليصة ولا منفصلة» without opening a
-              single container — so it is read straight off the grid. */}
-          <span className="flex w-full items-center justify-center gap-1">
+              single container — so it is read straight off the grid.
+
+              It takes a LINE OF ITS OWN rather than sitting beside the class:
+              a bill of nine digits at a size that can be read across a desk
+              needs the cell's full width, and beside the chip it would be
+              sawn off — «بتقدر تكبر هاي الخط تبعها شوي». */}
+          <span
+            className="shrink-0 rounded bg-surface px-1.5 text-[13px] font-extrabold leading-4 text-ink"
+            dir="ltr"
+          >
+            {container.size === 40 ? AR.size40Chip : AR.size20Chip}
+          </span>
+          {container.bill !== '' && (
             <span
-              className="shrink-0 rounded bg-surface px-1.5 text-[13px] font-extrabold leading-4 text-ink"
+              className="w-full truncate font-mono text-[13px] font-bold leading-4 text-muted"
               dir="ltr"
             >
-              {container.size === 40 ? AR.size40Chip : AR.size20Chip}
+              {container.bill}
             </span>
-            {container.bill !== '' && (
-              <span
-                className="min-w-0 truncate rounded bg-surface px-1 font-mono text-[11px] font-bold leading-4 text-muted"
-                dir="ltr"
-              >
-                {container.bill}
-              </span>
-            )}
-          </span>
+          )}
         </button>
       );
     }

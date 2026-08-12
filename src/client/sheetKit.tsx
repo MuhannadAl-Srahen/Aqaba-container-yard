@@ -1,7 +1,15 @@
-import { useEffect, useState, type CSSProperties, type ReactElement, type ReactNode } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { isTallRow, sheetMetrics } from './sheetGeometry';
+import { rowMatches, searchTerms } from './sheetSearch';
 import { ThemePicker } from './ThemePicker';
 import { Button } from './ui';
 
@@ -219,23 +227,65 @@ export function SheetScreen(props: {
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
-  const pages = Math.max(1, Math.ceil(model.body.length / pageSize));
+  /**
+   * The search cuts the register down to the rows that answer it, and every
+   * consumer downstream — the screen, the printer, the PDF, the Excel file —
+   * is handed the cut-down register rather than the whole one. `seats` keeps
+   * each surviving row's ORIGINAL index, because the per-row actions the
+   * caller renders (a card to reprint, an edit to revert) are addressed by
+   * position in the register it built.
+   */
+  const view = useMemo(() => {
+    const terms = searchTerms(query);
+    if (terms.length === 0) return { sheet: model, seats: null, total: model.body.length };
+    const seats: number[] = [];
+    const body = model.body.filter((row, index) => {
+      const hit = rowMatches(
+        row.map((cell) => cell.text),
+        terms,
+      );
+      if (hit) seats.push(index);
+      return hit;
+    });
+    // The caller's footer counts the whole register, so while a search is on
+    // it would be a lie; what stands in its place is the count of the search.
+    const footer = [
+      cellText(AR.sheetSearchRow),
+      cellText(AR.sheetSearchFound(body.length, model.body.length)),
+    ];
+    return {
+      sheet: { head: model.head, body, footer },
+      seats,
+      total: model.body.length,
+    };
+  }, [model, query]);
+
+  const sheet = view.sheet;
+  const searching = view.seats !== null;
+
+  const pages = Math.max(1, Math.ceil(sheet.body.length / pageSize));
   useEffect(() => {
     setPage(0);
-  }, [props.sheetTitle, model.body.length, pageSize]);
+  }, [props.sheetTitle, sheet.body.length, pageSize]);
   const current = Math.min(page, pages - 1);
 
-  const periodText =
+  const rangeText =
     props.rangeless ??
     `${AR.rangeFrom} ${props.from.split('-').reverse().join('/')} ${AR.rangeTo} ${props.to
       .split('-')
       .reverse()
       .join('/')}`;
-  const hasRows = model.body.length > 0;
+  // A filtered sheet says so on its own face: paper that leaves the office
+  // showing some of the register must never read as all of it.
+  const periodText = searching
+    ? `${rangeText} — ${AR.sheetSearchLabel} ${query.trim()}`
+    : rangeText;
+  const hasRows = sheet.body.length > 0;
 
   const exportExcel = (): void => {
-    const blob = new Blob(['﻿', sheetHtml(props.sheetTitle, periodText, model)], {
+    const blob = new Blob(['﻿', sheetHtml(props.sheetTitle, periodText, sheet)], {
       type: 'application/vnd.ms-excel',
     });
     downloadBlob(blob, `${props.sheetTitle}.xls`);
@@ -262,7 +312,7 @@ export function SheetScreen(props: {
     setPdfBusy(true);
     setError(null);
     api
-      .reportPdf(props.sheetTitle, sheetHtml(props.sheetTitle, periodText, model), true)
+      .reportPdf(props.sheetTitle, sheetHtml(props.sheetTitle, periodText, sheet), true)
       .then((blob) => {
         downloadBlob(blob, `${props.sheetTitle}.pdf`);
         setPdfBusy(false);
@@ -273,8 +323,8 @@ export function SheetScreen(props: {
       });
   };
 
-  const footer = model.footer;
-  const metrics = sheetMetrics(model, props.actions !== undefined);
+  const footer = sheet.footer;
+  const metrics = sheetMetrics(sheet, props.actions !== undefined);
   const sheetStyle: StyleVars = { '--sheet-font': metrics.printFont };
 
   return (
@@ -324,6 +374,37 @@ export function SheetScreen(props: {
             <span className="text-sm font-semibold text-muted">{props.rangeless}</span>
           )}
           {props.extraFilters}
+          {/* Every register, one box, every column. It reads what the sheet
+              itself says — so a date, a plate, a bill, a slot, a note or the
+              employee's own name all answer, without a filter per column. */}
+          <div className="flex min-w-56 flex-1 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2 py-1 sm:flex-none">
+            <input
+              type="search"
+              className="min-w-0 flex-1 bg-transparent py-0.5 text-sm text-ink outline-none placeholder:text-faint"
+              placeholder={AR.sheetSearch}
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+              }}
+            />
+            {searching && (
+              <>
+                <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-xs font-bold text-muted">
+                  {AR.sheetSearchFound(sheet.body.length, view.total)}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 rounded px-1 text-sm font-bold text-faint hover:text-ink"
+                  title={AR.clearSearch}
+                  onClick={() => {
+                    setQuery('');
+                  }}
+                >
+                  ✕
+                </button>
+              </>
+            )}
+          </div>
           <label className="flex items-center gap-1.5 text-sm">
             <span className="font-semibold text-muted">{AR.perPage}</span>
             <select
@@ -390,7 +471,7 @@ export function SheetScreen(props: {
 
           {!hasRows ? (
             <p className="py-12 text-center text-sm text-faint">
-              {props.emptyText ?? AR.reportEmpty}
+              {searching ? AR.sheetSearchEmpty : (props.emptyText ?? AR.reportEmpty)}
             </p>
           ) : (
             <>
@@ -415,7 +496,7 @@ export function SheetScreen(props: {
                 </colgroup>
                 <thead>
                   <tr>
-                    {model.head.map((heading) => (
+                    {sheet.head.map((heading) => (
                       <th
                         key={heading}
                         className={`${cellBase} border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`}
@@ -435,7 +516,7 @@ export function SheetScreen(props: {
                 <tbody>
                   {/* Every row is in the DOM: the screen shows one page, the
                       printer un-hides the rest. */}
-                  {model.body.map((row, rowIndex) => {
+                  {sheet.body.map((row, rowIndex) => {
                     const onPage =
                       rowIndex >= current * pageSize && rowIndex < (current + 1) * pageSize;
                     return (
@@ -469,7 +550,7 @@ export function SheetScreen(props: {
                         ))}
                         {props.actions !== undefined && (
                           <td className={`${cellBase} print-hidden overflow-hidden text-center`}>
-                            {props.actions.render(rowIndex)}
+                            {props.actions.render(view.seats?.[rowIndex] ?? rowIndex)}
                           </td>
                         )}
                       </tr>
@@ -484,7 +565,7 @@ export function SheetScreen(props: {
                           key={cellIndex}
                           colSpan={
                             cellIndex === footer.length - 1
-                              ? model.head.length - footer.length + 1
+                              ? sheet.head.length - footer.length + 1
                               : 1
                           }
                           className={`${cellBase} border-t-2 border-t-rule-strong font-bold text-ink`}

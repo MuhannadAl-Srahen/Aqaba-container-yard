@@ -814,8 +814,13 @@ describe('gate paperwork', () => {
     expect(replacement.body.cardIn).toBe(2);
   });
 
-  /** Bringing the struck-out one back may not put two cards on one number. */
-  it('gives a restored record a fresh serial when its own was handed on', async () => {
+  /**
+   * Bringing the struck-out one back may not put two cards on one number, and
+   * may not leave a hole either. It re-enters the count at its own gate date —
+   * it arrived before the record that took its number — and everything after
+   * it moves down one.
+   */
+  it('seats a restored record back in its own place in the year', async () => {
     await gateIn('BACK0001', 20, slot('B', 1, 1, 'A'));
     const mistake = await gateIn('BACK0002', 20, slot('B', 3, 1, 'A'));
     await call({ method: 'DELETE', url: `/api/containers/${String(mistake.body.id)}` });
@@ -827,10 +832,40 @@ describe('gate paperwork', () => {
       url: `/api/containers/${String(mistake.body.id)}/restore`,
     });
     expect(restored.status).toBe(200);
-    expect(restored.body).toMatchObject({ cardIn: 3 });
-    // …and the card already printed as number 2 keeps its number.
+    expect(restored.body).toMatchObject({ cardIn: 2 });
+    // The one that had been given 2 while it was struck out moves to 3: the
+    // year reads 1, 2, 3 with no number missing and none repeated.
     const other = await call({ method: 'GET', url: `/api/containers/${String(replacement.body.id)}` });
-    expect((other.body as { container: { cardIn: number } }).container.cardIn).toBe(2);
+    expect((other.body as { container: { cardIn: number } }).container.cardIn).toBe(3);
+  });
+
+  /**
+   * The hole the owner found on the office machine: strike out one from the
+   * MIDDLE and every card after it used to keep its old number, so the
+   * register ran 1, 2, 4 forever. It closes over now.
+   */
+  it('closes the register over a record struck out from the middle', async () => {
+    const first = await gateIn('HOLE0001', 20, slot('B', 1, 1, 'A'));
+    const middle = await gateIn('HOLE0002', 20, slot('B', 3, 1, 'A'));
+    const last = await gateIn('HOLE0003', 20, slot('B', 5, 1, 'A'));
+    expect([first.body.cardIn, middle.body.cardIn, last.body.cardIn]).toEqual([1, 2, 3]);
+
+    const struck = await call({
+      method: 'DELETE',
+      url: `/api/containers/${String(middle.body.id)}`,
+    });
+    expect(struck.status).toBe(200);
+    expect(struck.body).toMatchObject({ resealed: 1 });
+
+    const serialOf = async (id: unknown): Promise<number | null> => {
+      const seen = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
+      return (seen.body as { container: { cardIn: number | null } }).container.cardIn;
+    };
+    expect(await serialOf(first.body.id)).toBe(1);
+    expect(await serialOf(last.body.id)).toBe(2);
+    // And the register itself carries 1, 2 and then 3 for the next one in.
+    const next = await gateIn('HOLE0004', 20, slot('B', 7, 1, 'A'));
+    expect(next.body.cardIn).toBe(3);
   });
 
   /** The count restarts each January, so the year is part of the record. */

@@ -951,3 +951,53 @@ Noticed, not fixed: a chooser button inside a field's `<label>` takes its
 accessible name from the label and its neighbour — the ونش button announces as
 «آلية المناولة عقرب». It affects the 20/40 chooser the same way. Nothing on
 screen is wrong; it is what a screen reader would say.
+
+## المرحلة 16 — البحث في كل كشف، والترقيم بلا فجوة — 2026-08-12
+
+Status: complete
+
+Built:
+
+- **One search box over every register, reading every column.** «بدي كل
+  الكشوفات يكون الها امكانية البحث عن اي معلومة» — so it is not a filter per
+  column but one box that reads the sheet itself: the container, the bill, the
+  plate, the seal, the slot, the date, the employee, a word out of a note.
+  Every word typed narrows it further, and the folding is the one a reader
+  does anyway (أ/ا, ة/ه, ى/ي, the harakat, and ٣٢١٠ finds 3210). What
+  survives the search is what the screen shows AND what the printer, the PDF
+  and the Excel file carry — with «بحث: …» written into the sheet's own head,
+  so a filtered page can never leave the office reading as the whole register.
+  The per-row buttons keep pointing at the row they sit on: the filtered rows
+  carry their original index with them.
+- **The register is held to 1 … N with no hole in it.** The owner found the
+  fault on the office machine: «صار خطأ ب التسلسل … بسبب الحذف». Striking out
+  the LAST record hands its number back, which already worked — but striking
+  one out of the MIDDLE left every number after it where it was, and the hole
+  never closed. Now the year is counted through again, in gate-date order,
+  after anything that changes which records are live: a deletion, a record
+  brought back, a corrected gate date. He chose this over letting new arrivals
+  fill old holes, knowing the cost: a card printed before the deletion may no
+  longer match the number the system now holds.
+- **It is a rule, not a migration step.** It runs on every open, so a file
+  arriving from an older machine or out of a backup is repaired the moment it
+  is opened — and a file already whole is left untouched and writes nothing.
+  The one time it has something to change it copies the file beside itself
+  first: `yard.db.pre-renumber-backup.db`.
+- **The bill in the bay sheet takes a line of its own**, at the size of the
+  container number rather than the small grey it was — «بتقدر تكبر هاي الخط
+  تبعها شوي». Beside the class chip a nine-digit bill would have been sawn
+  off; on its own line it has the cell's full width.
+
+Verified: **195 tests** (10 new), typecheck and lint clean, and two browser
+sweeps on the real build. The search: 32 checks across كشف الدخول, كشف
+الخروج, كشف الحاويات في الساحة and سجل العمليات — every row left carries the
+term, off-page rows included (read by textContent, since innerText answers
+blank for a row the pager has hidden and would have let this inspect one page
+and call it the register); the sheet head names the filter; nothing answers →
+it says so and offers nothing to print; clearing brings the whole register
+back; and the «بطاقة» button on a filtered row opens THAT container, not the
+one that used to sit at its index. The serials: a register of 57 cards read
+1 … 57, a record was struck out from the middle through the screen, and it
+read 1 … 56 — no number missing. The bay sheet: 13 checks with nine-digit
+bills written onto a whole bay, nothing clipped sideways or downwards, and
+the widest bay on the plan still whole at 1283px.
