@@ -250,7 +250,6 @@ describe('حذف البيانات', () => {
       payload: {
         number: 'WIPE0001',
         size: 20,
-        customer: 'شركة',
         bill: '3210',
         notes: '',
         position: { zone: 'B', bay: 1, stack: 1, tier: 'A' },
@@ -258,7 +257,7 @@ describe('حذف البيانات', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '25000',
-        weightNet: '22000',
+        handling: 'CRANE',
       },
     });
     expect((fresh.body as { cardIn: number }).cardIn).toBe(1);
@@ -321,7 +320,6 @@ describe('استرجاع النسخة الاحتياطية', () => {
       payload: {
         number: 'REST0001',
         size: 20,
-        customer: 'شركة',
         bill: '3210',
         notes: '',
         position: free,
@@ -329,7 +327,7 @@ describe('استرجاع النسخة الاحتياطية', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '25000',
-        weightNet: '22000',
+        handling: 'CRANE',
       },
     });
     expect(added.status).toBe(201);

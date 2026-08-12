@@ -360,6 +360,7 @@ export function seedDemoYard(db: DatabaseSync): {
       position: slot,
       at: enteredAt,
       weight: String(gross),
+      handling: rnd() < 0.5 ? 'CRANE' : 'STRADDLE',
       truckIn: String(100 + Math.floor(rnd() * 899)),
       driverIn: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? DRIVERS[0] ?? '',
       sealIn: seal,

@@ -17,6 +17,15 @@ export const ZONES = ['A', 'B', 'C', 'D', 'E'] as const;
 export type Zone = (typeof ZONES)[number];
 
 /**
+ * What lifted the container off the truck: a crane or a straddle carrier.
+ * Recorded once, at the gate, and printed on the ENTRY CARD alone — the
+ * owner's instruction: «بدي اياها تبين ب ورقة الدخول فقط». It is deliberately
+ * absent from every register.
+ */
+export const HANDLING = ['CRANE', 'STRADDLE'] as const;
+export type Handling = (typeof HANDLING)[number];
+
+/**
  * Three tiers: A on the ground, B over it, and C — the reserve floor the
  * owner asked for («طابق 3 للكل احتياط») — on top of B.
  */
@@ -146,6 +155,8 @@ export interface ContainerDto {
   readonly notes: string;
   /** الوزن — as the scale ticket reads it. Blank when unrecorded. */
   readonly weight: string;
+  /** Crane or straddle. Null on records from before the field existed. */
+  readonly handling: Handling | null;
   readonly truckIn: string;
   readonly driverIn: string;
   /** The seal (الرصاصة) on the door at the gate — one each way. */

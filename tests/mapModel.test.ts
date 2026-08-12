@@ -36,6 +36,7 @@ function box(number: string, position: Position | null, size: Size = 20): Contai
     position,
     notes: '',
     weight: '',
+    handling: 'CRANE',
     truckIn: '',
     driverIn: '',
     sealIn: 'JO1',

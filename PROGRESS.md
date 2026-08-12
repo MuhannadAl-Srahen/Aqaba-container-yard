@@ -884,3 +884,37 @@ paper size for overflow and for words too wide for their line — 9/9 on the
 export and the PDF, 13/13 driving the move-then-reprint and sweeping every
 screen and every register tab for the three struck-out words, and the existing
 18-check sweep unchanged.
+
+## المرحلة 14 — آلية المناولة، وبطاقتان بلا حبر — 2026-08-12
+
+Status: complete
+
+Built:
+
+- **آلية المناولة** — crane or straddle, the thing that lifted the container
+  off the truck. Chosen at the gate and mandatory, because it is a choice
+  between two things the crew is standing in front of. Carried to exactly one
+  place, which was the owner's whole point: «بدي اياها تبين ب ورقة الدخول
+  فقط». The entry card prints it; the exit card does not, and no register
+  does. Correctable like everything else a person typed, and the correction is
+  named in the log with the old value beside it. Schema v14, a plain defaulted
+  column, so records from before it read as nothing at all.
+- **The coloured band is off both cards.** A solid strip of blue across the
+  head of every entry card and slate across every exit card was a cartridge
+  emptied a page at a time — «ما بدي يصرف حبر» — and it was carrying nothing
+  the ruling and the weight of the type could not carry. White ground, black
+  type, ruled edges, on screen and on paper alike, since what is on the screen
+  is what comes out of the printer. Entry and exit are told apart by their
+  titles, which is how they were being read anyway.
+- The specification's own «الجديد» list was carrying four statements that
+  three rounds of changes had made false — hazmat, the second weight, the red
+  bays, searching by owner name. They are corrected, not appended to.
+
+Verified: **185 tests**, typecheck and lint clean. In the browser, ten checks
+that walk the field end to end: the gate asks for it, refuses to receive a
+container until one of the two is chosen, releases the moment one is, prints
+it on the entry card with the answer given at the gate, and leaves it off the
+exit card. The ink is measured rather than looked at — every element of each
+card's head is read for a background more than 15% away from white, and both
+come back with none. The other sweeps are unchanged: 19/19 print, 18/18 UI,
+6/6 export and PDF.

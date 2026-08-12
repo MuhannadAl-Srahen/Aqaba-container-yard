@@ -20,7 +20,7 @@ import type {
   StandingReportRow,
   YardStateDto,
 } from '../shared/types';
-import { OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
+import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
 import { ammanDay, ammanYear, daysBetween } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
@@ -93,6 +93,11 @@ const gateInSchema = z.object({
   driver: z.string().trim().max(60).default(''),
   /** الوزن, as the scale ticket reads it. */
   weight: z.string().trim().max(20).default(''),
+  /**
+   * Crane or straddle — mandatory, because it is a choice between two things
+   * the crew always knows, and the entry card is meant to carry the answer.
+   */
+  handling: z.enum(HANDLING),
 });
 
 const gateOutSchema = z.object({
@@ -115,6 +120,8 @@ const editSchema = z.object({
   /** Optional here for the same reasons they are optional at the gate. */
   notes: z.string().trim().max(2000),
   weight: z.string().trim().max(20).default(''),
+  /** Nullable here, and only here: records from before the field existed. */
+  handling: z.enum(HANDLING).nullable().default(null),
   truckIn: z.string().trim().min(1).max(30),
   driverIn: z.string().trim().max(60).default(''),
   sealIn: z.string().trim().min(1).max(30),
@@ -441,6 +448,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         position: body.position,
         at,
         weight: body.weight,
+        handling: body.handling,
         truckIn: body.truck,
         driverIn: body.driver,
         sealIn: body.seal,
@@ -610,6 +618,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       diff('bill', body.bill, existing.bill);
       diff('notes', body.notes, existing.notes);
       diff('weight', body.weight, existing.weight);
+      diff('handling', body.handling ?? '', existing.handling ?? '');
       diff('truckIn', body.truckIn, existing.truckIn);
       diff('driverIn', body.driverIn, existing.driverIn);
       diff('sealIn', body.sealIn, existing.sealIn);
@@ -627,6 +636,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           size: body.size,
           notes: body.notes,
           weight: body.weight,
+          handling: body.handling,
           truckIn: body.truckIn,
           driverIn: body.driverIn,
           sealIn: body.sealIn,

@@ -148,6 +148,13 @@ export const AR = {
   driver: 'اسم السائق',
   /** One weight only, on the owner's call: «الوزن القائم» became «الوزن». */
   weight: 'الوزن بالكغم',
+  /**
+   * What lifted the container off the truck. Recorded at the gate, printed on
+   * the ENTRY CARD alone, and on no register — the owner's instruction.
+   */
+  handling: 'آلية المناولة',
+  handlingHint: 'ما الذي أنزل الحاوية عن السيارة',
+  handlingName: { CRANE: 'رافعة', STRADDLE: 'سترادل' } as Record<string, string>,
   notes: 'ملاحظات (اختياري)',
   notesHint: 'حالة الحاوية وما يلزم ذكره: انبعاج، قفل مفتوح، حجز جمركي…',
   /**
@@ -193,6 +200,7 @@ export const AR = {
       size: 'الفئة',
       notes: 'الملاحظات',
       weight: 'الوزن',
+      handling: 'آلية المناولة',
       truckIn: 'سيارة الدخول',
       driverIn: 'سائق الدخول',
       sealIn: 'رصاصة الدخول',
@@ -248,6 +256,8 @@ export const AR = {
   cardTruck: 'رقم السيارة',
   cardSize: 'فئة الحاوية',
   cardWeight: 'الوزن بالكغم',
+  /** On the entry card only — never on a register. */
+  cardHandling: 'آلية المناولة',
   cardSeal: 'رقم الرصاصة',
   /**
    * Where the container IS, not where it was first set down. A card reprinted

@@ -167,6 +167,14 @@ export function migrate(db: DatabaseSync, file: string): void {
     }
   }
 
+  // v14: what lifted the container off the truck — a crane or a straddle
+  // carrier. A plain defaulted column, so it goes in place; records from
+  // before it read blank, which the wire sends as null.
+  const v13ContainersSql = tableSql('containers');
+  if (v13ContainersSql !== undefined && !columnExists(db, 'containers', 'handling')) {
+    db.exec("ALTER TABLE containers ADD COLUMN handling TEXT NOT NULL DEFAULT ''");
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -216,6 +224,9 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- serials. A different seal on the way out means the door was opened
       -- inside. One weight only, free text, as the scale ticket reads it.
       weight        TEXT    NOT NULL DEFAULT '',
+      -- CRANE or STRADDLE: what lifted it off the truck. Printed on the entry
+      -- card alone, and deliberately on no register.
+      handling      TEXT    NOT NULL DEFAULT '',
       truck_in      TEXT    NOT NULL DEFAULT '',
       driver_in     TEXT    NOT NULL DEFAULT '',
       seal_in       TEXT    NOT NULL DEFAULT '',
@@ -261,7 +272,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 13;
+    PRAGMA user_version = 14;
   `);
 }
 

@@ -73,7 +73,6 @@ export function PrintCard(props: {
   const truck = kind === 'in' ? container.truckIn : container.truckOut;
   const driver = kind === 'in' ? container.driverIn : container.driverOut;
   const sealShown = kind === 'in' ? container.sealIn : container.sealOut;
-  const accent = kind === 'in' ? 'bg-blue-700' : 'bg-slate-700';
 
   /**
    * One labelled cell of the voucher grid. `wide` spans both columns for the
@@ -117,12 +116,20 @@ export function PrintCard(props: {
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
       <div className="max-h-full w-full max-w-2xl overflow-y-auto">
         <div className="print-area gate-card overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
-          {/* The voucher strip: serial | title | day+date. */}
-          <div className={`flex items-stretch ${accent} text-white`}>
-            <div className="flex w-28 flex-col items-center justify-center gap-0.5 border-e border-white/25 px-2 py-2.5">
-              <span className="text-[10px] font-semibold opacity-80">{AR.cardNumber}</span>
+          {/*
+            The voucher strip: serial | title | day+date.
+
+            No fill behind it, on the owner's instruction — «ما بدي يصرف حبر».
+            A band of solid colour across the head of every card is a cartridge
+            emptied a page at a time, and it was carrying nothing the ruling
+            and the weight of the type cannot carry. Entry and exit are told
+            apart by their titles, which is how a person reads them anyway.
+          */}
+          <div className="flex items-stretch border-b-2 border-rule-strong bg-surface text-ink">
+            <div className="flex w-28 flex-col items-center justify-center gap-0.5 border-e border-rule-strong px-2 py-2.5">
+              <span className="text-[10px] font-semibold text-muted">{AR.cardNumber}</span>
               <span
-                className="gate-serial rounded-md border border-white/40 px-2 font-mono text-2xl font-extrabold tabular-nums leading-7"
+                className="gate-serial rounded-md border border-rule-strong px-2 font-mono text-2xl font-extrabold tabular-nums leading-7"
                 dir="ltr"
               >
                 {serialText}
@@ -130,7 +137,7 @@ export function PrintCard(props: {
               {/* The count restarts each January, so the year is part of the
                   number: card 0091 of 2026 is not card 0091 of 2027. */}
               {serialYear !== null && (
-                <span className="gate-serial-year text-[10px] font-bold opacity-80" dir="ltr">
+                <span className="gate-serial-year text-[10px] font-bold text-muted" dir="ltr">
                   {String(serialYear)}
                 </span>
               )}
@@ -139,18 +146,18 @@ export function PrintCard(props: {
               <span className="text-lg font-extrabold leading-6">
                 {kind === 'in' ? AR.cardInTitle : AR.cardOutTitle}
               </span>
-              <span className="text-[10px] font-semibold opacity-80">{AR.appName}</span>
+              <span className="text-[10px] font-semibold text-muted">{AR.appName}</span>
             </div>
-            <div className="gate-stamp flex w-40 flex-col justify-center gap-0.5 border-s border-white/25 px-3 py-2.5 text-[12px]">
+            <div className="gate-stamp flex w-40 flex-col justify-center gap-0.5 border-s border-rule-strong px-3 py-2.5 text-[12px]">
               {/* Two dates live on this card and they are not the same thing:
                   this one is when the card itself was issued, the one in the
                   table is when the container went into store. */}
-              <span className="text-[10px] font-semibold opacity-80">{AR.cardIssuedAt}</span>
+              <span className="text-[10px] font-semibold text-muted">{AR.cardIssuedAt}</span>
               <span className="font-bold">{at === null ? '—' : dayFormat.format(new Date(at))}</span>
-              <span dir="ltr" className="opacity-90">
+              <span dir="ltr" className="text-muted">
                 {at === null ? '—' : dateFormat.format(new Date(at))}
               </span>
-              <span dir="ltr" className="opacity-90">
+              <span dir="ltr" className="text-muted">
                 {at === null ? '—' : timeFormat.format(new Date(at))}
               </span>
             </div>
@@ -182,6 +189,14 @@ export function PrintCard(props: {
             {/* The weight and the driver's name are the gate's optional
                 fields; a dash on the card is what "not recorded" looks like. */}
             {row(AR.cardWeight, container.weight === '' ? '—' : container.weight, { ltr: true })}
+            {/* Crane or straddle, on the ENTRY card and nowhere else — not on
+                the exit card and not on any register. The owner's own scope:
+                «بدي اياها تبين ب ورقة الدخول فقط». */}
+            {kind === 'in' &&
+              row(
+                AR.cardHandling,
+                container.handling === null ? '—' : (AR.handlingName[container.handling] ?? '—'),
+              )}
             {/* The seal of THIS gate moment: the one it came under on the
                 entry card, the one it leaves under on the exit card. */}
             {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, { mono: true })}

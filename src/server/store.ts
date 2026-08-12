@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
   ContainerDto,
+  Handling,
   LogReportRow,
   MovementDto,
   MovementType,
@@ -40,6 +41,7 @@ interface ContainerRow {
   stack: number | null;
   tier: string | null;
   weight: string;
+  handling: string;
   truck_in: string;
   driver_in: string;
   seal_in: string;
@@ -75,6 +77,7 @@ function toDto(row: ContainerRow): ContainerDto {
     position: slotOf(row.zone, row.bay, row.stack, row.tier),
     notes: row.notes,
     weight: row.weight,
+    handling: row.handling === '' ? null : (row.handling as Handling),
     truckIn: row.truck_in,
     driverIn: row.driver_in,
     sealIn: row.seal_in,
@@ -266,6 +269,7 @@ export interface NewContainer {
   position: Position;
   at: string;
   weight: string;
+  handling: Handling;
   truckIn: string;
   driverIn: string;
   sealIn: string;
@@ -279,8 +283,8 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
     .prepare(
       `INSERT INTO containers
          (number, number_valid, size, bill, notes, entered_at, zone, bay, stack, tier,
-          weight, truck_in, driver_in, seal_in, card_in, card_in_year)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          weight, handling, truck_in, driver_in, seal_in, card_in, card_in_year)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       container.number,
@@ -294,6 +298,7 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
       container.position.stack,
       container.position.tier,
       container.weight,
+      container.handling,
       container.truckIn,
       container.driverIn,
       container.sealIn,
@@ -336,6 +341,7 @@ export interface ContainerEdit {
   size: Size;
   notes: string;
   weight: string;
+  handling: Handling | null;
   truckIn: string;
   driverIn: string;
   sealIn: string;
@@ -349,7 +355,7 @@ export interface ContainerEdit {
 export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdit): void {
   db.prepare(
     `UPDATE containers SET number = ?, number_valid = ?, bill = ?, size = ?,
-       notes = ?, weight = ?,
+       notes = ?, weight = ?, handling = ?,
        truck_in = ?, driver_in = ?, seal_in = ?,
        truck_out = ?, driver_out = ?, seal_out = ?,
        entered_at = ?, exited_at = ?
@@ -361,6 +367,7 @@ export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdi
     edit.size,
     edit.notes,
     edit.weight,
+    edit.handling ?? '',
     edit.truckIn,
     edit.driverIn,
     edit.sealIn,

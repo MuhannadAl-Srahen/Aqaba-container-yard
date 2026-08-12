@@ -4,6 +4,7 @@ import type {
   DailyReportRow,
   ErrorCode,
   GateReportRow,
+  Handling,
   LogReportRow,
   MeDto,
   MovementDto,
@@ -82,6 +83,7 @@ export interface ContainerEditInput {
   size: 20 | 40;
   notes: string;
   weight: string;
+  handling: Handling | null;
   truckIn: string;
   driverIn: string;
   sealIn: string;
@@ -100,6 +102,7 @@ export function editPayloadOf(container: ContainerDto): ContainerEditInput {
     size: container.size,
     notes: container.notes,
     weight: container.weight,
+    handling: container.handling,
     truckIn: container.truckIn,
     driverIn: container.driverIn,
     sealIn: container.sealIn,
@@ -169,6 +172,7 @@ export const api = {
     seal: string;
     driver: string;
     weight: string;
+    handling: Handling;
   }): Promise<ContainerDto> =>
     request('/api/containers', { method: 'POST', body: JSON.stringify(input) }),
 

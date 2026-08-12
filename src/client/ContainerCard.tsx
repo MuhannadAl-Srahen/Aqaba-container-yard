@@ -1,6 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto, MovementDto, Permission } from '../shared/types';
+import type { ContainerDto, Handling, MovementDto, Permission } from '../shared/types';
+import { HANDLING } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
 import { fromLocalStamp, toLocalStamp } from '../shared/dates';
@@ -258,6 +259,12 @@ export function ContainerCard(props: {
               </dd>
             </div>
           )}
+          {container.handling !== null && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted">{AR.handling}</dt>
+              <dd className="font-semibold text-ink">{AR.handlingName[container.handling]}</dd>
+            </div>
+          )}
           {/* The notes hold the condition now, so they get the room a
               paragraph needs and never get clipped. */}
           {container.notes !== '' && (
@@ -486,6 +493,7 @@ function EditForm(props: {
   const [size, setSize] = useState<20 | 40>(props.container.size);
   const [notes, setNotes] = useState(props.container.notes);
   const [weight, setWeight] = useState(props.container.weight);
+  const [handling, setHandling] = useState<Handling | null>(props.container.handling);
   const [truckIn, setTruckIn] = useState(props.container.truckIn);
   const [driverIn, setDriverIn] = useState(props.container.driverIn);
   const [sealIn, setSealIn] = useState(props.container.sealIn);
@@ -583,6 +591,29 @@ function EditForm(props: {
             setWeight(event.target.value);
           }}
         />
+      </Field>
+      {/* Correctable like everything else the gate typed. A record from before
+          the field existed shows neither chosen until somebody says which. */}
+      <Field label={AR.handling}>
+        <div className="grid grid-cols-2 gap-2">
+          {HANDLING.map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => {
+                setHandling(option);
+              }}
+              className={
+                'rounded-xl border-2 px-3 py-2 text-sm font-bold transition ' +
+                (handling === option
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-line bg-surface text-muted hover:border-blue-400')
+              }
+            >
+              {AR.handlingName[option]}
+            </button>
+          ))}
+        </div>
       </Field>
 
       {/* The entry paperwork, all of it correctable — it was typed by hand at
@@ -707,6 +738,7 @@ function EditForm(props: {
               size,
               notes: notes.trim(),
               weight: weight.trim(),
+              handling,
               truckIn: truckIn.trim(),
               driverIn: driverIn.trim(),
               sealIn: sealIn.trim(),

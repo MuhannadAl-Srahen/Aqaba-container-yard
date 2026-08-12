@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react';
-import type { Position } from '../shared/types';
-import { sizeOfBay } from '../shared/types';
+import type { Handling, Position } from '../shared/types';
+import { HANDLING, sizeOfBay } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
 import { AR } from './ar';
@@ -24,6 +24,8 @@ export function GateInSheet(props: {
   const [seal, setSeal] = useState('');
   const [driver, setDriver] = useState('');
   const [weight, setWeight] = useState('');
+  /** Crane or straddle — nothing chosen yet, so the clerk has to choose. */
+  const [handling, setHandling] = useState<Handling | null>(null);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -36,10 +38,13 @@ export function GateInSheet(props: {
   // the notes, the driver's NAME and the weight — the scale ticket does not
   // always arrive with the truck, and refusing the whole record over a name
   // the gate does not have only teaches the gate to invent one.
-  const ready = [number, bill, truck, seal].every((value) => value.trim() !== '') && !busy;
+  const ready =
+    [number, bill, truck, seal].every((value) => value.trim() !== '') &&
+    handling !== null &&
+    !busy;
 
   const submit = (): void => {
-    if (!ready) return;
+    if (!ready || handling === null) return;
     setBusy(true);
     setError(null);
     api
@@ -53,6 +58,7 @@ export function GateInSheet(props: {
         seal: seal.trim(),
         driver: driver.trim(),
         weight: weight.trim(),
+        handling,
       })
       .then((container) => {
         props.onDone(AR.gateInDone(container.number, positionText));
@@ -153,6 +159,30 @@ export function GateInSheet(props: {
             />
           </Field>
         </div>
+
+        {/* What lifted it off the truck. Two buttons rather than a list: the
+            answer is one of two things and the crew is standing there. */}
+        <Field label={AR.handling} hint={<span className="text-faint">{AR.handlingHint}</span>}>
+          <div className="grid grid-cols-2 gap-2">
+            {HANDLING.map((option) => (
+              <button
+                key={option}
+                type="button"
+                onClick={() => {
+                  setHandling(option);
+                }}
+                className={
+                  'rounded-xl border-2 px-3 py-2.5 text-sm font-bold transition ' +
+                  (handling === option
+                    ? 'border-blue-600 bg-blue-600 text-white'
+                    : 'border-line bg-surface text-muted hover:border-blue-400')
+                }
+              >
+                {AR.handlingName[option]}
+              </button>
+            ))}
+          </div>
+        </Field>
 
         <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
           <input

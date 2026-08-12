@@ -93,6 +93,7 @@ async function gateIn(
       seal: 'JO100001',
       driver: 'أبو أحمد',
       weight: '25000',
+      handling: 'CRANE',
     },
   });
   return result as {
@@ -120,7 +121,7 @@ async function editWith(
   const card = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
   const now = (card.body as { container: Record<string, unknown> }).container;
   const keep = [
-    'number', 'bill', 'size', 'notes', 'weight',
+    'number', 'bill', 'size', 'notes', 'weight', 'handling',
     'truckIn', 'driverIn', 'sealIn', 'truckOut', 'driverOut', 'sealOut',
     'enteredAt', 'exitedAt',
   ];
@@ -306,6 +307,7 @@ describe('gate in — the official grid decides', () => {
         seal: '',
         driver: 'سائق',
         weight: '1',
+        handling: 'CRANE',
       },
     });
     expect(noSeal.status).toBe(400);
@@ -649,6 +651,7 @@ describe('gate paperwork', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '1',
+        handling: 'CRANE',
       },
     });
     expect(result.status).toBe(400);
@@ -1074,6 +1077,92 @@ describe('reports', () => {
 });
 
 /**
+ * آلية المناولة — crane or straddle. Chosen at the gate, correctable
+ * afterwards, and carried to ONE place: the entry card. «بدي اياها تبين ب
+ * ورقة الدخول فقط».
+ */
+describe('آلية المناولة', () => {
+  it('is required at the gate — a record without it is refused', async () => {
+    const payload = {
+      number: 'HAND0001',
+      size: 20,
+      bill: '3210',
+      notes: '',
+      position: slot('B', 1, 1, 'A'),
+      truck: '500',
+      seal: 'JO1',
+      weight: '25000',
+    };
+    expect((await call({ method: 'POST', url: '/api/containers', payload })).status).toBe(400);
+    // …and a value that is neither of the two is refused as well.
+    expect(
+      (
+        await call({
+          method: 'POST',
+          url: '/api/containers',
+          payload: { ...payload, handling: 'FORKLIFT' },
+        })
+      ).status,
+    ).toBe(400);
+    const good = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: { ...payload, handling: 'STRADDLE' },
+    });
+    expect(good.status).toBe(201);
+    expect(good.body).toMatchObject({ handling: 'STRADDLE' });
+  });
+
+  it('is correctable, and the correction is named in the log', async () => {
+    const entered = await gateIn('HAND0002', 20, slot('B', 3, 1, 'A'));
+    expect(entered.body).toMatchObject({ handling: 'CRANE' });
+
+    const fixed = await editWith(entered.body.id, { handling: 'STRADDLE' });
+    expect(fixed.status).toBe(200);
+    expect(fixed.body).toMatchObject({ handling: 'STRADDLE' });
+
+    const card = await call({ method: 'GET', url: `/api/containers/${String(entered.body.id)}` });
+    const edit = (card.body as { movements: Array<{ type: string; note: string }> }).movements.find(
+      (movement) => movement.type === 'EDIT',
+    );
+    const note = JSON.parse(edit?.note ?? '{}') as { k: string[]; b: Record<string, unknown> };
+    expect(note.k).toContain('handling');
+    expect(note.b['handling']).toBe('CRANE');
+  });
+
+  /** The whole point of the scope: it belongs on the card and nowhere else. */
+  it('reaches the container’s own record and NOT one register', async () => {
+    const entered = await gateIn('HAND0003', 20, slot('B', 5, 1, 'A'));
+    await gateOut(entered.body.id);
+    const range = wideRange();
+
+    // The card reads it off the container itself.
+    const detail = await call({ method: 'GET', url: `/api/containers/${String(entered.body.id)}` });
+    expect((detail.body as { container: { handling: string } }).container.handling).toBe('CRANE');
+
+    // No register carries it, in either direction.
+    for (const url of [
+      `/api/reports/gate?type=IN&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+      `/api/reports/gate?type=OUT&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+      '/api/reports/standing',
+      `/api/reports/truck?truck=500&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+      `/api/reports/log?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    ]) {
+      const sheet = await call({ method: 'GET', url });
+      expect(JSON.stringify(sheet.body).includes('"handling"'), url).toBe(false);
+    }
+  });
+
+  /** Records from before the field simply have no answer, and may be edited. */
+  it('reads as nothing on a record from before it existed', async () => {
+    const entered = await gateIn('HAND0004', 20, slot('B', 7, 1, 'A'));
+    const cleared = await editWith(entered.body.id, { handling: null });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body).toMatchObject({ handling: null });
+  });
+});
+
+/**
  * Three fields the owner struck out: the owner's name, the net weight and the
  * dangerous-goods flag — «لان جميع الحاويات عادية». They are gone from the
  * wire, and one weight is left, named simply «الوزن».
@@ -1093,6 +1182,7 @@ describe('الحقول المحذوفة', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '30000',
+        handling: 'CRANE',
       },
     });
     expect(entered.status).toBe(201);
@@ -1139,6 +1229,7 @@ describe('الحقول المحذوفة', () => {
         truck: '500',
         seal: 'JO1',
         weight: '30000',
+        handling: 'CRANE',
         customer: 'شركة قديمة',
         weightNet: '24000',
         hazmat: true,
@@ -1171,6 +1262,7 @@ describe('ثلاثة طوابق في كل مكان', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '1',
+        handling: 'CRANE',
       },
     });
     expect(tooHigh.status).toBe(400);
@@ -1224,6 +1316,7 @@ describe('الخانات الإلزامية والاختيارية', () => {
         position: slot('B', 1, 1, 'A'),
         truck: '500',
         seal: 'JO1',
+        handling: 'STRADDLE',
       },
     });
     expect(spare.status).toBe(201);
@@ -1295,6 +1388,7 @@ describe('رقم البوليصة', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '24000',
+        handling: 'CRANE',
       },
     });
 
