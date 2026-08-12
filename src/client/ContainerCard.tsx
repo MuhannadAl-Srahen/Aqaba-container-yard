@@ -170,26 +170,12 @@ export function ContainerCard(props: {
           )}
         </div>
 
-        {/* Dangerous goods are not a detail line — whoever opens this card
-            should see it before anything else. */}
-        {container.hazmat && (
-          <p className="rounded-xl border-2 border-danger-line bg-danger-soft px-3.5 py-2 text-sm font-extrabold text-danger">
-            {AR.hazmatWarning}
-          </p>
-        )}
-
         {/* Correcting a container REPLACES its details rather than unrolling
             a second copy of them underneath: same card, same place, one set
             of values on screen at a time. */}
         {!editing && (
           <>
         <dl className="space-y-2 text-sm">
-          <div className="flex justify-between gap-3">
-            <dt className="shrink-0 text-muted">{AR.customer}</dt>
-            <dd className="min-w-0 font-semibold text-ink wrap-anywhere">
-              {container.customer}
-            </dd>
-          </div>
           {container.position !== null && (
             <div className="flex justify-between gap-3">
               <dt className="text-muted">{AR.slot}</dt>
@@ -266,17 +252,9 @@ export function ContainerCard(props: {
           )}
           {container.weight !== '' && (
             <div className="flex justify-between gap-3">
-              <dt className="text-muted">{AR.cardWeightGross}</dt>
+              <dt className="text-muted">{AR.cardWeight}</dt>
               <dd className="text-ink" dir="ltr">
                 {container.weight}
-              </dd>
-            </div>
-          )}
-          {container.weightNet !== '' && (
-            <div className="flex justify-between gap-3">
-              <dt className="text-muted">{AR.cardWeightNet}</dt>
-              <dd className="text-ink" dir="ltr">
-                {container.weightNet}
               </dd>
             </div>
           )}
@@ -504,13 +482,10 @@ function EditForm(props: {
   onCancel: () => void;
 }): ReactElement {
   const [number, setNumber] = useState(props.container.number);
-  const [customer, setCustomer] = useState(props.container.customer);
   const [bill, setBill] = useState(props.container.bill);
   const [size, setSize] = useState<20 | 40>(props.container.size);
   const [notes, setNotes] = useState(props.container.notes);
   const [weight, setWeight] = useState(props.container.weight);
-  const [weightNet, setWeightNet] = useState(props.container.weightNet);
-  const [hazmat, setHazmat] = useState(props.container.hazmat);
   const [truckIn, setTruckIn] = useState(props.container.truckIn);
   const [driverIn, setDriverIn] = useState(props.container.driverIn);
   const [sealIn, setSealIn] = useState(props.container.sealIn);
@@ -533,10 +508,10 @@ function EditForm(props: {
     enteredIso !== null &&
     (!departed || (exitedIso !== null && Date.parse(exitedIso) >= Date.parse(enteredIso)));
 
-  // Same rule as the gate: the notes, the driver's name and the two weights
-  // may be left empty, everything else must carry a value. The exit paperwork
-  // only exists — and is only required — once the container has left.
-  const filled = [number, customer, bill, truckIn, sealIn]
+  // Same rule as the gate: the notes, the driver's name and the weight may be
+  // left empty, everything else must carry a value. The exit paperwork only
+  // exists — and is only required — once the container has left.
+  const filled = [number, bill, truckIn, sealIn]
     .concat(departed ? [truckOut, sealOut] : [])
     .every((value) => value.trim() !== '');
   const ready = filled && datesSane && !props.busy;
@@ -559,15 +534,6 @@ function EditForm(props: {
           value={number}
           onChange={(event) => {
             setNumber(event.target.value);
-          }}
-        />
-      </Field>
-      <Field label={AR.customer}>
-        <input
-          className={inputClass}
-          value={customer}
-          onChange={(event) => {
-            setCustomer(event.target.value);
           }}
         />
       </Field>
@@ -607,46 +573,16 @@ function EditForm(props: {
           ))}
         </div>
       </Field>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label={AR.weightGross} hint={<span className="text-faint">{AR.optional}</span>}>
-          <input
-            dir="ltr"
-            inputMode="numeric"
-            className={`${inputClass} text-start`}
-            value={weight}
-            onChange={(event) => {
-              setWeight(event.target.value);
-            }}
-          />
-        </Field>
-        <Field label={AR.weightNet} hint={<span className="text-faint">{AR.optional}</span>}>
-          <input
-            dir="ltr"
-            inputMode="numeric"
-            className={`${inputClass} text-start`}
-            value={weightNet}
-            onChange={(event) => {
-              setWeightNet(event.target.value);
-            }}
-          />
-        </Field>
-      </div>
-      <Field label={AR.hazmat}>
-        <label
-          className={`flex cursor-pointer items-center gap-2.5 rounded-xl border-2 px-3.5 py-2.5 text-sm font-bold transition ${
-            hazmat ? 'border-danger bg-danger-soft text-danger' : 'border-line bg-surface text-muted'
-          }`}
-        >
-          <input
-            type="checkbox"
-            className="size-5 accent-current"
-            checked={hazmat}
-            onChange={(event) => {
-              setHazmat(event.target.checked);
-            }}
-          />
-          {hazmat ? AR.hazmatYes : AR.hazmatNo}
-        </label>
+      <Field label={AR.weight} hint={<span className="text-faint">{AR.optional}</span>}>
+        <input
+          dir="ltr"
+          inputMode="numeric"
+          className={`${inputClass} text-start`}
+          value={weight}
+          onChange={(event) => {
+            setWeight(event.target.value);
+          }}
+        />
       </Field>
 
       {/* The entry paperwork, all of it correctable — it was typed by hand at
@@ -767,13 +703,10 @@ function EditForm(props: {
             if (enteredIso === null) return;
             props.onSave({
               number: number.trim(),
-              customer: customer.trim(),
               bill: bill.trim(),
               size,
               notes: notes.trim(),
               weight: weight.trim(),
-              weightNet: weightNet.trim(),
-              hazmat,
               truckIn: truckIn.trim(),
               driverIn: driverIn.trim(),
               sealIn: sealIn.trim(),

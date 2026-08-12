@@ -78,13 +78,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  */
 export interface ContainerEditInput {
   number: string;
-  customer: string;
   bill: string;
   size: 20 | 40;
   notes: string;
   weight: string;
-  weightNet: string;
-  hazmat: boolean;
   truckIn: string;
   driverIn: string;
   sealIn: string;
@@ -99,13 +96,10 @@ export interface ContainerEditInput {
 export function editPayloadOf(container: ContainerDto): ContainerEditInput {
   return {
     number: container.number,
-    customer: container.customer,
     bill: container.bill,
     size: container.size,
     notes: container.notes,
     weight: container.weight,
-    weightNet: container.weightNet,
-    hazmat: container.hazmat,
     truckIn: container.truckIn,
     driverIn: container.driverIn,
     sealIn: container.sealIn,
@@ -168,7 +162,6 @@ export const api = {
   gateIn: (input: {
     number: string;
     size: 20 | 40;
-    customer: string;
     bill: string;
     notes: string;
     position: Position;
@@ -176,8 +169,6 @@ export const api = {
     seal: string;
     driver: string;
     weight: string;
-    weightNet: string;
-    hazmat: boolean;
   }): Promise<ContainerDto> =>
     request('/api/containers', { method: 'POST', body: JSON.stringify(input) }),
 

@@ -67,7 +67,6 @@ async function gateIn(
   number: string,
   size: 20 | 40,
   position: Position,
-  customer = 'شركة النقل الأردنية',
 ): Promise<{
   status: number;
   body: {
@@ -86,7 +85,6 @@ async function gateIn(
     payload: {
       number,
       size,
-      customer,
       // Everything but the notes is mandatory now, so the helper fills it.
       bill: '3210',
       notes: '',
@@ -95,7 +93,6 @@ async function gateIn(
       seal: 'JO100001',
       driver: 'أبو أحمد',
       weight: '25000',
-      weightNet: '22000',
     },
   });
   return result as {
@@ -123,7 +120,7 @@ async function editWith(
   const card = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
   const now = (card.body as { container: Record<string, unknown> }).container;
   const keep = [
-    'number', 'customer', 'bill', 'size', 'notes', 'weight', 'weightNet', 'hazmat',
+    'number', 'bill', 'size', 'notes', 'weight',
     'truckIn', 'driverIn', 'sealIn', 'truckOut', 'driverOut', 'sealOut',
     'enteredAt', 'exitedAt',
   ];
@@ -205,9 +202,12 @@ describe('the compiled-in yard', () => {
   it('state carries containers only — the layout ships with the app', async () => {
     const state = await call({ method: 'GET', url: '/api/state' });
     expect(state.status).toBe(200);
-    const body = state.body as { containers: unknown[]; customers: unknown[]; yard?: unknown };
+    const body = state.body as { containers: unknown[]; customers?: unknown; yard?: unknown };
     expect(body.containers).toEqual([]);
     expect(body.yard).toBeUndefined();
+    // The owner's name is gone, and with it the list of names the gate used
+    // to suggest — «رح يتم ازالة اسم المالك تماما».
+    expect(body.customers).toBeUndefined();
   });
 
   it('has no yard editor and no wipe routes at all', async () => {
@@ -299,7 +299,6 @@ describe('gate in — the official grid decides', () => {
       payload: {
         number: 'SEAL0001',
         size: 20,
-        customer: 'شركة',
         notes: '',
         bill: '1',
         position: slot('B', 9, 1, 'A'),
@@ -307,7 +306,6 @@ describe('gate in — the official grid decides', () => {
         seal: '',
         driver: 'سائق',
         weight: '1',
-        weightNet: '1',
       },
     });
     expect(noSeal.status).toBe(400);
@@ -476,11 +474,10 @@ describe('edit and delete', () => {
   it('edits fields and logs which ones changed', async () => {
     const entered = await gateIn('EDIT0001', 20, slot('B', 1, 1, 'A'));
     const edited = await editWith(entered.body.id, {
-      customer: 'شركة الساحل',
       notes: 'باب مبعوج',
     });
     expect(edited.status).toBe(200);
-    expect((edited.body as { customer: string }).customer).toBe('شركة الساحل');
+    expect((edited.body as { notes: string }).notes).toBe('باب مبعوج');
 
     const detail = await call({
       method: 'GET',
@@ -496,8 +493,6 @@ describe('edit and delete', () => {
     const entered = await gateIn('EDIT0010', 20, slot('B', 1, 1, 'A'));
     const fixed = await editWith(entered.body.id, {
       weight: '31000',
-      weightNet: '25000',
-      hazmat: true,
       truckIn: '777',
       driverIn: 'أبو خالد',
       sealIn: 'JO999',
@@ -505,8 +500,6 @@ describe('edit and delete', () => {
     expect(fixed.status).toBe(200);
     expect(fixed.body).toMatchObject({
       weight: '31000',
-      weightNet: '25000',
-      hazmat: true,
       truckIn: '777',
       driverIn: 'أبو خالد',
       sealIn: 'JO999',
@@ -520,7 +513,7 @@ describe('edit and delete', () => {
     );
     const note = JSON.parse(edit?.note ?? '{}') as { k: string[]; b: Record<string, unknown> };
     expect(note.k).toEqual(
-      expect.arrayContaining(['weight', 'weightNet', 'hazmat', 'truckIn', 'driverIn', 'sealIn']),
+      expect.arrayContaining(['weight', 'truckIn', 'driverIn', 'sealIn']),
     );
     expect(note.b['sealIn']).toBe('JO100001');
   });
@@ -595,12 +588,10 @@ describe('edit and delete', () => {
       url: `/api/containers/${String(other.body.id)}`,
       payload: {
         number: 'NAME0001',
-        customer: 'شركة',
         bill: '3210',
         size: 20,
         notes: '',
         weight: '1',
-        weightNet: '1',
         truckIn: '5',
         driverIn: 'س',
         sealIn: 'J1',
@@ -651,7 +642,6 @@ describe('gate paperwork', () => {
       payload: {
         number: 'PAPR0001',
         size: 20,
-        customer: 'شركة',
         notes: '',
         bill: '1',
         position: slot('B', 1, 1, 'A'),
@@ -659,7 +649,6 @@ describe('gate paperwork', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '1',
-        weightNet: '1',
       },
     });
     expect(result.status).toBe(400);
@@ -691,6 +680,69 @@ describe('gate paperwork', () => {
     expect((out.body as { cardOut: number }).cardOut).toBe(1);
   });
 
+  /**
+   * «في حال نقل الحاوية يجب ان لا يتغير رقم التسلسلي» — carrying a container
+   * across the yard is not a gate event, and the card in the driver's hand
+   * goes on being the card for that container.
+   */
+  it('never renumbers a card because the container was moved', async () => {
+    const entered = await gateIn('MOVE0100', 20, slot('B', 9, 1, 'A'));
+    const serial = entered.body.cardIn;
+    expect(serial).toBe(1);
+
+    for (const to of [slot('B', 11, 2, 'A'), slot('B', 13, 3, 'A'), slot('B', 9, 1, 'A')]) {
+      const moved = await call({
+        method: 'POST',
+        url: `/api/containers/${String(entered.body.id)}/move`,
+        payload: { to },
+      });
+      expect(moved.status).toBe(200);
+      expect(moved.body).toMatchObject({ cardIn: serial });
+    }
+
+    // Nor does it consume a serial: the next container is still number 2.
+    const next = await gateIn('MOVE0101', 20, slot('B', 15, 1, 'A'));
+    expect(next.body.cardIn).toBe(2);
+  });
+
+  /**
+   * «في حال حذف الحاوية او سجل خطأ يجب ان لا يتم القفز عن الرقم التسلسلي» —
+   * a record struck out at once hands its number straight back.
+   */
+  it('does not skip a serial when a mistaken record is struck out', async () => {
+    await gateIn('SKIP0001', 20, slot('B', 1, 1, 'A'));
+    const mistake = await gateIn('SKIP0002', 20, slot('B', 3, 1, 'A'));
+    expect(mistake.body.cardIn).toBe(2);
+
+    const struck = await call({
+      method: 'DELETE',
+      url: `/api/containers/${String(mistake.body.id)}`,
+    });
+    expect(struck.status).toBe(200);
+
+    const replacement = await gateIn('SKIP0003', 20, slot('B', 5, 1, 'A'));
+    expect(replacement.body.cardIn).toBe(2);
+  });
+
+  /** Bringing the struck-out one back may not put two cards on one number. */
+  it('gives a restored record a fresh serial when its own was handed on', async () => {
+    await gateIn('BACK0001', 20, slot('B', 1, 1, 'A'));
+    const mistake = await gateIn('BACK0002', 20, slot('B', 3, 1, 'A'));
+    await call({ method: 'DELETE', url: `/api/containers/${String(mistake.body.id)}` });
+    const replacement = await gateIn('BACK0003', 20, slot('B', 5, 1, 'A'));
+    expect(replacement.body.cardIn).toBe(2);
+
+    const restored = await call({
+      method: 'POST',
+      url: `/api/containers/${String(mistake.body.id)}/restore`,
+    });
+    expect(restored.status).toBe(200);
+    expect(restored.body).toMatchObject({ cardIn: 3 });
+    // …and the card already printed as number 2 keeps its number.
+    const other = await call({ method: 'GET', url: `/api/containers/${String(replacement.body.id)}` });
+    expect((other.body as { container: { cardIn: number } }).container.cardIn).toBe(2);
+  });
+
   /** The count restarts each January, so the year is part of the record. */
   it('stamps each card with the Amman year it was issued in', async () => {
     const thisYear = ammanYear(new Date());
@@ -704,7 +756,7 @@ describe('gate paperwork', () => {
 
 describe('reports', () => {
   it('the entry register carries the paperwork and the full slot', async () => {
-    await gateIn('REPT0001', 20, slot('B', 7, 3, 'A'), 'شركة النورس');
+    await gateIn('REPT0001', 20, slot('B', 7, 3, 'A'));
     const range = wideRange();
     const report = await call({
       method: 'GET',
@@ -715,11 +767,78 @@ describe('reports', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       number: 'REPT0001',
-      customer: 'شركة النورس',
       seal: 'JO100001',
       position: { zone: 'B', bay: 7, stack: 3, tier: 'A' },
       card: 1,
       user: 'المالك',
+    });
+  });
+
+  /**
+   * «في حال تعديل على مكان الحاوية بطاقة الدخول والخروج لا يتم التعديل عليها
+   * وهذه خطا فادح» — a sheet that names a container must send whoever reads it
+   * to the stack the container is actually on.
+   */
+  it('every register follows the container when it is carried elsewhere', async () => {
+    const entered = await gateIn('MOVE0200', 20, slot('B', 21, 4, 'A'));
+    const moved = await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/move`,
+      payload: { to: slot('B', 33, 8, 'A') },
+    });
+    expect(moved.status).toBe(200);
+
+    const range = wideRange();
+    const here = { zone: 'B', bay: 33, stack: 8, tier: 'A' };
+    const gate = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=IN&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    expect((gate.body as { rows: Array<{ position: unknown }> }).rows[0]?.position).toEqual(here);
+
+    const standing = await call({ method: 'GET', url: '/api/reports/standing' });
+    expect((standing.body as { rows: Array<{ position: unknown }> }).rows[0]?.position).toEqual(
+      here,
+    );
+
+    const truck = await call({
+      method: 'GET',
+      url: `/api/reports/truck?truck=500&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    expect((truck.body as { rows: Array<{ position: unknown }> }).rows[0]?.position).toEqual(here);
+
+    // The move itself is not lost — the log still records where it came from.
+    const log = await call({
+      method: 'GET',
+      url: `/api/reports/log?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    const moveRow = (log.body as { rows: Array<{ type: string; from: unknown; to: unknown }> }).rows.find(
+      (row) => row.type === 'MOVE',
+    );
+    expect(moveRow?.from).toEqual({ zone: 'B', bay: 21, stack: 4, tier: 'A' });
+    expect(moveRow?.to).toEqual(here);
+  });
+
+  /** Once it has gone, the sheets name the slot it stood in as it left. */
+  it('names the slot a departed container left from', async () => {
+    const entered = await gateIn('MOVE0201', 20, slot('B', 21, 4, 'A'));
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/move`,
+      payload: { to: slot('B', 35, 2, 'A') },
+    });
+    await gateOut(entered.body.id);
+
+    const range = wideRange();
+    const out = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=OUT&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    expect((out.body as { rows: Array<{ position: unknown }> }).rows[0]?.position).toEqual({
+      zone: 'B',
+      bay: 35,
+      stack: 2,
+      tier: 'A',
     });
   });
 
@@ -820,15 +939,19 @@ describe('reports', () => {
   });
 });
 
-describe('مواد خطرة والوزنان', () => {
-  it('ride in at the gate and reach the card, the state and the registers', async () => {
+/**
+ * Three fields the owner struck out: the owner's name, the net weight and the
+ * dangerous-goods flag — «لان جميع الحاويات عادية». They are gone from the
+ * wire, and one weight is left, named simply «الوزن».
+ */
+describe('الحقول المحذوفة', () => {
+  it('the one weight rides in at the gate and reaches every register', async () => {
     const entered = await call({
       method: 'POST',
       url: '/api/containers',
       payload: {
-        number: 'HAZM0001',
+        number: 'WGHT0001',
         size: 20,
-        customer: 'شركة الكيماويات',
         notes: '',
         bill: '3210',
         position: slot('B', 1, 1, 'A'),
@@ -836,36 +959,61 @@ describe('مواد خطرة والوزنان', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '30000',
-        weightNet: '24000',
-        hazmat: true,
       },
     });
     expect(entered.status).toBe(201);
-    expect(entered.body as { hazmat: boolean; weight: string; weightNet: string }).toMatchObject({
-      hazmat: true,
-      weight: '30000',
-      weightNet: '24000',
-    });
+    expect(entered.body).toMatchObject({ weight: '30000' });
 
-    // Both weights and the flag survive the round trip to every register.
     const range = wideRange();
     const gate = await call({
       method: 'GET',
       url: `/api/reports/gate?type=IN&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
     });
-    const row = (gate.body as { rows: Array<{ hazmat: boolean; weightNet: string }> }).rows[0];
-    expect(row?.hazmat).toBe(true);
-    expect(row?.weightNet).toBe('24000');
-
-    const standing = await call({ method: 'GET', url: '/api/reports/standing' });
-    expect((standing.body as { rows: Array<{ hazmat: boolean }> }).rows[0]?.hazmat).toBe(true);
+    expect((gate.body as { rows: Array<{ weight: string }> }).rows[0]?.weight).toBe('30000');
   });
 
-  it('hazmat is the one field that defaults, and it defaults to safe', async () => {
-    const plain = await gateIn('HAZM0002', 20, slot('B', 3, 1, 'A'));
-    expect(plain.status).toBe(201);
-    const card = await call({ method: 'GET', url: `/api/containers/${String(plain.body.id)}` });
-    expect((card.body as { container: { hazmat: boolean } }).container.hazmat).toBe(false);
+  it('carries none of the three on any surface a sheet is built from', async () => {
+    const entered = await gateIn('GONE0001', 20, slot('B', 3, 1, 'A'));
+    const range = wideRange();
+    const surfaces = [
+      `/api/containers/${String(entered.body.id)}`,
+      '/api/state',
+      '/api/reports/standing',
+      `/api/reports/gate?type=IN&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+      `/api/reports/log?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+      '/api/containers?q=GONE',
+    ];
+    for (const url of surfaces) {
+      const answer = await call({ method: 'GET', url });
+      const text = JSON.stringify(answer.body);
+      for (const gone of ['customer', 'weightNet', 'hazmat']) {
+        expect(text.includes(`"${gone}"`), `${gone} in ${url}`).toBe(false);
+      }
+    }
+  });
+
+  it('ignores them if an old client still sends them', async () => {
+    const stale = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: {
+        number: 'GONE0002',
+        size: 20,
+        notes: '',
+        bill: '3210',
+        position: slot('B', 5, 1, 'A'),
+        truck: '500',
+        seal: 'JO1',
+        weight: '30000',
+        customer: 'شركة قديمة',
+        weightNet: '24000',
+        hazmat: true,
+      },
+    });
+    expect(stale.status).toBe(201);
+    const text = JSON.stringify(stale.body);
+    expect(text.includes('شركة قديمة')).toBe(false);
+    expect(text.includes('24000')).toBe(false);
   });
 });
 
@@ -882,7 +1030,6 @@ describe('ثلاثة طوابق في كل مكان', () => {
       payload: {
         number: 'TIER0004',
         size: 20,
-        customer: 'شركة',
         bill: '1',
         notes: '',
         position: { zone: 'B', bay: 1, stack: 1, tier: 'D' },
@@ -890,7 +1037,6 @@ describe('ثلاثة طوابق في كل مكان', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '1',
-        weightNet: '1',
       },
     });
     expect(tooHigh.status).toBe(400);
@@ -908,7 +1054,6 @@ describe('الخانات الإلزامية والاختيارية', () => {
     const payload: Record<string, unknown> = {
       number: 'MAND0001',
       size: 20,
-      customer: 'شركة',
       bill: '3210',
       notes: '',
       position: slot('B', 1, 1, 'A'),
@@ -916,14 +1061,13 @@ describe('الخانات الإلزامية والاختيارية', () => {
       seal: 'JO1',
       driver: 'سائق',
       weight: '25000',
-      weightNet: '22000',
     };
     payload[field] = '';
     return call({ method: 'POST', url: '/api/containers', payload });
   };
 
   it('refuses a gate-in missing any of the mandatory fields', async () => {
-    for (const field of ['number', 'customer', 'bill', 'truck', 'seal']) {
+    for (const field of ['number', 'bill', 'truck', 'seal']) {
       const refused = await withoutField(field);
       expect(refused.status, field).toBe(400);
     }
@@ -934,14 +1078,13 @@ describe('الخانات الإلزامية والاختيارية', () => {
    * before its scale ticket, and the man at the wheel is often on no paper at
    * all. Refusing the record over either only teaches the gate to invent one.
    */
-  it('accepts a gate-in with no driver name and no weights', async () => {
+  it('accepts a gate-in with no driver name and no weight', async () => {
     const spare = await call({
       method: 'POST',
       url: '/api/containers',
       payload: {
         number: 'MAND0002',
         size: 20,
-        customer: 'شركة',
         bill: '3210',
         notes: '',
         position: slot('B', 1, 1, 'A'),
@@ -950,7 +1093,7 @@ describe('الخانات الإلزامية والاختيارية', () => {
       },
     });
     expect(spare.status).toBe(201);
-    expect(spare.body).toMatchObject({ driverIn: '', weight: '', weightNet: '' });
+    expect(spare.body).toMatchObject({ driverIn: '', weight: '' });
   });
 
   it('lets a container leave without a driver name', async () => {
@@ -973,8 +1116,8 @@ describe('الخانات الإلزامية والاختيارية', () => {
     expect(noSeal.status).toBe(400);
   });
 
-  /** A correction may empty the same four fields, and no others. */
-  it('lets an edit clear the weights and the driver but not the owner', async () => {
+  /** A correction may empty the same optional fields, and no others. */
+  it('lets an edit clear the weight and the driver but not the bill', async () => {
     const entered = await gateIn('MAND0005', 20, slot('B', 7, 1, 'A'));
     const id = String(entered.body.id);
     const edit = (patch: Record<string, unknown>): Promise<{ status: number; body: unknown }> =>
@@ -983,12 +1126,10 @@ describe('الخانات الإلزامية والاختيارية', () => {
         url: `/api/containers/${id}`,
         payload: {
           number: 'MAND0005',
-          customer: 'شركة',
           bill: '3210',
           size: 20,
           notes: '',
           weight: '25000',
-          weightNet: '22000',
           truckIn: '500',
           driverIn: 'سائق',
           sealIn: 'JO1',
@@ -997,10 +1138,10 @@ describe('الخانات الإلزامية والاختيارية', () => {
         },
       });
 
-    const cleared = await edit({ weight: '', weightNet: '', driverIn: '' });
+    const cleared = await edit({ weight: '', driverIn: '' });
     expect(cleared.status).toBe(200);
-    expect(cleared.body).toMatchObject({ weight: '', weightNet: '', driverIn: '' });
-    expect((await edit({ customer: '' })).status).toBe(400);
+    expect(cleared.body).toMatchObject({ weight: '', driverIn: '' });
+    expect((await edit({ bill: '' })).status).toBe(400);
     expect((await edit({ truckIn: '' })).status).toBe(400);
   });
 });
@@ -1013,7 +1154,6 @@ describe('رقم البوليصة', () => {
       payload: {
         number,
         size: 20,
-        customer: 'شركة النورس',
         bill,
         notes: '',
         position: slot('B', bay, stack, 'A'),
@@ -1021,7 +1161,6 @@ describe('رقم البوليصة', () => {
         seal: 'JO1',
         driver: 'سائق',
         weight: '24000',
-        weightNet: '21000',
       },
     });
 
@@ -1075,12 +1214,10 @@ describe('رقم البوليصة', () => {
       url: `/api/containers/${String(entered.body.id)}`,
       payload: {
         number: 'BILL0008',
-        customer: 'شركة',
         bill: '7000',
         size: 20,
         notes: '',
         weight: '1',
-        weightNet: '1',
         truckIn: '5',
         driverIn: 'س',
         sealIn: 'J1',
@@ -1130,10 +1267,11 @@ describe('النسخة الاحتياطية', () => {
 });
 
 describe('search', () => {
-  it('finds by number fragment and by customer, in-yard first', async () => {
-    const entered = await gateIn('SRCH0001', 20, slot('B', 1, 1, 'A'), 'مؤسسة النخيل');
+  /** Number or bill — the owner's name is no longer anything to search by. */
+  it('finds by number fragment and by bill, in-yard first', async () => {
+    const entered = await gateIn('SRCH0001', 20, slot('B', 1, 1, 'A'));
     await gateOut(entered.body.id);
-    await gateIn('SRCH0002', 20, slot('B', 3, 1, 'A'), 'مؤسسة النخيل');
+    await gateIn('SRCH0002', 20, slot('B', 3, 1, 'A'));
 
     const byNumber = await call({ method: 'GET', url: '/api/containers?q=SRCH' });
     const results = (byNumber.body as { results: Array<{ number: string; position: unknown }> })
@@ -1141,11 +1279,9 @@ describe('search', () => {
     expect(results).toHaveLength(2);
     expect(results[0]?.number).toBe('SRCH0002');
 
-    const byCustomer = await call({
-      method: 'GET',
-      url: `/api/containers?q=${encodeURIComponent('النخيل')}`,
-    });
-    expect((byCustomer.body as { results: unknown[] }).results).toHaveLength(2);
+    // Both were received under bill 3210 by the gate helper.
+    const byBill = await call({ method: 'GET', url: '/api/containers?q=3210' });
+    expect((byBill.body as { results: unknown[] }).results).toHaveLength(2);
   });
 
   it('a literal % finds nothing rather than everything', async () => {

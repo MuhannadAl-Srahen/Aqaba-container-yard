@@ -110,7 +110,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(12);
+    ).toBe(13);
     db.close();
   });
 
@@ -141,8 +141,8 @@ describe('schema v9 — the cutover to the official yard', () => {
     // Live again on v9: a container goes in and must SURVIVE reopening.
     const db = openDatabase(file);
     db.prepare(
-      `INSERT INTO containers (number, number_valid, size, customer, entered_at, zone, bay, stack, tier)
-       VALUES ('TGHU7777777', 1, 20, 'شركة', '2026-08-10T08:00:00.000Z', 'A', 3, 1, 'A')`,
+      `INSERT INTO containers (number, number_valid, size, entered_at, zone, bay, stack, tier)
+       VALUES ('TGHU7777777', 1, 20, '2026-08-10T08:00:00.000Z', 'A', 3, 1, 'A')`,
     ).run();
     db.close();
 
@@ -163,10 +163,14 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
     expect(columnsOf(db, 'containers')).toContain('tier');
     expect(columnsOf(db, 'containers')).toContain('bill');
+    // A fresh file is never given the three struck-out columns to begin with.
+    for (const gone of ['customer', 'weight_net', 'hazmat']) {
+      expect(columnsOf(db, 'containers'), gone).not.toContain(gone);
+    }
     // Tier C is legal on a fresh file — the CHECK admits the reserve floor.
     db.prepare(
-      `INSERT INTO containers (number, number_valid, size, customer, entered_at, zone, bay, stack, tier)
-       VALUES ('CCCC0001', 1, 20, 'شركة', '2026-08-10T08:00:00.000Z', 'B', 1, 1, 'C')`,
+      `INSERT INTO containers (number, number_valid, size, entered_at, zone, bay, stack, tier)
+       VALUES ('CCCC0001', 1, 20, '2026-08-10T08:00:00.000Z', 'B', 1, 1, 'C')`,
     ).run();
     expect(existsSync(`${file}.pre-v9-backup.db`)).toBe(false);
     db.close();
@@ -222,8 +226,8 @@ describe('schema v9 — the cutover to the official yard', () => {
     // And tier C is now legal where the v9 CHECK refused it.
     upgraded
       .prepare(
-        `INSERT INTO containers (number, number_valid, size, customer, entered_at, zone, bay, stack, tier)
-         VALUES ('CCCC0002', 1, 20, 'شركة', '2026-08-10T09:00:00.000Z', 'B', 3, 1, 'C')`,
+        `INSERT INTO containers (number, number_valid, size, entered_at, zone, bay, stack, tier)
+         VALUES ('CCCC0002', 1, 20, '2026-08-10T09:00:00.000Z', 'B', 3, 1, 'C')`,
       )
       .run();
     upgraded.close();
@@ -291,19 +295,114 @@ describe('schema v9 — the cutover to the official yard', () => {
       { id: 4, card_in: 3, card_in_year: 2026, card_out: 2, card_out_year: 2026 },
     ]);
 
-    const counters = Object.fromEntries(
-      (
-        upgraded
-          .prepare("SELECT key, value FROM settings WHERE key LIKE 'card%' ORDER BY key")
-          .all() as Array<{ key: string; value: string }>
-      ).map((row) => [row.key, row.value]),
-    );
-    expect(counters).toEqual({
-      'card_in_next:2025': '3',
-      'card_in_next:2026': '4',
-      'card_out_next:2025': '2',
-      'card_out_next:2026': '3',
-    });
+    // v13 in the same breath: the serial is read from the records now, so the
+    // counters kept beside them are gone.
+    expect(
+      upgraded.prepare("SELECT key FROM settings WHERE key LIKE 'card%'").all(),
+    ).toHaveLength(0);
     upgraded.close();
+  });
+
+  /**
+   * v13 on a database that has been WORKING — the office one, carried over by
+   * an update rather than created fresh. «تأكد ايضا ان يتم حذفها معلومات اسم
+   * المالك والأوزان في حال نقل التحديث الى الجهاز الأخر»: the three struck-out
+   * fields must leave the FILE there too, and everything else must survive.
+   */
+  it('v12 → v13 strikes the three columns from a working office database', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'office.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO settings VALUES ('password', 'scrypt:hash'), ('cookie_secret', 'sekrit'),
+                                  ('card_in_next:2026', '9');
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, pin_hash TEXT NOT NULL,
+        perms TEXT NOT NULL DEFAULT '', deleted_at TEXT
+      );
+      INSERT INTO users (name, pin_hash, perms) VALUES ('وسام', 'salt:pin', 'GATE_IN');
+      CREATE TABLE containers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT NOT NULL, number_valid INTEGER NOT NULL,
+        size INTEGER NOT NULL CHECK (size IN (20, 40)), customer TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '', entered_at TEXT NOT NULL, exited_at TEXT,
+        bill TEXT NOT NULL DEFAULT '',
+        zone TEXT CHECK (zone IN ('A', 'B', 'C', 'D', 'E')), bay INTEGER, stack INTEGER,
+        tier TEXT CHECK (tier IN ('A', 'B', 'C')),
+        weight TEXT NOT NULL DEFAULT '', weight_net TEXT NOT NULL DEFAULT '',
+        truck_in TEXT NOT NULL DEFAULT '',
+        driver_in TEXT NOT NULL DEFAULT '', seal_in TEXT NOT NULL DEFAULT '', card_in INTEGER,
+        truck_out TEXT NOT NULL DEFAULT '', driver_out TEXT NOT NULL DEFAULT '',
+        seal_out TEXT NOT NULL DEFAULT '', card_out INTEGER,
+        card_in_year INTEGER, card_out_year INTEGER,
+        hazmat INTEGER NOT NULL DEFAULT 0, deleted_at TEXT
+      );
+      INSERT INTO containers (number, number_valid, size, customer, entered_at, bill,
+                              zone, bay, stack, tier, weight, weight_net, hazmat,
+                              seal_in, card_in, card_in_year, notes)
+        VALUES ('MSCU1234566', 1, 20, 'شركة البحر الأحمر', '2026-08-10T08:00:00.000Z', '3210',
+                'B', 3, 1, 'A', '28000', '24000', 1, 'JO1', 8, 2026, 'الباب مبعوج');
+      CREATE TABLE movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL REFERENCES containers (id),
+        type TEXT NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
+        at TEXT NOT NULL,
+        from_zone TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
+        to_zone TEXT, to_bay INTEGER, to_stack INTEGER, to_tier TEXT,
+        note TEXT NOT NULL DEFAULT '', user_id INTEGER REFERENCES users (id)
+      );
+      INSERT INTO movements (container_id, type, at, to_zone, to_bay, to_stack, to_tier)
+        VALUES (1, 'IN', '2026-08-10T08:00:00.000Z', 'B', 3, 1, 'A');
+      PRAGMA user_version = 12;
+    `);
+    db.close();
+
+    const upgraded = openDatabase(file);
+    for (const gone of ['customer', 'weight_net', 'hazmat']) {
+      expect(columnsOf(upgraded, 'containers'), gone).not.toContain(gone);
+    }
+    // Everything else rode across: the container, its movement, its serial,
+    // its staff and the session secret that keeps them signed in.
+    const kept = upgraded
+      .prepare('SELECT number, bill, zone, bay, weight, card_in, card_in_year, notes FROM containers')
+      .get() as Record<string, unknown>;
+    expect(kept).toEqual({
+      number: 'MSCU1234566',
+      bill: '3210',
+      zone: 'B',
+      bay: 3,
+      weight: '28000',
+      card_in: 8,
+      card_in_year: 2026,
+      notes: 'الباب مبعوج',
+    });
+    expect((upgraded.prepare('SELECT COUNT(*) AS n FROM movements').get() as { n: number }).n).toBe(
+      1,
+    );
+    expect((upgraded.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n).toBe(1);
+    expect(
+      (upgraded.prepare("SELECT value FROM settings WHERE key = 'cookie_secret'").get() as {
+        value: string;
+      }).value,
+    ).toBe('sekrit');
+    expect(upgraded.prepare("SELECT key FROM settings WHERE key LIKE 'card%'").all()).toHaveLength(
+      0,
+    );
+    upgraded.close();
+
+    // The columns cannot be brought back, but the file as it stood can: a copy
+    // is written beside it before a single one is dropped.
+    const backup = `${file}.pre-v13-backup.db`;
+    expect(existsSync(backup)).toBe(true);
+    const old = new DatabaseSync(backup, { readOnly: true });
+    expect(
+      (old.prepare('SELECT customer FROM containers').get() as { customer: string }).customer,
+    ).toBe('شركة البحر الأحمر');
+    old.close();
+
+    // And re-opening does not write a second backup or fail on the missing
+    // columns — every machine runs this exactly once.
+    const bytes = readFileSync(backup).length;
+    openDatabase(file).close();
+    expect(readFileSync(backup).length).toBe(bytes);
   });
 });

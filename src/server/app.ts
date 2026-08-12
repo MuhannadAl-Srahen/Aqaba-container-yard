@@ -84,8 +84,6 @@ const positionSchema = z.object({
 const gateInSchema = z.object({
   number: z.string().trim().min(1).max(20),
   size: z.union([z.literal(20), z.literal(40)]),
-  /** اسم المالك — the container's owner. */
-  customer: z.string().trim().min(1).max(120),
   /** رقم البوليصة. */
   bill: z.string().trim().min(1).max(40),
   notes: z.string().trim().max(2000),
@@ -93,11 +91,8 @@ const gateInSchema = z.object({
   truck: z.string().trim().min(1).max(30),
   seal: z.string().trim().min(1).max(30),
   driver: z.string().trim().max(60).default(''),
-  /** الوزن القائم then الوزن الصافي, both as the scale ticket reads them. */
+  /** الوزن, as the scale ticket reads it. */
   weight: z.string().trim().max(20).default(''),
-  weightNet: z.string().trim().max(20).default(''),
-  /** مواد خطرة — a yes/no, so it is always answered. */
-  hazmat: z.boolean().default(false),
 });
 
 const gateOutSchema = z.object({
@@ -115,14 +110,11 @@ const gateOutSchema = z.object({
  */
 const editSchema = z.object({
   number: z.string().trim().min(1).max(20),
-  customer: z.string().trim().min(1).max(120),
   bill: z.string().trim().min(1).max(40),
   size: z.union([z.literal(20), z.literal(40)]),
   /** Optional here for the same reasons they are optional at the gate. */
   notes: z.string().trim().max(2000),
   weight: z.string().trim().max(20).default(''),
-  weightNet: z.string().trim().max(20).default(''),
-  hazmat: z.boolean().default(false),
   truckIn: z.string().trim().min(1).max(30),
   driverIn: z.string().trim().max(60).default(''),
   sealIn: z.string().trim().min(1).max(30),
@@ -419,10 +411,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   app.get('/api/state', (request): YardStateDto => {
     requireAuth(request);
-    return {
-      containers: store.listInYard(db),
-      customers: store.listCustomers(db),
-    };
+    return { containers: store.listInYard(db) };
   });
 
   app.post('/api/containers', (request, reply) => {
@@ -447,14 +436,11 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         number: check.normalized,
         numberValid: check.valid,
         size: body.size,
-        customer: body.customer,
         bill: body.bill,
         notes: body.notes,
         position: body.position,
         at,
         weight: body.weight,
-        weightNet: body.weightNet,
-        hazmat: body.hazmat,
         truckIn: body.truck,
         driverIn: body.driver,
         sealIn: body.seal,
@@ -620,13 +606,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       };
 
       diff('number', check.normalized, existing.number);
-      diff('customer', body.customer, existing.customer);
       diff('size', body.size, existing.size);
       diff('bill', body.bill, existing.bill);
       diff('notes', body.notes, existing.notes);
       diff('weight', body.weight, existing.weight);
-      diff('weightNet', body.weightNet, existing.weightNet);
-      diff('hazmat', body.hazmat ? 1 : 0, existing.hazmat ? 1 : 0);
       diff('truckIn', body.truckIn, existing.truckIn);
       diff('driverIn', body.driverIn, existing.driverIn);
       diff('sealIn', body.sealIn, existing.sealIn);
@@ -640,13 +623,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         store.updateContainer(db, id, {
           number: check.normalized,
           numberValid: check.valid,
-          customer: body.customer,
           bill: body.bill,
           size: body.size,
           notes: body.notes,
           weight: body.weight,
-          weightNet: body.weightNet,
-          hazmat: body.hazmat,
           truckIn: body.truckIn,
           driverIn: body.driverIn,
           sealIn: body.sealIn,
@@ -699,6 +679,20 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         if (refusal !== null) refuseRule(refusal);
       }
       store.restoreContainer(db, id, wasAt);
+
+      // Its serial went back into circulation the moment it was struck out —
+      // that is what keeps the register free of holes — so by now it may be
+      // printed on somebody else's card. Two cards of one year may not carry
+      // one number, and the one already in a driver's hand is the one that
+      // keeps it: the record coming back takes the next free serial instead.
+      for (const kind of ['in', 'out'] as const) {
+        const serial = kind === 'in' ? existing.cardIn : existing.cardOut;
+        const year = kind === 'in' ? existing.cardInYear : existing.cardOutYear;
+        if (serial === null || year === null) continue;
+        if (!store.cardNumberTaken(db, kind, year, serial, id)) continue;
+        store.setCardNumber(db, id, kind, store.nextCardNumber(db, kind, year), year);
+      }
+
       store.recordMovement(db, id, 'RESTORE', now(), null, wasAt, '', actorId(actor));
       return store.getContainer(db, id);
     });
@@ -760,10 +754,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         driver: row.driver,
         number: row.number,
         weight: row.weight,
-        weightNet: row.weightNet,
-        hazmat: row.hazmat,
         size: row.size,
-        customer: row.customer,
         bill: row.bill,
         position: row.position,
         seal: row.seal,
@@ -789,8 +780,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         containerId: container.id,
         number: container.number,
         size: container.size,
-        hazmat: container.hazmat,
-        customer: container.customer,
         bill: container.bill,
         position: container.position,
         seal: container.sealIn,
@@ -831,10 +820,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         driver: row.driver,
         number: row.number,
         weight: row.weight,
-        weightNet: row.weightNet,
-        hazmat: row.hazmat,
         size: row.size,
-        customer: row.customer,
         bill: row.bill,
         position: row.position,
         seal: row.seal,

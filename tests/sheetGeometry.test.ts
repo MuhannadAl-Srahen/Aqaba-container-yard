@@ -27,7 +27,7 @@ const cell = (text: string): TableCell => ({ text });
 const ltr = (text: string): TableCell => ({ text, ltr: true });
 const free = (text: string): TableCell => ({ text, wrap: true });
 
-/** كشف حركة الدخول as it really is: eighteen columns, the widest sheet here. */
+/** كشف حركة الدخول as it really is: the widest sheet the office prints. */
 function gateRegister(rows = 3): TableModel {
   const head = [
     'الرقم',
@@ -40,12 +40,9 @@ function gateRegister(rows = 3): TableModel {
     'رقم الحاوية',
     'رقم البوليصة',
     'رقم الرصاصة',
-    'الوزن القائم (كغم)',
-    'الوزن الصافي (كغم)',
+    'الوزن (كغم)',
     'فئة الحاوية',
-    'مواد خطرة',
-    'الموقع عند الدخول',
-    'اسم المالك',
+    'موقع الحاوية',
     'الموظف',
     'ملاحظات',
   ];
@@ -61,11 +58,8 @@ function gateRegister(rows = 3): TableModel {
     ltr('J048478'),
     ltr('JO16148'),
     ltr('26919'),
-    ltr('24424'),
     cell('20'),
-    { text: 'خطرة', danger: true },
     ltr('2-A-39-04-A'),
-    free('الشركة الأردنية لتخليص وتخزين الحاويات'),
     cell('المالك'),
     free('عليها حجز جمركي والقفل بحاجة إلى تبديل'),
   ]);
@@ -121,13 +115,16 @@ describe('the printed register fits its page', () => {
   });
 
   it('spends nothing on the actions column, which the paper never carries', () => {
+    const columns = gateRegister().head.length;
     const withButton = sheetMetrics(gateRegister(), true);
     const without = sheetMetrics(gateRegister(), false);
     expect(withButton.printShares.at(-1)).toBe('0%');
-    // The eighteen real columns are printed identically either way.
-    expect(withButton.printShares.slice(0, 18)).toEqual(without.printShares.slice(0, 18));
+    // The real columns are printed identically either way.
+    expect(withButton.printShares.slice(0, columns)).toEqual(
+      without.printShares.slice(0, columns),
+    );
     // On screen the button does get its share, so it is not clipped there.
-    expect(withButton.shares).toHaveLength(19);
+    expect(withButton.shares).toHaveLength(columns + 1);
   });
 
   it('declares shares that add up to the whole page', () => {

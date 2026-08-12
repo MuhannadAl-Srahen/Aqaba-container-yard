@@ -131,8 +131,6 @@ export interface ContainerDto {
   /** Number verdict (ISO or the yard's 4+4 form). Advisory only — never refused. */
   readonly numberValid: boolean;
   readonly size: Size;
-  /** اسم المالك — whoever owns the container, not the yard's owner. */
-  readonly customer: string;
   /**
    * رقم البوليصة — the bill of lading this container travels under. One bill
    * gathers a group of containers (twenties and forties mixed); blank when
@@ -146,15 +144,8 @@ export interface ContainerDto {
   readonly position: Position | null;
   /** Free text: the condition it arrived in, and anything else worth saying. */
   readonly notes: string;
-  /**
-   * مواد خطرة — dangerous goods. Drawn red on every surface and printed on
-   * both gate cards, so nobody has to remember which box it was.
-   */
-  readonly hazmat: boolean;
-  /** The gate paperwork, blank when unrecorded. الوزن القائم — gross. */
+  /** الوزن — as the scale ticket reads it. Blank when unrecorded. */
   readonly weight: string;
-  /** الوزن الصافي — net. */
-  readonly weightNet: string;
   readonly truckIn: string;
   readonly driverIn: string;
   /** The seal (الرصاصة) on the door at the gate — one each way. */
@@ -192,11 +183,13 @@ export interface GateReportRow {
   readonly driver: string;
   readonly number: string;
   readonly weight: string;
-  readonly weightNet: string;
-  readonly hazmat: boolean;
   readonly size: Size;
-  readonly customer: string;
   readonly bill: string;
+  /**
+   * Where the container IS, not where it was put down: a box carried across
+   * the yard has to be findable from the sheet that names it. Null only for
+   * one that has left, where it is the slot it left from.
+   */
   readonly position: Position | null;
   /** The seal of THIS gate moment — entry's on an IN row, exit's on an OUT. */
   readonly seal: string;
@@ -212,8 +205,6 @@ export interface StandingReportRow {
   readonly containerId: number;
   readonly number: string;
   readonly size: Size;
-  readonly hazmat: boolean;
-  readonly customer: string;
   readonly bill: string;
   readonly position: Position | null;
   readonly seal: string;
@@ -241,7 +232,6 @@ export interface LogReportRow {
   readonly at: string;
   readonly type: MovementType;
   readonly number: string;
-  readonly customer: string;
   readonly from: Position | null;
   readonly to: Position | null;
   readonly note: string;
@@ -275,8 +265,6 @@ export interface MovementDto {
  */
 export interface YardStateDto {
   readonly containers: readonly ContainerDto[];
-  /** Distinct customer names, for the gate-in suggestions. */
-  readonly customers: readonly string[];
 }
 
 /**

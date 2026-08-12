@@ -77,7 +77,7 @@ export const AR = {
   setupWorking: 'جارٍ التجهيز…',
 
   // ---- the map screen ----
-  searchPlaceholder: 'ابحث برقم الحاوية أو البوليصة أو اسم المالك أو الموقع…',
+  searchPlaceholder: 'ابحث برقم الحاوية أو رقم البوليصة أو الموقع…',
   yardName: (yard: number): string => `ساحة ${String(yard)}`,
   /** How much room is left in a yard: legal landings for each size, right now. */
   freeOfYard: (yard: number, t20: number, t40: number): string =>
@@ -95,7 +95,6 @@ export const AR = {
   legendFull: 'ممتلئ',
   legendTarget: 'صالح للوضع',
   legendNoted: 'عليه ملاحظة',
-  legendHazmat: 'فيه مواد خطرة',
 
   // ---- zones and bays ----
   zoneTitle: (zone: string, yard: number): string => `زون ${zone} · ساحة ${String(yard)}`,
@@ -147,16 +146,8 @@ export const AR = {
   sealWas: (seal: string): string => `دخلت برصاصة ${seal}`,
   sealChanged: 'الرصاصة مختلفة عن رصاصة الدخول',
   driver: 'اسم السائق',
-  weightGross: 'الوزن القائم بالكغم',
-  weightNet: 'الوزن الصافي بالكغم',
-  hazmat: 'مواد خطرة',
-  hazmatHint: 'حدّد الخيار إذا كانت الحاوية تحمل مواد خطرة',
-  hazmatYes: 'نعم — مواد خطرة',
-  hazmatNo: 'لا — بضاعة عادية',
-  hazmatWarning: 'تنبيه: هذه الحاوية تحمل مواد خطرة.',
-  hazmatShort: 'خطرة',
-  customer: 'اسم المالك',
-  customerHint: 'مالك الحاوية — أدخل الاسم أو اختره من القائمة',
+  /** One weight only, on the owner's call: «الوزن القائم» became «الوزن». */
+  weight: 'الوزن بالكغم',
   notes: 'ملاحظات (اختياري)',
   notesHint: 'حالة الحاوية وما يلزم ذكره: انبعاج، قفل مفتوح، حجز جمركي…',
   /**
@@ -198,13 +189,10 @@ export const AR = {
   editedFields: (note: string): string => {
     const names: Record<string, string> = {
       number: 'الرقم',
-      customer: 'اسم المالك',
       bill: 'رقم البوليصة',
       size: 'الفئة',
       notes: 'الملاحظات',
-      weight: 'الوزن القائم',
-      weightNet: 'الوزن الصافي',
-      hazmat: 'المواد الخطرة',
+      weight: 'الوزن',
       truckIn: 'سيارة الدخول',
       driverIn: 'سائق الدخول',
       sealIn: 'رصاصة الدخول',
@@ -259,14 +247,15 @@ export const AR = {
   cardDriver: 'اسم السائق',
   cardTruck: 'رقم السيارة',
   cardSize: 'فئة الحاوية',
-  cardCompany: 'اسم المالك',
-  cardWeightGross: 'الوزن القائم بالكغم',
-  cardWeightNet: 'الوزن الصافي بالكغم',
+  cardWeight: 'الوزن بالكغم',
   cardSeal: 'رقم الرصاصة',
+  /**
+   * Where the container IS, not where it was first set down. A card reprinted
+   * after a move has to send the driver to the right stack.
+   */
   cardSlot: 'موقع الحاوية',
   cardStoredAt: 'تاريخ تخزين الحاوية',
   cardIssuedAt: 'تاريخ إصدار البطاقة',
-  cardHazmat: 'مواد خطرة',
   cardNotes: 'ملاحظات',
   /**
    * The receipt line the storage directorate and الحق sign under. The date is
@@ -304,20 +293,16 @@ export const AR = {
   colCardIn: 'رقم بطاقة دخول',
   colCardOut: 'رقم بطاقة خروج',
   colNumber: 'رقم الحاوية',
-  colWeight: 'الوزن القائم (كغم)',
-  colWeightNet: 'الوزن الصافي (كغم)',
-  colHazmat: 'مواد خطرة',
+  colWeight: 'الوزن (كغم)',
   colSize: 'فئة الحاوية',
-  colSlot: 'موقع الحاوية',
   /**
-   * A gate register records the slot of the gate MOMENT; the standing sheet
-   * records where the container is now. Since a box can descend a tier when
-   * a neighbour leaves, the two can differ — so each column says which it is.
+   * One column, one meaning, on every sheet and on the card: WHERE THE
+   * CONTAINER IS. It used to name the slot of the gate moment, so a box
+   * carried across the yard was still listed where it had first been set
+   * down — «في حال تعديل على مكان الحاوية … لا يتم التعديل عليها». The old
+   * slot is not lost: every move is a line in سجل العمليات, from and to.
    */
-  colSlotIn: 'الموقع عند الدخول',
-  colSlotOut: 'الموقع عند الخروج',
-  colSlotNow: 'الموقع الحالي',
-  colCompany: 'اسم المالك',
+  colSlot: 'موقع الحاوية',
   colSeal: 'رقم الرصاصة',
   colNotes: 'ملاحظات',
   colUser: 'الموظف',
@@ -398,7 +383,7 @@ export const AR = {
   toolsSeedTitle: 'بيانات تجريبية',
   toolsSeedBody:
     'تعبئة الساحة بحاويات تجريبية بتواريخ وأوقات مختلفة — منها القائم ومنها ما ' +
-    'خرج، وفيها بوالص ومواد خطرة — لعرض النظام على الآخرين.',
+    'خرج، وفيها بوالص تجمع مجموعات — لعرض النظام على الآخرين.',
   toolsSeedAction: 'تعبئة بيانات تجريبية',
   toolsSeedConfirm: 'ستُضاف حاويات تجريبية إلى الموجود حالياً. هل تريد المتابعة؟',
   toolsSeedDone: (added: number, departed: number, fullBay: string | null): string =>

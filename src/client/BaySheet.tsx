@@ -109,40 +109,25 @@ export function BaySheet(props: {
           }}
           className={
             'flex h-14 flex-col items-center justify-center gap-0.5 rounded-lg border px-1 text-center ' +
-            // Dangerous goods outrank the size colour: the crew has to see
-            // which box it is before they decide anything about it.
-            (container.hazmat
-              ? 'border-2 border-danger-line bg-danger-soft hover:border-danger'
-              : container.size === 40
-                ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
-                : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950')
+            (container.size === 40
+              ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
+              : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950')
           }
-          title={container.hazmat ? `${container.number} — ${AR.hazmat}` : container.number}
+          title={container.number}
         >
           <span
-            className={`w-full font-mono text-[13px] font-bold tracking-tight ${container.hazmat ? 'text-danger' : 'text-ink'}`}
+            className="w-full font-mono text-[13px] font-bold tracking-tight text-ink"
             dir="ltr"
           >
             {container.number}
           </span>
-          {/* The size is stated on EVERY box. The hazard used to be shown in
-              its place, so the one container whose contents most affect how it
-              is handled was also the one whose class nobody could read. */}
-          <span className="flex items-center gap-1">
-            {/* The class is read across a bay sheet at arm's length, so it is
-                set at the size of the number itself rather than as a footnote
-                to it — «كبر خط» was about this one. */}
-            <span
-              className={`rounded px-1.5 text-[13px] font-extrabold leading-4 ${container.hazmat ? 'bg-surface text-danger' : 'bg-surface text-ink'}`}
-              dir="ltr"
-            >
-              {container.size === 40 ? AR.size40Chip : AR.size20Chip}
-            </span>
-            {container.hazmat && (
-              <span className="rounded bg-danger px-1.5 text-[12px] font-extrabold leading-4 text-white">
-                {AR.hazmatShort}
-              </span>
-            )}
+          {/* The class is read across a bay sheet at arm's length, so it is set
+              at the size of the number itself rather than as a footnote. */}
+          <span
+            className="rounded bg-surface px-1.5 text-[13px] font-extrabold leading-4 text-ink"
+            dir="ltr"
+          >
+            {container.size === 40 ? AR.size40Chip : AR.size20Chip}
           </span>
         </button>
       );

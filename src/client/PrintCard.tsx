@@ -41,18 +41,28 @@ export function PrintCard(props: {
     };
   }, []);
 
-  // The card names the slot of the gate moment itself: where the container
-  // landed on entry, or stood right before it left.
+  /**
+   * WHERE THE CONTAINER IS — not where it was first set down.
+   *
+   * The card used to name the slot of the gate moment, so a box carried across
+   * the yard went on being described by a card that sent the driver to an
+   * empty stack: «في حال تعديل على مكان الحاوية بطاقة الدخول والخروج لا يتم
+   * التعديل عليها». Reprinting it now gives the current slot. Once it has
+   * left there is no current slot, so the card falls back to the one it stood
+   * in as it went — the last thing that was true of it. The move itself is
+   * not lost: every one is a line in سجل العمليات, from and to.
+   */
   const detail = useQuery({
     queryKey: ['container', container.id],
     queryFn: () => api.detail(container.id),
   });
   const movements = detail.data?.movements ?? [];
+  const lastGate = [...movements].reverse().find((m) => m.type === 'OUT' || m.type === 'IN');
   const gateMove =
     kind === 'in'
       ? movements.find((m) => m.type === 'IN')
       : [...movements].reverse().find((m) => m.type === 'OUT');
-  const slot = kind === 'in' ? (gateMove?.to ?? container.position) : (gateMove?.from ?? null);
+  const slot = container.position ?? gateMove?.from ?? lastGate?.to ?? null;
 
   const at = kind === 'in' ? container.enteredAt : container.exitedAt;
   // Four places, and the year the count runs in beneath it: the serial starts
@@ -168,16 +178,10 @@ export function PrintCard(props: {
           <div className="grid sm:grid-cols-2">
             {row(AR.cardBill, container.bill === '' ? '—' : container.bill, { mono: true })}
             {row(AR.cardSize, AR.feet(container.size))}
-            {row(AR.cardCompany, container.customer)}
             {row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), { mono: true })}
-            {/* The two weights and the driver's name are the gate's optional
+            {/* The weight and the driver's name are the gate's optional
                 fields; a dash on the card is what "not recorded" looks like. */}
-            {row(AR.cardWeightGross, container.weight === '' ? '—' : container.weight, {
-              ltr: true,
-            })}
-            {row(AR.cardWeightNet, container.weightNet === '' ? '—' : container.weightNet, {
-              ltr: true,
-            })}
+            {row(AR.cardWeight, container.weight === '' ? '—' : container.weight, { ltr: true })}
             {/* The seal of THIS gate moment: the one it came under on the
                 entry card, the one it leaves under on the exit card. */}
             {row(AR.cardSeal, sealShown === '' ? '—' : sealShown, { mono: true })}
@@ -186,10 +190,6 @@ export function PrintCard(props: {
             {row(AR.cardStoredAt, dateFormat.format(new Date(container.enteredAt)), { ltr: true })}
             {row(AR.cardTruck, truck === '' ? '—' : truck, { ltr: true })}
             {row(AR.cardDriver, driver === '' ? '—' : driver)}
-            {row(AR.cardHazmat, container.hazmat ? AR.hazmatYes : AR.hazmatNo, {
-              wide: true,
-              danger: container.hazmat,
-            })}
             {row(AR.cardNotes, container.notes === '' ? '—' : container.notes, { wide: true })}
           </div>
 

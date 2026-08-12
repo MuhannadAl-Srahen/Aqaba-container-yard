@@ -258,15 +258,6 @@ function generator(seed: number): () => number {
   };
 }
 
-const OWNERS = [
-  'شركة البحر الأحمر للتجارة',
-  'مؤسسة الشرق للاستيراد',
-  'شركة وادي رم للنقل',
-  'الشركة الأردنية للحاويات',
-  'مؤسسة العقبة التجارية',
-  'شركة النورس للشحن',
-  'مجموعة الفيصل التجارية',
-];
 const DRIVERS = ['أبو أحمد', 'محمد العلي', 'خالد الرشيد', 'أبو يوسف', 'سامي الحاج'];
 const NOTES = ['', '', '', 'الباب مبعوج قليلاً', 'عليها حجز جمركي', 'القفل بحاجة إلى تبديل'];
 
@@ -362,16 +353,13 @@ export function seedDemoYard(db: DatabaseSync): {
       number,
       numberValid: checkNumber(number).valid,
       size,
-      customer: OWNERS[Math.floor(rnd() * OWNERS.length)] ?? OWNERS[0] ?? '',
-      // Every field but the notes is mandatory at the gate, so the demo data
-      // is complete too — a half-filled example teaches the wrong habit.
+      // The mandatory fields are all filled: a half-filled example teaches the
+      // wrong habit at the gate.
       bill: bills[Math.floor(rnd() * bills.length)] ?? '3210',
       notes: NOTES[Math.floor(rnd() * NOTES.length)] ?? '',
       position: slot,
       at: enteredAt,
       weight: String(gross),
-      weightNet: String(gross - 2_200 - Math.floor(rnd() * 600)),
-      hazmat: rnd() < 0.1,
       truckIn: String(100 + Math.floor(rnd() * 899)),
       driverIn: DRIVERS[Math.floor(rnd() * DRIVERS.length)] ?? DRIVERS[0] ?? '',
       sealIn: seal,

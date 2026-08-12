@@ -15,19 +15,15 @@ import { Button, ErrorLine, Field, Sheet, inputClass } from './ui';
  */
 export function GateInSheet(props: {
   position: Position;
-  customers: readonly string[];
   onDone: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
   const [number, setNumber] = useState('');
-  const [customer, setCustomer] = useState('');
   const [bill, setBill] = useState('');
   const [truck, setTruck] = useState('');
   const [seal, setSeal] = useState('');
   const [driver, setDriver] = useState('');
   const [weight, setWeight] = useState('');
-  const [weightNet, setWeightNet] = useState('');
-  const [hazmat, setHazmat] = useState(false);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,11 +33,10 @@ export function GateInSheet(props: {
   const positionText = positionLabel(props.position);
   // Nearly everything is required, on the owner's rule: a gate record with
   // holes in it is one somebody has to chase down later. The exceptions are
-  // the notes, the driver's NAME and the two weights — the scale ticket does
-  // not always arrive with the truck, and refusing the whole record over a
-  // name the gate does not have only teaches the gate to invent one.
-  const ready =
-    [number, customer, bill, truck, seal].every((value) => value.trim() !== '') && !busy;
+  // the notes, the driver's NAME and the weight — the scale ticket does not
+  // always arrive with the truck, and refusing the whole record over a name
+  // the gate does not have only teaches the gate to invent one.
+  const ready = [number, bill, truck, seal].every((value) => value.trim() !== '') && !busy;
 
   const submit = (): void => {
     if (!ready) return;
@@ -51,7 +46,6 @@ export function GateInSheet(props: {
       .gateIn({
         number,
         size,
-        customer: customer.trim(),
         bill: bill.trim(),
         notes: notes.trim(),
         position: props.position,
@@ -59,8 +53,6 @@ export function GateInSheet(props: {
         seal: seal.trim(),
         driver: driver.trim(),
         weight: weight.trim(),
-        weightNet: weightNet.trim(),
-        hazmat,
       })
       .then((container) => {
         props.onDone(AR.gateInDone(container.number, positionText));
@@ -149,7 +141,7 @@ export function GateInSheet(props: {
               }}
             />
           </Field>
-          <Field label={AR.weightGross} hint={<span className="text-faint">{AR.optional}</span>}>
+          <Field label={AR.weight} hint={<span className="text-faint">{AR.optional}</span>}>
             <input
               dir="ltr"
               inputMode="numeric"
@@ -162,41 +154,6 @@ export function GateInSheet(props: {
           </Field>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label={AR.weightNet} hint={<span className="text-faint">{AR.optional}</span>}>
-            <input
-              dir="ltr"
-              inputMode="numeric"
-              className={`${inputClass} text-start`}
-              value={weightNet}
-              onChange={(event) => {
-                setWeightNet(event.target.value);
-              }}
-            />
-          </Field>
-          {/* مواد خطرة rides at the gate, not as an afterthought: it decides
-              where the crew may put it and what the card must warn about. */}
-          <Field label={AR.hazmat} hint={<span className="text-faint">{AR.hazmatHint}</span>}>
-            <label
-              className={`flex cursor-pointer items-center gap-2.5 rounded-xl border-2 px-3.5 py-2.5 text-sm font-bold transition ${
-                hazmat
-                  ? 'border-danger bg-danger-soft text-danger'
-                  : 'border-line bg-surface text-muted'
-              }`}
-            >
-              <input
-                type="checkbox"
-                className="size-5 accent-current"
-                checked={hazmat}
-                onChange={(event) => {
-                  setHazmat(event.target.checked);
-                }}
-              />
-              {hazmat ? AR.hazmatYes : AR.hazmatNo}
-            </label>
-          </Field>
-        </div>
-
         <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
           <input
             className={inputClass}
@@ -205,22 +162,6 @@ export function GateInSheet(props: {
               setDriver(event.target.value);
             }}
           />
-        </Field>
-
-        <Field label={AR.customer} hint={<span className="text-faint">{AR.customerHint}</span>}>
-          <input
-            className={inputClass}
-            value={customer}
-            onChange={(event) => {
-              setCustomer(event.target.value);
-            }}
-            list="customer-names"
-          />
-          <datalist id="customer-names">
-            {props.customers.map((name) => (
-              <option key={name} value={name} />
-            ))}
-          </datalist>
         </Field>
 
         {/* The notes carry the container's condition now — dents, an opened

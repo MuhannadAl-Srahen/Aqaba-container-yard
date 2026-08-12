@@ -831,3 +831,56 @@ and measured the same way: 6/6. The gate itself was driven end to end — a
 container received with the driver and both weights left blank, its wrong check
 digit warned about and recorded anyway, then sent out again with no driver
 named: 9/9. The existing 18-check UI sweep still passes unchanged.
+
+## المرحلة 13 — الموقع الحالي، ترقيم بلا فجوات، وثلاثة حقول محذوفة — 2026-08-12
+
+Status: complete
+
+Six changes in one message, two of them called grave by the owner and taken
+first.
+
+Built:
+
+- **Every sheet names where the container IS.** The card and the registers used
+  to name the slot of the gate MOMENT, so a box carried across the yard went on
+  being described by paper that sent the driver to an empty stack — «في حال
+  تعديل على مكان الحاوية بطاقة الدخول والخروج لا يتم التعديل عليها وهذه خطا
+  فادح». One column, one meaning, everywhere: «موقع الحاوية». Nothing is lost —
+  every move is still a line in سجل العمليات with its from and its to — and a
+  container that has left is named by the slot it left from, the last thing
+  that was true of it.
+- **The card serial left the counter behind.** It is read from the records now:
+  the highest serial issued that year, plus one. A counter only ever climbs, so
+  striking out a record that should never have been written left a hole nothing
+  could fill — «يجب ان لا يتم القفز عن الرقم التسلسلي». A mistake deleted at
+  once now hands its number straight back. A move touches nothing, because a
+  move is not a gate event. And a restored record whose number was handed on in
+  the meantime takes the next free one, since two cards of one year may not
+  carry one number and the one already in a driver's hand is the one that keeps
+  it.
+- **Three fields struck out, from the FILE and not just the screens**: اسم
+  المالك entirely, الوزن الصافي entirely, «الوزن القائم» renamed to «الوزن»,
+  and مواد خطرة with every trace of red that belonged to it — «لان جميع
+  الحاويات عادية وليست خطرة». Schema v13 drops the three columns when the
+  database is opened, which is to say on every machine the update reaches, and
+  writes `yard.db.pre-v13-backup.db` beside the file before dropping the first
+  one: the columns cannot come back, but the file as it stood can.
+- The registers lost three columns with them, which bought the widest sheet
+  real legibility: كشف حركة الدخول now prints at 9.86px where it printed at
+  7.66px yesterday.
+
+Verified: **176 tests**, typecheck and lint clean. The two grave ones are
+locked by tests that state them in the owner's own terms — a container carried
+three times keeps serial 1 and the next one is still 2; a struck-out record's
+number goes to the next container; a restored record takes a fresh one; all
+four registers and the log follow a moved container to its new slot; a departed
+one is named by the slot it left from. Schema v13 is proven against a database
+built to look like the office's: the three columns go, the container, its
+movement, its serial, its staff and the session secret all stay, the backup
+holds the old owner name, and re-opening writes no second backup.
+
+In the browser: 19/19 print checks — every cell of four registers measured at
+paper size for overflow and for words too wide for their line — 9/9 on the
+export and the PDF, 13/13 driving the move-then-reprint and sweeping every
+screen and every register tab for the three struck-out words, and the existing
+18-check sweep unchanged.

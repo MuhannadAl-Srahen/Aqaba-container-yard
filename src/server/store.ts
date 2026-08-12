@@ -31,7 +31,6 @@ interface ContainerRow {
   number: string;
   number_valid: number;
   size: number;
-  customer: string;
   bill: string;
   notes: string;
   entered_at: string;
@@ -41,8 +40,6 @@ interface ContainerRow {
   stack: number | null;
   tier: string | null;
   weight: string;
-  weight_net: string;
-  hazmat: number;
   truck_in: string;
   driver_in: string;
   seal_in: string;
@@ -72,15 +69,12 @@ function toDto(row: ContainerRow): ContainerDto {
     number: row.number,
     numberValid: row.number_valid === 1,
     size: row.size as Size,
-    customer: row.customer,
     bill: row.bill,
     enteredAt: row.entered_at,
     exitedAt: row.exited_at,
     position: slotOf(row.zone, row.bay, row.stack, row.tier),
     notes: row.notes,
     weight: row.weight,
-    weightNet: row.weight_net,
-    hazmat: row.hazmat === 1,
     truckIn: row.truck_in,
     driverIn: row.driver_in,
     sealIn: row.seal_in,
@@ -214,16 +208,6 @@ export function listInYard(db: DatabaseSync): ContainerDto[] {
   return rows.map(toDto);
 }
 
-export function listCustomers(db: DatabaseSync): string[] {
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT customer FROM containers
-       WHERE deleted_at IS NULL AND customer <> '' ORDER BY customer`,
-    )
-    .all() as unknown as Array<{ customer: string }>;
-  return rows.map((row) => row.customer);
-}
-
 export function getContainer(db: DatabaseSync, id: number): ContainerDto | null {
   const row = db
     .prepare('SELECT * FROM containers WHERE id = ? AND deleted_at IS NULL')
@@ -265,11 +249,11 @@ export function searchContainers(db: DatabaseSync, query: string): ContainerDto[
     .prepare(
       `SELECT * FROM containers
        WHERE deleted_at IS NULL
-         AND (number LIKE ? ESCAPE '\\' OR customer LIKE ? ESCAPE '\\' OR bill LIKE ? ESCAPE '\\')
+         AND (number LIKE ? ESCAPE '\\' OR bill LIKE ? ESCAPE '\\')
        ORDER BY (zone IS NULL), entered_at DESC
        LIMIT 50`,
     )
-    .all(like, like, like) as unknown as ContainerRow[];
+    .all(like, like) as unknown as ContainerRow[];
   return rows.map(toDto);
 }
 
@@ -277,14 +261,11 @@ export interface NewContainer {
   number: string;
   numberValid: boolean;
   size: Size;
-  customer: string;
   bill: string;
   notes: string;
   position: Position;
   at: string;
   weight: string;
-  weightNet: string;
-  hazmat: boolean;
   truckIn: string;
   driverIn: string;
   sealIn: string;
@@ -297,15 +278,14 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
   const result = db
     .prepare(
       `INSERT INTO containers
-         (number, number_valid, size, customer, bill, notes, entered_at, zone, bay, stack, tier,
-          weight, weight_net, hazmat, truck_in, driver_in, seal_in, card_in, card_in_year)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (number, number_valid, size, bill, notes, entered_at, zone, bay, stack, tier,
+          weight, truck_in, driver_in, seal_in, card_in, card_in_year)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       container.number,
       container.numberValid ? 1 : 0,
       container.size,
-      container.customer,
       container.bill,
       container.notes,
       container.at,
@@ -314,8 +294,6 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
       container.position.stack,
       container.position.tier,
       container.weight,
-      container.weightNet,
-      container.hazmat ? 1 : 0,
       container.truckIn,
       container.driverIn,
       container.sealIn,
@@ -354,13 +332,10 @@ export function markExited(db: DatabaseSync, id: number, at: string, gate: GateO
 export interface ContainerEdit {
   number: string;
   numberValid: boolean;
-  customer: string;
   bill: string;
   size: Size;
   notes: string;
   weight: string;
-  weightNet: string;
-  hazmat: boolean;
   truckIn: string;
   driverIn: string;
   sealIn: string;
@@ -373,8 +348,8 @@ export interface ContainerEdit {
 
 export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdit): void {
   db.prepare(
-    `UPDATE containers SET number = ?, number_valid = ?, customer = ?, bill = ?, size = ?,
-       notes = ?, weight = ?, weight_net = ?, hazmat = ?,
+    `UPDATE containers SET number = ?, number_valid = ?, bill = ?, size = ?,
+       notes = ?, weight = ?,
        truck_in = ?, driver_in = ?, seal_in = ?,
        truck_out = ?, driver_out = ?, seal_out = ?,
        entered_at = ?, exited_at = ?
@@ -382,13 +357,10 @@ export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdi
   ).run(
     edit.number,
     edit.numberValid ? 1 : 0,
-    edit.customer,
     edit.bill,
     edit.size,
     edit.notes,
     edit.weight,
-    edit.weightNet,
-    edit.hazmat ? 1 : 0,
     edit.truckIn,
     edit.driverIn,
     edit.sealIn,
@@ -532,25 +504,75 @@ export function listMovements(db: DatabaseSync, containerId: number): MovementDt
 }
 
 /**
- * The next serial for a printed gate card. One counter per direction PER YEAR,
- * held in settings and bumped inside the caller's transaction: the office's
- * cards start again at 1 every January, on the owner's call, so the counter is
- * keyed by the year the card is issued in and a fresh year simply has no key
- * yet. Four places is the room the card and the registers leave for it — that
- * is 9999 movements in one direction in one year, which this yard does not
- * approach, and the year is printed beside the serial so no two cards with the
- * same number can ever be confused.
+ * The next serial for a printed gate card: one sequence per direction PER
+ * YEAR, and it is READ FROM THE RECORDS THEMSELVES rather than from a counter
+ * kept beside them.
+ *
+ * That is the whole point. A stored counter only ever climbs, so striking out
+ * a record that should never have been written left a hole in the register
+ * that nothing could fill — «في حال حذف الحاوية او سجل خطأ يجب ان لا يتم
+ * القفز عن الرقم التسلسلي». Taking the highest serial actually in use means a
+ * mistake deleted at once hands its number straight back to the next one, and
+ * the register reads 1, 2, 3 with nothing missing.
+ *
+ * Nothing else moves a serial. A container that is carried across the yard
+ * keeps the number printed on its card, because a move writes a movement and
+ * never touches these columns.
+ *
+ * Four places is the room the card and the registers leave for it — 9999
+ * movements one way in one year, which this yard does not approach — and the
+ * year is printed beside it, so two cards a year apart cannot be confused.
  */
 export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out', year: number): number {
-  const key = `card_${kind}_next:${String(year)}`;
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
-    | { value: string }
-    | undefined;
-  const current = row === undefined ? 1 : Number(row.value);
-  db.prepare(
-    'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value',
-  ).run(key, String(current + 1));
-  return current;
+  const serial = kind === 'in' ? 'card_in' : 'card_out';
+  const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
+  const row = db
+    .prepare(
+      `SELECT MAX(${serial}) AS top FROM containers
+        WHERE ${stamped} = ? AND deleted_at IS NULL`,
+    )
+    .get(year) as { top: number | null };
+  return (row.top ?? 0) + 1;
+}
+
+/**
+ * Is this serial already on a live card of that year? Asked when a struck-out
+ * record is brought back: its own number may have been handed on in the
+ * meantime, and two cards of one year may not carry one number.
+ */
+export function cardNumberTaken(
+  db: DatabaseSync,
+  kind: 'in' | 'out',
+  year: number,
+  serial: number,
+  exceptId: number,
+): boolean {
+  const column = kind === 'in' ? 'card_in' : 'card_out';
+  const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
+  const row = db
+    .prepare(
+      `SELECT 1 AS hit FROM containers
+        WHERE ${column} = ? AND ${stamped} = ? AND deleted_at IS NULL AND id <> ? LIMIT 1`,
+    )
+    .get(serial, year, exceptId) as { hit: number } | undefined;
+  return row !== undefined;
+}
+
+/** Give a restored record a serial of its own when its old one was taken. */
+export function setCardNumber(
+  db: DatabaseSync,
+  id: number,
+  kind: 'in' | 'out',
+  serial: number,
+  year: number,
+): void {
+  const column = kind === 'in' ? 'card_in' : 'card_out';
+  const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
+  db.prepare(`UPDATE containers SET ${column} = ?, ${stamped} = ? WHERE id = ?`).run(
+    serial,
+    year,
+    id,
+  );
 }
 
 interface GateRow {
@@ -563,11 +585,13 @@ interface GateRow {
   t: string | null;
   number: string;
   size: number;
-  customer: string;
   weight: string;
-  weight_net: string;
-  hazmat: number;
   notes: string;
+  /** Where the container IS now — null once it has left. */
+  live_zone: string | null;
+  live_bay: number | null;
+  live_stack: number | null;
+  live_tier: string | null;
   truck_in: string;
   driver_in: string;
   seal_in: string;
@@ -589,6 +613,9 @@ export function listGateMovements(
   fromIso: string,
   toIso: string,
 ): GateReportRowInternal[] {
+  // The MOVEMENT's own slot is kept as the fallback: on an OUT row it is
+  // where the container stood as it left, which is the last thing that was
+  // true of it.
   const positionColumns =
     type === 'IN'
       ? 'm.to_zone AS z, m.to_bay AS b, m.to_stack AS s, m.to_tier AS t'
@@ -597,7 +624,8 @@ export function listGateMovements(
   const rows = db
     .prepare(
       `SELECT m.container_id, m.at, m.user_id, ${positionColumns},
-              k.number, k.size, k.customer, k.bill, k.weight, k.weight_net, k.hazmat, k.notes,
+              k.zone AS live_zone, k.bay AS live_bay, k.stack AS live_stack, k.tier AS live_tier,
+              k.number, k.size, k.bill, k.weight, k.notes,
               k.truck_in, k.driver_in, k.seal_in, k.card_in, k.card_in_year,
               k.truck_out, k.driver_out, k.seal_out, k.card_out, k.card_out_year,
               k.entered_at
@@ -619,12 +647,14 @@ export function listGateMovements(
     number: row.number,
     bill: row.bill,
     weight: row.weight,
-    weightNet: row.weight_net,
-    hazmat: row.hazmat === 1,
     notes: row.notes,
     size: row.size as Size,
-    customer: row.customer,
-    position: slotOf(row.z, row.b, row.s, row.t),
+    // WHERE IT IS, not where it was set down. A container carried across the
+    // yard has to be findable from the sheet that names it — the old slot
+    // lives on in the operations log, which is the record of the move itself.
+    position:
+      slotOf(row.live_zone, row.live_bay, row.live_stack, row.live_tier) ??
+      slotOf(row.z, row.b, row.s, row.t),
     user: userLabel(names, row.user_id),
     enteredAt: row.entered_at,
   }));
@@ -641,11 +671,8 @@ export interface GateReportRowInternal {
   seal: string;
   number: string;
   weight: string;
-  weightNet: string;
-  hazmat: boolean;
   notes: string;
   size: Size;
-  customer: string;
   position: Position | null;
   user: string;
   enteredAt: string;
@@ -694,7 +721,7 @@ export function listOperationsLog(
       `SELECT m.container_id, m.type, m.at, m.note, m.user_id,
               m.from_zone, m.from_bay, m.from_stack, m.from_tier,
               m.to_zone, m.to_bay, m.to_stack, m.to_tier,
-              k.number, k.customer, k.deleted_at
+              k.number, k.deleted_at
        FROM movements m
        JOIN containers k ON k.id = m.container_id
        WHERE m.at >= ? AND m.at < ?
@@ -704,7 +731,6 @@ export function listOperationsLog(
     MovementRow & {
       container_id: number;
       number: string;
-      customer: string;
       deleted_at: string | null;
     }
   >;
@@ -713,7 +739,6 @@ export function listOperationsLog(
     at: row.at,
     type: row.type as MovementType,
     number: row.number,
-    customer: row.customer,
     from: slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier),
     to: slotOf(row.to_zone, row.to_bay, row.to_stack, row.to_tier),
     note: row.note,
@@ -734,7 +759,8 @@ export function listTruckMovements(
       `SELECT m.type, m.container_id, m.at, m.user_id,
               m.from_zone, m.from_bay, m.from_stack, m.from_tier,
               m.to_zone, m.to_bay, m.to_stack, m.to_tier,
-              k.number, k.size, k.customer, k.bill, k.weight, k.weight_net, k.hazmat, k.notes,
+              k.zone AS live_zone, k.bay AS live_bay, k.stack AS live_stack, k.tier AS live_tier,
+              k.number, k.size, k.bill, k.weight, k.notes,
               k.truck_in, k.driver_in, k.seal_in, k.card_in, k.card_in_year,
               k.truck_out, k.driver_out, k.seal_out, k.card_out, k.card_out_year,
               k.entered_at
@@ -760,15 +786,14 @@ export function listTruckMovements(
       number: row.number,
       bill: row.bill,
       weight: row.weight,
-      weightNet: row.weight_net,
-      hazmat: row.hazmat === 1,
       notes: row.notes,
       size: row.size as Size,
-      customer: row.customer,
+      // Where it is now; failing that, the slot of this very movement.
       position:
-        type === 'IN'
+        slotOf(row.live_zone, row.live_bay, row.live_stack, row.live_tier) ??
+        (type === 'IN'
           ? slotOf(row.to_zone, row.to_bay, row.to_stack, row.to_tier)
-          : slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier),
+          : slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier)),
       user: userLabel(names, row.user_id),
       enteredAt: row.entered_at,
     };

@@ -53,8 +53,6 @@ export interface BayCount {
   readonly used: number;
   readonly total: number;
   readonly full: boolean;
-  /** At least one container of dangerous goods stands in this bay. */
-  readonly hazmat: boolean;
 }
 
 export function countBay(
@@ -67,14 +65,7 @@ export function countBay(
   // A 40 puts one TEU of itself on each odd bay it covers, so per-bay TEU is
   // simply the number of containers listed under the bay.
   const used = load?.length ?? 0;
-  return {
-    used,
-    total,
-    full: total > 0 && used >= total,
-    // The map has to answer «وين المواد الخطرة؟» from across the room,
-    // without opening a single bay.
-    hazmat: load?.some((container) => container.hazmat) ?? false,
-  };
+  return { used, total, full: total > 0 && used >= total };
 }
 
 /** Zone roll-up for the panel header: TEU standing against TEU capacity. */
@@ -231,7 +222,6 @@ export function searchMatches(
   for (const container of containers) {
     if (
       (asNumber.length > 0 && container.number.includes(asNumber)) ||
-      container.customer.toLowerCase().includes(lower) ||
       // Typing a bill number lights the WHOLE group on the map at once.
       (container.bill !== '' && container.bill.toLowerCase().includes(lower))
     ) {

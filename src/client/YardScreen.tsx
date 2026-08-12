@@ -404,14 +404,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                         <span className="font-mono font-semibold text-ink" dir="ltr">
                           {container.number}
                         </span>
-                        {container.hazmat && (
-                          <span className="shrink-0 rounded bg-danger-soft px-1.5 py-0.5 text-[10px] font-extrabold text-danger">
-                            {AR.hazmatShort}
-                          </span>
-                        )}
+                        <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-muted">
+                          {AR.feet(container.size)}
+                        </span>
                       </span>
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-xs text-muted">{container.customer}</span>
+                        {container.bill !== '' && (
+                          <span className="truncate font-mono text-xs text-muted" dir="ltr">
+                            {container.bill}
+                          </span>
+                        )}
                         <span
                           className="shrink-0 rounded-md bg-blue-700 px-1.5 py-0.5 font-mono text-xs font-bold text-white"
                           dir="ltr"
@@ -439,13 +441,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                         <span className="font-mono font-semibold text-ink" dir="ltr">
                           {container.number}
                         </span>
-                        {container.hazmat && (
-                          <span className="shrink-0 rounded bg-danger-soft px-1.5 py-0.5 text-[10px] font-extrabold text-danger">
-                            {AR.hazmatShort}
-                          </span>
-                        )}
+                        <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-muted">
+                          {AR.feet(container.size)}
+                        </span>
                       </span>
-                      <span className="text-xs text-muted">{container.customer}</span>
+                      <span className="font-mono text-xs text-muted" dir="ltr">
+                        {container.bill === '' ? '—' : container.bill}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -664,7 +666,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {gateInAt !== null && state.data !== undefined && (
         <GateInSheet
           position={gateInAt}
-          customers={state.data.customers}
           onDone={refresh}
           onClose={() => {
             setGateInAt(null);

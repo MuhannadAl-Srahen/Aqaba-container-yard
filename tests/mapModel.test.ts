@@ -30,15 +30,12 @@ function box(number: string, position: Position | null, size: Size = 20): Contai
     number,
     numberValid: true,
     size,
-    customer: 'شركة البحر',
     bill: '',
     enteredAt: '2026-08-01T08:00:00.000Z',
     exitedAt: null,
     position,
     notes: '',
-    hazmat: false,
     weight: '',
-    weightNet: '',
     truckIn: '',
     driverIn: '',
     sealIn: 'JO1',
@@ -75,14 +72,12 @@ describe('bay loads', () => {
       used: 2,
       total: 6,
       full: false,
-      hazmat: false,
     });
     // Bay 05 has a single usable stack over the three tiers.
     expect(countBay(zoneA, 5, undefined)).toEqual({
       used: 0,
       total: 3,
       full: false,
-      hazmat: false,
     });
   });
 
@@ -93,12 +88,15 @@ describe('bay loads', () => {
     expect(countBay(zoneA, 5, undefined).total).toBe(3);
   });
 
-  it('flags a bay the moment one dangerous container stands in it', () => {
-    const risky = { ...box('C', at(3, 1, 'A')), hazmat: true };
-    const loads = buildBayLoads([box('D', at(3, 2, 'A')), risky]);
-    // One box out of two is enough — the map paints the whole bay red.
-    expect(countBay(zoneA, 3, loads.get(bayKey('A', 3))).hazmat).toBe(true);
-    expect(countBay(zoneA, 1, loads.get(bayKey('A', 1))).hazmat).toBe(false);
+  it('counts a bay as full only when every tier of every stack is taken', () => {
+    // Zone A bay 5 has one usable stack, so three tiers fill it.
+    const loads = buildBayLoads([
+      box('A', at(5, 2, 'A')),
+      box('B', at(5, 2, 'B')),
+      box('C', at(5, 2, 'C')),
+    ]);
+    expect(countBay(zoneA, 5, loads.get(bayKey('A', 5))).full).toBe(true);
+    expect(countBay(zoneA, 1, loads.get(bayKey('A', 1))).full).toBe(false);
   });
 
   it('finds the ground an address names, and who is standing on it', () => {
@@ -226,10 +224,12 @@ describe('target bays while placing', () => {
 });
 
 describe('search', () => {
-  it('matches by number fragment and by customer, and ignores blanks', () => {
-    const containers = [box('MSCU1234566', at(1, 1, 'A'))];
+  /** The owner's name is gone, so a number or a bill is what is left to ask. */
+  it('matches by number fragment and by bill, and ignores blanks', () => {
+    const containers = [{ ...box('MSCU1234566', at(1, 1, 'A')), bill: 'JO3210' }];
     expect(searchMatches(containers, 'mscu 1234').size).toBe(1);
-    expect(searchMatches(containers, 'البحر').size).toBe(1);
+    expect(searchMatches(containers, 'jo32').size).toBe(1);
     expect(searchMatches(containers, '  ').size).toBe(0);
+    expect(searchMatches(containers, 'شركة').size).toBe(0);
   });
 });

@@ -40,8 +40,6 @@ const C = {
   text: 'var(--yard-text)',
   landmark: 'var(--yard-landmark)',
   landmarkLine: 'var(--yard-landmark-line)',
-  danger: 'var(--color-danger)',
-  dangerSoft: 'var(--color-danger-soft)',
 } as const;
 
 export interface MapLayout {
@@ -109,19 +107,8 @@ function BayCell(props: {
   if (view.targets !== null) dimmed = !(isTarget || holdsMoving);
 
   const empty = count.used === 0;
-  // Dangerous goods outrank how full the bay is: a bay holding them must read
-  // red from across the room, without anyone opening it.
-  const danger = count.hazmat && !isTarget;
-  const fill = isTarget
-    ? C.targetFill
-    : danger
-      ? C.dangerSoft
-      : empty
-        ? C.free
-        : count.full
-          ? C.full
-          : C.partial;
-  const textColor = danger ? C.danger : count.full && !isTarget ? C.fullText : empty ? C.label : C.text;
+  const fill = isTarget ? C.targetFill : empty ? C.free : count.full ? C.full : C.partial;
+  const textColor = count.full && !isTarget ? C.fullText : empty ? C.label : C.text;
   const stroke =
     holdsSelected || holdsMoving
       ? C.selected
@@ -129,14 +116,12 @@ function BayCell(props: {
         ? C.match
         : isTarget
           ? C.targetBorder
-          : danger
-            ? C.danger
-            : count.full
-              ? C.full
-              : empty
-                ? C.freeBorder
-                : C.partialBorder;
-  const strong = holdsSelected || holdsMoving || holdsMatch || isTarget || danger;
+          : count.full
+            ? C.full
+            : empty
+              ? C.freeBorder
+              : C.partialBorder;
+  const strong = holdsSelected || holdsMoving || holdsMatch || isTarget;
   // A note on any container here earns a dot: the crew writes the dents, the
   // opened locks and the customs holds there, and the map must not hide it.
   const noted = load?.some((container) => container.notes !== '') ?? false;

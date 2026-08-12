@@ -60,6 +60,12 @@ export function snapshot(db: DatabaseSync, label: string): string {
  * their PINs and permissions, and the owner's password stay. The old file is
  * snapshotted beside itself first, so nothing is ever truly unrecoverable.
  */
+/** Does this table still carry that column? Asked of the file, not of a version. */
+function columnExists(db: DatabaseSync, table: string, column: string): boolean {
+  const rows = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  return rows.some((row) => row.name === column);
+}
+
 export function migrate(db: DatabaseSync, file: string): void {
   const tableSql = (name: string): string | undefined =>
     (
@@ -137,6 +143,30 @@ export function migrate(db: DatabaseSync, file: string): void {
     backfillCardYears(db);
   }
 
+  // v13: three fields the owner struck out — «رح يتم ازالة اسم المالك تماما»,
+  // the net weight, and the dangerous-goods flag, «لان جميع الحاويات عادية».
+  // They go from the FILE, not merely from the screens, and they go on every
+  // machine the update reaches, because this runs when the database is opened.
+  // A copy of the file is written beside itself first: the columns cannot be
+  // brought back, but the yard as it stood this morning can.
+  const v12ContainersSql = tableSql('containers');
+  const struck = ['customer', 'weight_net', 'hazmat'].filter(
+    (column) => v12ContainersSql !== undefined && columnExists(db, 'containers', column),
+  );
+  if (struck.length > 0) {
+    if (file !== ':memory:') {
+      const backup = `${file}.pre-v13-backup.db`;
+      if (!existsSync(backup)) db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
+    }
+    for (const column of struck) db.exec(`ALTER TABLE containers DROP COLUMN ${column}`);
+    // The card counters moved into the records themselves in the same round;
+    // the keys they used to live under are dead weight now.
+    if (tableSql('settings') !== undefined) {
+      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
+      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
+    }
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -168,7 +198,6 @@ export function migrate(db: DatabaseSync, file: string): void {
       number        TEXT    NOT NULL,
       number_valid  INTEGER NOT NULL,
       size          INTEGER NOT NULL CHECK (size IN (20, 40)),
-      customer      TEXT    NOT NULL,
       -- Free text: the condition it arrived in, a customs hold, anything the
       -- crew needs the next person to read.
       notes         TEXT    NOT NULL DEFAULT '',
@@ -183,12 +212,10 @@ export function migrate(db: DatabaseSync, file: string): void {
       bay           INTEGER,
       stack         INTEGER,
       tier          TEXT    CHECK (tier IN ('A', 'B', 'C')),
-      -- The gate paperwork: weights, trucks, drivers, seals and card serials.
-      -- A different seal on the way out means the door was opened inside.
-      -- Two weights ride on the storage card: weight is the gross (القائم)
-      -- and weight_net the net (الصافي). Free text — the scale ticket's own.
+      -- The gate paperwork: the weight, trucks, drivers, seals and card
+      -- serials. A different seal on the way out means the door was opened
+      -- inside. One weight only, free text, as the scale ticket reads it.
       weight        TEXT    NOT NULL DEFAULT '',
-      weight_net    TEXT    NOT NULL DEFAULT '',
       truck_in      TEXT    NOT NULL DEFAULT '',
       driver_in     TEXT    NOT NULL DEFAULT '',
       seal_in       TEXT    NOT NULL DEFAULT '',
@@ -202,9 +229,6 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- back off the gate date, which the owner may correct afterwards.
       card_in_year  INTEGER,
       card_out_year INTEGER,
-      -- مواد خطرة: this box carries dangerous goods. Drawn red everywhere and
-      -- printed on both gate cards, so nobody has to remember which one it is.
-      hazmat        INTEGER NOT NULL DEFAULT 0,
       -- Soft delete for a record that was a mistake. Never removed.
       deleted_at    TEXT
     );
@@ -237,7 +261,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 12;
+    PRAGMA user_version = 13;
   `);
 }
 
