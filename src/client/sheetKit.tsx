@@ -9,7 +9,8 @@ import {
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { isTallRow, sheetMetrics } from './sheetGeometry';
-import { rowMatches, searchTerms } from './sheetSearch';
+import { nextSort, type SortState } from './sheetSort';
+import { arrange } from './sheetView';
 import { ThemePicker } from './ThemePicker';
 import { Button } from './ui';
 
@@ -65,27 +66,69 @@ export interface TableCell {
   readonly onClick?: () => void;
   /** مواد خطرة: red on screen, on paper and in the PDF alike. */
   readonly danger?: boolean;
+  /**
+   * What this cell is ORDERED by, when its text is not the answer: a date
+   * reading «14/08/2026» sorts by the instant behind it, not by the two
+   * digits it happens to start with. Text cells need nothing here.
+   */
+  readonly sort?: string | number;
 }
 
 export interface TableModel {
   readonly head: readonly string[];
   readonly body: readonly (readonly TableCell[])[];
   readonly footer: readonly TableCell[] | null;
+  /**
+   * The first column is a line counter rather than data. It is rewritten to
+   * run 1, 2, 3 … down whatever the sheet actually shows, so a register
+   * sorted by slot or narrowed by a search still reads in order on paper.
+   */
+  readonly counted?: boolean;
 }
 
-export const cellText = (text: string): TableCell => ({ text });
-export const cellLtr = (text: string): TableCell => ({ text, ltr: true });
-export const cellWrap = (text: string): TableCell => ({ text, wrap: true });
+/**
+ * The sort key is left OFF the cell when there is none, rather than set to
+ * undefined: the project builds with exactOptionalPropertyTypes, and an
+ * absent key and a key holding undefined are not the same thing here.
+ */
+const keyed = (cell: TableCell, sort: string | number | undefined): TableCell =>
+  sort === undefined ? cell : { ...cell, sort };
+
+/**
+ * A figure the gate typed by hand: the scale ticket is copied as it reads, so
+ * «28000» and «28,000» and «28 000» all occur. Ordered by the number it
+ * means, not by the punctuation it was written with — and text that is not a
+ * figure at all keeps its own text order.
+ */
+export const cellNumeric = (text: string, empty: string): TableCell => {
+  if (text.trim() === '') return { text: empty };
+  const figure = Number(text.replace(/[\s,٬]/g, ''));
+  return Number.isFinite(figure) ? { text, ltr: true, sort: figure } : { text, ltr: true };
+};
+
+export const cellText = (text: string, sort?: string | number): TableCell => keyed({ text }, sort);
+export const cellLtr = (text: string, sort?: string | number): TableCell =>
+  keyed({ text, ltr: true }, sort);
+export const cellWrap = (text: string, sort?: string | number): TableCell =>
+  keyed({ text, wrap: true }, sort);
 /** A yes/no that must be impossible to miss when it is a yes. */
 export const cellFlag = (on: boolean, yes: string, no: string): TableCell =>
   on ? { text: yes, danger: true } : { text: no };
 export const dash = '—';
 
-export const stampCells = (at: Date): TableCell[] => [
-  cellText(dayFormat.format(at)),
-  cellLtr(dateFormat.format(at)),
-  cellLtr(timeFormat.format(at)),
-];
+/**
+ * Day, date and time of one instant — and all three ordered BY that instant,
+ * so sorting on any of them is chronological. Ordering «14/08/2026» as text
+ * would put the 14th of August before the 2nd of September.
+ */
+export const stampCells = (at: Date): TableCell[] => {
+  const instant = at.getTime();
+  return [
+    cellText(dayFormat.format(at), instant),
+    cellLtr(dateFormat.format(at), instant),
+    cellLtr(timeFormat.format(at), instant),
+  ];
+};
 
 const esc = (s: string): string =>
   s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
@@ -228,47 +271,43 @@ export function SheetScreen(props: {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  /** Which heading the reader pressed, and which way. Null = the register's own order. */
+  const [sort, setSort] = useState<SortState | null>(null);
 
   /**
-   * The search cuts the register down to the rows that answer it, and every
-   * consumer downstream — the screen, the printer, the PDF, the Excel file —
-   * is handed the cut-down register rather than the whole one. `seats` keeps
-   * each surviving row's ORIGINAL index, because the per-row actions the
-   * caller renders (a card to reprint, an edit to revert) are addressed by
-   * position in the register it built.
+   * The register as it is actually read — narrowed, ordered and renumbered by
+   * `arrange`, which is pure and tested. Every consumer downstream (screen,
+   * printer, PDF, Excel) is handed THIS, so what is on the paper is what was
+   * on the screen.
    */
-  const view = useMemo(() => {
-    const terms = searchTerms(query);
-    if (terms.length === 0) return { sheet: model, seats: null, total: model.body.length };
-    const seats: number[] = [];
-    const body = model.body.filter((row, index) => {
-      const hit = rowMatches(
-        row.map((cell) => cell.text),
-        terms,
-      );
-      if (hit) seats.push(index);
-      return hit;
-    });
-    // The caller's footer counts the whole register, so while a search is on
-    // it would be a lie; what stands in its place is the count of the search.
-    const footer = [
-      cellText(AR.sheetSearchRow),
-      cellText(AR.sheetSearchFound(body.length, model.body.length)),
-    ];
-    return {
-      sheet: { head: model.head, body, footer },
-      seats,
-      total: model.body.length,
-    };
-  }, [model, query]);
+  const view = useMemo(() => arrange(model, query, sort), [model, query, sort]);
+  const searching = view.searching;
+  const sheet = useMemo(
+    () => ({
+      head: view.head,
+      body: view.body,
+      // The caller's footer counts the whole register, so while a search is on
+      // it would be a lie; what stands in its place is the count of the search.
+      footer: searching
+        ? [cellText(AR.sheetSearchRow), cellText(AR.sheetSearchFound(view.body.length, view.total))]
+        : model.footer,
+    }),
+    [view, searching, model.footer],
+  );
 
-  const sheet = view.sheet;
-  const searching = view.seats !== null;
+  /**
+   * One SheetScreen serves six registers with different columns, so an order
+   * by column 12 means nothing after the reader switches to a register that
+   * has six. Changing the register puts it back in its own order.
+   */
+  useEffect(() => {
+    setSort(null);
+  }, [props.sheetTitle]);
 
   const pages = Math.max(1, Math.ceil(sheet.body.length / pageSize));
   useEffect(() => {
     setPage(0);
-  }, [props.sheetTitle, sheet.body.length, pageSize]);
+  }, [props.sheetTitle, sheet.body.length, pageSize, sort]);
   const current = Math.min(page, pages - 1);
 
   const rangeText =
@@ -277,11 +316,16 @@ export function SheetScreen(props: {
       .split('-')
       .reverse()
       .join('/')}`;
-  // A filtered sheet says so on its own face: paper that leaves the office
-  // showing some of the register must never read as all of it.
-  const periodText = searching
-    ? `${rangeText} — ${AR.sheetSearchLabel} ${query.trim()}`
-    : rangeText;
+  // A filtered or reordered sheet says so on its own face: paper that leaves
+  // the office showing some of the register — or the register in an order
+  // that is not its own — must never read as the plain thing.
+  const periodText = [
+    rangeText,
+    searching ? `${AR.sheetSearchLabel} ${query.trim()}` : null,
+    sort === null ? null : AR.sortedBy(sheet.head[sort.column] ?? '', sort.dir),
+  ]
+    .filter((part) => part !== null)
+    .join(' — ');
   const hasRows = sheet.body.length > 0;
 
   const exportExcel = (): void => {
@@ -496,14 +540,58 @@ export function SheetScreen(props: {
                 </colgroup>
                 <thead>
                   <tr>
-                    {sheet.head.map((heading) => (
-                      <th
-                        key={heading}
-                        className={`${cellBase} border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`}
-                      >
-                        {heading}
-                      </th>
-                    ))}
+                    {/* Every heading orders the register by its own column —
+                        press once for تصاعدي, again for تنازلي, a third time
+                        to put the register back in its own order. The caret
+                        is screen-only: it would be noise on the paper. */}
+                    {sheet.head.map((heading, column) => {
+                      const active = sort !== null && sort.column === column;
+                      // The line counter is not a column to order by: it is
+                      // rewritten to 1 … N over whatever the sheet shows, so
+                      // ordering it could only ever be the register's own
+                      // order, or that order reversed under a column still
+                      // reading 1, 2, 3. It stays a plain heading.
+                      const orderable = column > 0 || model.counted !== true;
+                      const headClass = `${cellBase} border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`;
+                      if (!orderable) {
+                        return (
+                          <th key={heading} className={headClass}>
+                            {heading}
+                          </th>
+                        );
+                      }
+                      return (
+                        <th
+                          key={heading}
+                          aria-sort={
+                            active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
+                          }
+                          // The button carries the padding on screen, so the
+                          // cell gives its own up — and `p-0` alone would not
+                          // do it: cellBase's px/py are longhand and win.
+                          className={`${headClass} px-0! py-0!`}
+                        >
+                          <button
+                            type="button"
+                            // What the NEXT press will do — all three of them.
+                            title={
+                              !active ? AR.sortAsc : sort.dir === 'asc' ? AR.sortDesc : AR.sortClear
+                            }
+                            onClick={() => {
+                              setSort(nextSort(sort, column));
+                            }}
+                            className={`flex w-full items-center justify-center gap-1 px-2 py-1.5 text-center transition-colors hover:bg-line${
+                              active ? ' text-blue-800 dark:text-blue-300' : ''
+                            }`}
+                          >
+                            <span>{heading}</span>
+                            <span className="print-hidden text-[10px] leading-none opacity-70">
+                              {active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}
+                            </span>
+                          </button>
+                        </th>
+                      );
+                    })}
                     {props.actions !== undefined && (
                       <th
                         className={`${cellBase} print-hidden border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`}

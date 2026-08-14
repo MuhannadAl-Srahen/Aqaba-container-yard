@@ -1048,3 +1048,81 @@ the same move, a container never moved offering no move card, and a buried
 container's move naming both descents with their tiers, each code measured
 for `nowrap` and `dir="ltr"` so no address can be sawn in half. The other
 sweeps are unchanged: 19/19 print, 18/18 UI, 32/32 register search.
+
+## المرحلة 18 — ترتيب الكشوفات بالضغط على العمود — 2026-08-14
+
+Status: complete
+
+Built:
+
+- **Every column heading is a control.** Press it once for تصاعدي, again for
+  تنازلي, a third time to put the register back in its own order — «بس اكبس
+  على العامود الخاص فيهم». It applies to every column of every register, and
+  the two the owner named by hand are the ones it was built for: موقع الحاوية
+  and رقم البوليصة.
+- **Numbers are read as numbers.** Bills are numbers written as text and of
+  different lengths, so plain text order puts 265313216 above 3210; an
+  `Intl.Collator('ar', { numeric: true })` reads the digit runs and puts 3210
+  first. The same rule sorts slot codes part by part, so stack 10 lands after
+  stack 02 rather than between 01 and 02.
+- **A cell can say what it is ordered BY.** A date reading «14/08/2026» sorts
+  by the instant behind it, the dwell by its number of days, and a container
+  that has not left yet carries Infinity so it sits after every departure —
+  compared as `a === b ? 0 : a < b ? -1 : 1`, never `a - b`, because
+  Infinity − Infinity is NaN and a NaN comparator leaves the order undefined
+  rather than merely wrong.
+- **The line counter counts the lines of THIS sheet.** Sorted or narrowed by a
+  search, column «الرقم» still reads 1, 2, 3 down the page, which is what a
+  printed register has to do.
+- **What is on the screen is what is printed.** One model feeds the screen,
+  the printer, the PDF and the Excel file, and the sheet's own period line
+  gains «مرتّب حسب … — تصاعدي» so a page in a different order than the
+  register's can never be read as the plain thing. On paper the heading is a
+  heading again: a print rule flattens the button's padding and colour, and
+  the caret is print-hidden.
+- Switching register resets the order: one SheetScreen serves six registers,
+  and an order by column 12 means nothing in a register that has six columns.
+
+Verified: **212 tests** (14 new, pure, over the comparator, the ordering and the whole composition),
+typecheck and lint clean, and 16 browser checks on the real build — slots up
+and down and back to the register's own order, the descending list proved to
+be the ascending one reversed, bills ordered numerically, the line counter,
+search and sort composing, the «بطاقة» row button still opening the row it
+sits on after a sort, dates ordered by their instant, and the DOM order that
+prints proved identical to the screen's. The print measurement sweep found
+the sort caret being measured into the heading width and now reads only what
+the page actually paints: 19/19. The other sweeps: 18/18 UI, 32/32 search,
+24/24 cards.
+
+**Reviewed before it shipped.** An adversarial pass over this change — four
+lenses, every finding put to two independent skeptics told to refute it —
+returned six that survived, five of them real:
+
+- **The line counter was offered as a column to order by.** Column «الرقم» is
+  rewritten 1 … N over whatever the sheet shows, so ordering it ascending was
+  a guaranteed no-op that still stamped «مرتّب حسب الرقم — تصاعدي» onto the
+  paper, and descending reversed every row while the column itself went on
+  reading 1, 2, 3 under a ▼ and an `aria-sort="descending"`. It is a plain
+  heading again.
+- **The search was reading that same counter.** A row could answer «10»
+  because it was line 10 of the register, and the one cell that matched was
+  erased by the renumbering before the row was shown — a hit with no visible
+  reason, riding onto the printed sheet under «بحث: 10». The counter is out of
+  what the search reads.
+- **Blanks led the sheet.** An em dash is how this register writes "nothing
+  recorded", and it collates before every real value, so ordering كشف بوليصة
+  by slot opened with a block of departed containers. Rows with nothing in the
+  ordered column now go to the FOOT in both directions.
+- **The heading's tooltip had two states for a control with three**: after
+  descending it promised «ترتيب تصاعدي» and delivered the register's own order.
+  It now names what the next press will actually do, «إلغاء الترتيب» included.
+- **`p-0` on the heading cell never took effect** — `cellBase` carries `px-2
+  py-1.5`, and Tailwind emits shorthand before longhand, so the cell kept its
+  padding and the button added its own on top.
+- Weights are read as the figure they mean, so a hand-typed «28,000» orders
+  beside 9000 rather than before it.
+
+The composition the review found untested — filter, then order, then renumber,
+while every row keeps the original index its buttons are addressed by — was
+pulled out into `src/client/sheetView.ts` as one pure function and locked with
+six tests of its own.

@@ -90,7 +90,7 @@ function logModel(rows: readonly LogReportRow[]): TableModel {
     rows.length === 0
       ? null
       : [cellText(AR.totalRow), cellText(AR.movementsCount(rows.length))];
-  return { head, body, footer };
+  return { head, body, footer, counted: true };
 }
 
 export function LogScreen(props: {

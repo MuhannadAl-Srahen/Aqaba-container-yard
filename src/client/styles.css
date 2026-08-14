@@ -275,6 +275,17 @@ body {
     /* Last resort: a value with no room left breaks rather than overlaps. */
     overflow-wrap: break-word;
   }
+  /* Every heading is a button on screen — press it to order the register by
+     that column. On paper it is a heading again and nothing else: the button's
+     own padding would be laid on top of the cell's and grow the header row,
+     and its colour would spend ink saying something a printed sheet cannot
+     act on. The caret it carries is print-hidden already. */
+  .report-sheet th > button {
+    display: inline;
+    padding: 0 !important;
+    color: inherit !important;
+    font: inherit;
+  }
   /* The actions column is a screen button. Its cells are hidden on paper, but
      a hidden column still holds its share of a fixed layout — so on paper its
      width goes to nothing and the register gets the whole page back. */

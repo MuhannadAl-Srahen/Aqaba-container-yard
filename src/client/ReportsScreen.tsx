@@ -15,6 +15,7 @@ import {
   ammanToday,
   cellLtr,
   cellText,
+  cellNumeric,
   cellWrap,
   dash,
   dayFormat,
@@ -88,10 +89,12 @@ function gateModel(
     cellLtr(row.number),
     billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),
-    cellLtr(row.weight === '' ? dash : row.weight),
+    cellNumeric(row.weight, dash),
     cellText(String(row.size)),
     cellLtr(row.position === null ? dash : positionLabel(row.position)),
-    ...(out ? [cellText(row.dwellDays === null ? dash : AR.daysCount(row.dwellDays))] : []),
+    ...(out
+      ? [cellText(row.dwellDays === null ? dash : AR.daysCount(row.dwellDays), row.dwellDays ?? -1)]
+      : []),
     cellText(row.user),
     cellWrap(row.notes === '' ? dash : row.notes),
   ]);
@@ -99,7 +102,7 @@ function gateModel(
     rows.length === 0
       ? null
       : [cellText(AR.totalRow), cellText(AR.movementsCount(rows.length))];
-  return { head, body, footer };
+  return { head, body, footer, counted: true };
 }
 
 /** كشف الحاويات بالساحة — what is standing now, oldest first. */
@@ -126,14 +129,15 @@ function standingModel(
     cellText(String(row.size)),
     billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),
-    cellLtr(dateFormat.format(new Date(row.enteredAt))),
-    cellText(AR.daysCount(row.dwellDays)),
+    // Ordered by the instant, not by the two digits the text starts with.
+    cellLtr(dateFormat.format(new Date(row.enteredAt)), Date.parse(row.enteredAt)),
+    cellText(AR.daysCount(row.dwellDays), row.dwellDays),
     cellText(row.user),
     cellWrap(row.notes === '' ? dash : row.notes),
   ]);
   const footer =
     rows.length === 0 ? null : [cellText(AR.totalRow), cellText(AR.standingCount(rows.length))];
-  return { head, body, footer };
+  return { head, body, footer, counted: true };
 }
 
 function truckModel(
@@ -161,7 +165,7 @@ function truckModel(
     cellLtr(row.number),
     billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),
-    cellLtr(row.weight === '' ? dash : row.weight),
+    cellNumeric(row.weight, dash),
     cellText(String(row.size)),
     cellLtr(row.position === null ? dash : positionLabel(row.position)),
     cellText(row.user),
@@ -170,7 +174,7 @@ function truckModel(
     rows.length === 0
       ? null
       : [cellText(AR.totalRow), cellText(AR.movementsCount(rows.length))];
-  return { head, body, footer };
+  return { head, body, footer, counted: true };
 }
 
 /**
@@ -197,11 +201,16 @@ function billModel(rows: readonly ContainerDto[]): TableModel {
       ? cellText(dash)
       : cellLtr(positionLabel(container.position)),
     cellLtr(container.sealIn === '' ? dash : container.sealIn),
-    cellLtr(dateFormat.format(new Date(container.enteredAt))),
+    cellLtr(dateFormat.format(new Date(container.enteredAt)), Date.parse(container.enteredAt)),
+    // A container that has not left yet sorts after every departure: it will
+    // leave later than any of them.
     container.exitedAt === null
-      ? cellText(AR.stillStanding)
-      : cellLtr(dateFormat.format(new Date(container.exitedAt))),
-    cellText(AR.daysCount(dwellDays(container.enteredAt, container.exitedAt ?? undefined))),
+      ? cellText(AR.stillStanding, Number.POSITIVE_INFINITY)
+      : cellLtr(dateFormat.format(new Date(container.exitedAt)), Date.parse(container.exitedAt)),
+    cellText(
+      AR.daysCount(dwellDays(container.enteredAt, container.exitedAt ?? undefined)),
+      dwellDays(container.enteredAt, container.exitedAt ?? undefined),
+    ),
     cellWrap(container.notes === '' ? dash : container.notes),
   ]);
   const t20 = rows.filter((row) => row.size === 20).length;
@@ -210,7 +219,7 @@ function billModel(rows: readonly ContainerDto[]): TableModel {
     rows.length === 0
       ? null
       : [cellText(AR.totalRow), cellText(AR.billTotals(rows.length, t20, t40))];
-  return { head, body, footer };
+  return { head, body, footer, counted: true };
 }
 
 function dailyModel(rows: readonly DailyReportRow[]): TableModel {
@@ -219,8 +228,8 @@ function dailyModel(rows: readonly DailyReportRow[]): TableModel {
     const at = new Date(`${row.date}T12:00:00+03:00`);
     return [
       cellText(String(index + 1)),
-      cellText(dayFormat.format(at)),
-      cellLtr(dateFormat.format(at)),
+      cellText(dayFormat.format(at), at.getTime()),
+      cellLtr(dateFormat.format(at), at.getTime()),
       cellText(String(row.inCount)),
       cellText(String(row.outCount)),
       cellText(String(row.standing)),
@@ -239,7 +248,7 @@ function dailyModel(rows: readonly DailyReportRow[]): TableModel {
           cellText(String(totalOut)),
           cellText(String(rows.at(-1)?.standing ?? 0)),
         ];
-  return { head, body, footer };
+  return { head, body, footer, counted: true };
 }
 
 const TABS: ReadonlyArray<readonly [Tab, string]> = [

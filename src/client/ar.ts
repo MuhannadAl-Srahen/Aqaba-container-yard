@@ -363,6 +363,17 @@ export const AR = {
    * what the screen shows, what the printer prints and what the PDF and the
    * Excel file carry — so the paper always says what it was filtered by.
    */
+  /**
+   * Every heading is a control: press it to order the register by that
+   * column. The owner's own words — «ترتيب تصاعدي او تنزالي بس اكبس على
+   * العامود الخاص فيهم».
+   */
+  sortAsc: 'ترتيب تصاعدي',
+  sortDesc: 'ترتيب تنازلي',
+  /** The third press: the register goes back to its own order. */
+  sortClear: 'إلغاء الترتيب',
+  sortedBy: (column: string, dir: 'asc' | 'desc'): string =>
+    `مرتّب حسب ${column} — ${dir === 'asc' ? 'تصاعدي' : 'تنازلي'}`,
   sheetSearch: 'ابحث في الكشف عن أي معلومة',
   sheetSearchLabel: 'بحث:',
   sheetSearchFound: (shown: number, total: number): string =>
