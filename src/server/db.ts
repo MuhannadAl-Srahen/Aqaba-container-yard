@@ -176,6 +176,15 @@ export function migrate(db: DatabaseSync, file: string): void {
     db.exec("ALTER TABLE containers ADD COLUMN handling TEXT NOT NULL DEFAULT ''");
   }
 
+  // v16: a move inside the yard is a printed card of its own now, so it needs
+  // a serial — and one container is moved many times, which is why the number
+  // lives on the MOVEMENT and not on the container. Two nullable columns, so
+  // they go in place; every movement written before this reads as no card.
+  if (tableSql('movements') !== undefined && !columnExists(db, 'movements', 'card')) {
+    db.exec('ALTER TABLE movements ADD COLUMN card INTEGER');
+    db.exec('ALTER TABLE movements ADD COLUMN card_year INTEGER');
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -267,13 +276,18 @@ export function migrate(db: DatabaseSync, file: string): void {
       to_zone      TEXT, to_bay   INTEGER, to_stack   INTEGER, to_tier   TEXT,
       note         TEXT    NOT NULL DEFAULT '',
       -- Who did it. NULL is the owner, who is not a row in users.
-      user_id      INTEGER REFERENCES users (id)
+      user_id      INTEGER REFERENCES users (id),
+      -- A MOVE is handed to the crane on paper, so it carries a serial of its
+      -- own, counted per year like the two gate ledgers. Null on every other
+      -- kind of movement — nothing else is printed.
+      card         INTEGER,
+      card_year    INTEGER
     );
 
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 15;
+    PRAGMA user_version = 16;
   `);
 
   // v15: the register is rebuilt to run 1, 2, 3 … N with no hole in it. A

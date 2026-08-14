@@ -1001,3 +1001,50 @@ one that used to sit at its index. The serials: a register of 57 cards read
 read 1 … 56 — no number missing. The bay sheet: 13 checks with nine-digit
 bills written onto a whole bay, nothing clipped sideways or downwards, and
 the widest bay on the plan still whole at 1283px.
+
+## المرحلة 17 — الورقة بيد الموظف: بطاقة الدخول تلقائياً، وبطاقة نقل — 2026-08-14
+
+Status: complete
+
+Built:
+
+- **The entry card prints itself.** Receiving a container is done FOR the
+  card, and the clerk was being made to find the container again and press a
+  button for it. `api.gateIn` already returned the record it created and the
+  screen was throwing it away; now it goes up with the message and the card
+  is on the desk before the truck has moved. The same shape the exit card has
+  used all along.
+- **بطاقة نقل** — the third paper, and the one the yard had none of: «بدي
+  يبين اذا بدي انقل من المكان الموجودة فيه الى المكان الجديد». It opens by
+  itself the moment a move is confirmed, and its table LEADS with «من الموقع»
+  and «إلى الموقع», since that is the whole reason it exists. No truck and no
+  driver on it — nothing left the yard — and no receipt clause, which attests
+  to taking a container in. It is a working paper inside the yard: on no
+  register, exactly as آلية المناولة is on none.
+- **A third ledger, under the same rule.** The move card is numbered per year
+  like the two gate cards. It lives on the MOVEMENT rather than on the
+  container, because one container is moved many times — schema v16, two
+  nullable columns on `movements`, read from the file's own shape. And it
+  joins the existing renumbering rule rather than inventing a second story:
+  striking out a record closes the hole in all three of its ledgers at once,
+  and every one of them is held to 1 … N on every open.
+- **Gravity is on the paper.** Lifting a buried container brings the stack
+  above it down a tier, so a card naming only the container moved would
+  describe a stack the yard no longer has. The descents ride on the movement
+  itself as JSON — the same shape an EDIT's note already used — so reprinting
+  the card months later still says what it said that day, with no extra route
+  on the server. Each descent takes its own line, and every code on it is an
+  unbreakable left-to-right word: the first cut of this printed «…من 2» at
+  the end of one line and «-A-01-08-B إلى» at the start of the next, which is
+  not an address any more. The log tells the same fact in one Arabic
+  sentence rather than showing raw JSON.
+- **Reprint** from the container card, offered only if it has ever moved.
+
+Verified: **198 tests** (3 new), typecheck and lint clean, and 22 browser
+checks on the real build — the entry card appearing with nobody pressing
+anything, the move card's two slots read back and compared against the slot
+the container actually stood in, its own serial and year, the reprint showing
+the same move, a container never moved offering no move card, and a buried
+container's move naming both descents with their tiers, each code measured
+for `nowrap` and `dir="ltr"` so no address can be sawn in half. The other
+sweeps are unchanged: 19/19 print, 18/18 UI, 32/32 register search.

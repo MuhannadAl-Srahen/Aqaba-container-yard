@@ -362,7 +362,17 @@ describe('move', () => {
       payload: { to: slot('B', 15, 4, 'A') },
     });
     expect(moved.status).toBe(200);
-    expect((moved.body as { position: Position }).position).toEqual(slot('B', 15, 4, 'A'));
+    const result = moved.body as {
+      container: { position: Position };
+      move: { from: unknown; to: unknown; card: number; cardYear: number };
+    };
+    expect(result.container.position).toEqual(slot('B', 15, 4, 'A'));
+    // The move hands its own card back — the paper the crane is given, with
+    // the two slots on it and a serial the screen could not have known.
+    expect(result.move.from).toEqual(slot('B', 1, 1, 'A'));
+    expect(result.move.to).toEqual(slot('B', 15, 4, 'A'));
+    expect(result.move.card).toBe(1);
+    expect(result.move.cardYear).toBe(ammanYear(new Date()));
 
     const detail = await call({
       method: 'GET',
@@ -373,6 +383,77 @@ describe('move', () => {
     expect(movements.map((m) => m.type)).toEqual(['IN', 'MOVE']);
     expect(movements[1]?.from).toEqual(slot('B', 1, 1, 'A'));
     expect(movements[1]?.to).toEqual(slot('B', 15, 4, 'A'));
+  });
+
+  /**
+   * The paper the crane is handed. Its whole reason is the two slots, and it
+   * carries what the lift brought down with it — a card that named only the
+   * container moved would describe a stack the yard no longer has.
+   */
+  it('writes the descents onto the move itself, and only when there are any', async () => {
+    const ground = await gateIn('DROP0001', 20, slot('B', 1, 1, 'A'));
+    await gateIn('DROP0002', 20, slot('B', 1, 1, 'B'));
+    await gateIn('DROP0003', 20, slot('B', 1, 1, 'C'));
+
+    const lifted = await call({
+      method: 'POST',
+      url: `/api/containers/${String(ground.body.id)}/move`,
+      payload: { to: slot('B', 3, 1, 'A') },
+    });
+    expect(lifted.status).toBe(200);
+    const note = JSON.parse((lifted.body as { move: { note: string } }).move.note) as {
+      d: Array<{ n: string; f: string; t: string }>;
+    };
+    // Both of the containers that stood on it came down one tier, and the
+    // card says which and from where to where.
+    expect(note.d).toEqual([
+      { n: 'DROP0002', f: '2-B-01-01-B', t: '2-B-01-01-A' },
+      { n: 'DROP0003', f: '2-B-01-01-C', t: '2-B-01-01-B' },
+    ]);
+
+    // A move that lifts nothing off anything writes no note at all.
+    const alone = await call({
+      method: 'POST',
+      url: `/api/containers/${String(ground.body.id)}/move`,
+      payload: { to: slot('B', 5, 1, 'A') },
+    });
+    expect((alone.body as { move: { note: string } }).move.note).toBe('');
+  });
+
+  it('counts move cards per year, and hands a struck-out record’s back', async () => {
+    const first = await gateIn('MCRD0001', 20, slot('B', 21, 1, 'A'));
+    const second = await gateIn('MCRD0002', 20, slot('B', 23, 1, 'A'));
+    const moveTo = async (id: unknown, to: Position): Promise<number> => {
+      const moved = await call({
+        method: 'POST',
+        url: `/api/containers/${String(id)}/move`,
+        payload: { to },
+      });
+      expect(moved.status).toBe(200);
+      return (moved.body as { move: { card: number } }).move.card;
+    };
+
+    expect(await moveTo(first.body.id, slot('B', 25, 1, 'A'))).toBe(1);
+    expect(await moveTo(second.body.id, slot('B', 27, 1, 'A'))).toBe(2);
+    expect(await moveTo(first.body.id, slot('B', 29, 1, 'A'))).toBe(3);
+
+    // Striking out a record takes its whole paper trail out of the count, and
+    // the ledger closes over the hole exactly as the gate ledgers do.
+    const struck = await call({
+      method: 'DELETE',
+      url: `/api/containers/${String(first.body.id)}`,
+    });
+    expect(struck.status).toBe(200);
+    // Only the second container's move is left, and it is number 1 now.
+    const detail = await call({
+      method: 'GET',
+      url: `/api/containers/${String(second.body.id)}`,
+    });
+    const moves = (detail.body as { movements: Array<{ type: string; card: number | null }> })
+      .movements.filter((movement) => movement.type === 'MOVE');
+    expect(moves.map((movement) => movement.card)).toEqual([1]);
+    // And the next move takes 2, not 4.
+    expect(await moveTo(second.body.id, slot('B', 31, 1, 'A'))).toBe(2);
   });
 
   it('the same slot is its own refusal', async () => {
@@ -713,6 +794,7 @@ describe('gate paperwork', () => {
     const serial = entered.body.cardIn;
     expect(serial).toBe(1);
 
+    const moveCards: number[] = [];
     for (const to of [slot('B', 11, 2, 'A'), slot('B', 13, 3, 'A'), slot('B', 9, 1, 'A')]) {
       const moved = await call({
         method: 'POST',
@@ -720,12 +802,16 @@ describe('gate paperwork', () => {
         payload: { to },
       });
       expect(moved.status).toBe(200);
-      expect(moved.body).toMatchObject({ cardIn: serial });
+      const result = moved.body as { container: { cardIn: number }; move: { card: number } };
+      expect(result.container.cardIn).toBe(serial);
+      moveCards.push(result.move.card);
     }
 
-    // Nor does it consume a serial: the next container is still number 2.
+    // Nor does it consume an ENTRY serial: the next container is still 2.
     const next = await gateIn('MOVE0101', 20, slot('B', 15, 1, 'A'));
     expect(next.body.cardIn).toBe(2);
+    // The move cards are their own ledger, and it counts up on its own.
+    expect(moveCards).toEqual([1, 2, 3]);
   });
 
   /**

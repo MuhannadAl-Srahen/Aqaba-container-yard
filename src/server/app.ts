@@ -23,6 +23,7 @@ import type {
 import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
 import { ammanDay, ammanYear, daysBetween } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
+import { positionLabel } from '../shared/address';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
 import { canMove, canPlace, planRemoval } from '../shared/rules';
 import { ASEZA } from '../shared/asezaLayout';
@@ -524,9 +525,35 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       const at = now();
       store.setPosition(db, id, body.to);
-      store.recordMovement(db, id, 'MOVE', at, position, body.to, '', actorId(actor));
+      // What the lift brings down travels ON the movement itself, so the card
+      // can be reprinted months later and still say what it said that day.
+      // Written only when something actually came down.
+      const note =
+        descents.length === 0
+          ? ''
+          : JSON.stringify({
+              d: descents.map((descent) => ({
+                n: descent.container.number,
+                f: positionLabel(descent.container.position),
+                t: positionLabel(descent.to),
+              })),
+            });
+      const year = ammanYear(at);
+      const movementId = store.recordMovement(
+        db,
+        id,
+        'MOVE',
+        at,
+        position,
+        body.to,
+        note,
+        actorId(actor),
+        { serial: store.nextMoveCardNumber(db, year), year },
+      );
       settleAbove(descents, at, dto.number, actorId(actor));
-      return store.getContainer(db, id);
+      // The card is handed back with the container: its serial is minted here,
+      // so nothing on the screen could know it otherwise.
+      return { container: store.getContainer(db, id), move: store.getMovement(db, movementId) };
     });
   });
 

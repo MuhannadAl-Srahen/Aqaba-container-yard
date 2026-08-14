@@ -8,6 +8,7 @@ import { fromLocalStamp, toLocalStamp } from '../shared/dates';
 import { AR } from './ar';
 import type { ContainerEditInput } from './api';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
+import type { CardJob } from './PrintCard';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
 
 /**
@@ -115,8 +116,11 @@ export function ContainerCard(props: {
   /** What the signed-in employee is allowed to do. */
   may: (permission: Permission) => boolean;
   onStartMove: (container: ContainerDto) => void;
-  /** Open the printable gate card. */
-  onPrint: (kind: 'in' | 'out', container: ContainerDto) => void;
+  /**
+   * Open a printable card. A move card is a movement's paper rather than the
+   * container's, so the movement being reprinted comes with it.
+   */
+  onPrint: (job: CardJob) => void;
   /** The container just left: refresh AND hand over its exit card to print. */
   onExited: (container: ContainerDto, message: string) => void;
   onChanged: (message: string) => void;
@@ -140,6 +144,10 @@ export function ContainerCard(props: {
   });
 
   const inYard = container.position !== null;
+  /** The last time it was carried across the yard — the card to reprint. */
+  const lastMove = [...(detail.data?.movements ?? [])]
+    .reverse()
+    .find((movement) => movement.type === 'MOVE');
 
   const run = (work: Promise<unknown>, message: string): void => {
     setBusy(true);
@@ -260,7 +268,7 @@ export function ContainerCard(props: {
           <Button
             kind="quiet"
             onClick={() => {
-              props.onPrint('in', container);
+              props.onPrint({ kind: 'in', container });
             }}
           >
             {AR.printCardIn}
@@ -269,10 +277,22 @@ export function ContainerCard(props: {
             <Button
               kind="quiet"
               onClick={() => {
-                props.onPrint('out', container);
+                props.onPrint({ kind: 'out', container });
               }}
             >
               {AR.printCardOut}
+            </Button>
+          )}
+          {/* The last move's paper again, for when it is lost between the
+              office and the crane. Offered only if it has ever been moved. */}
+          {lastMove !== undefined && (
+            <Button
+              kind="quiet"
+              onClick={() => {
+                props.onPrint({ kind: 'move', container, move: lastMove });
+              }}
+            >
+              {AR.printCardMove}
             </Button>
           )}
         </div>

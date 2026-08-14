@@ -270,6 +270,13 @@ export interface MovementDto {
   readonly from: Position | null;
   readonly to: Position | null;
   readonly note: string;
+  /**
+   * The serial of the printed card this movement produced, and the year that
+   * count runs in. Only a MOVE has one: the crane is handed a paper saying
+   * which container goes from which slot to which. Everything else is null.
+   */
+  readonly card: number | null;
+  readonly cardYear: number | null;
 }
 
 /**

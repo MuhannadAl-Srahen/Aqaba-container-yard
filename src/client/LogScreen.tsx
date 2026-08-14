@@ -42,6 +42,16 @@ function parseEditNote(note: string): EditNote | null {
   }
 }
 
+/** How many containers a MOVE brought down with it, off its own note. */
+function countDrops(note: string): number {
+  try {
+    const parsed = JSON.parse(note) as { d?: unknown[] };
+    return Array.isArray(parsed.d) ? parsed.d.length : 0;
+  } catch {
+    return 0;
+  }
+}
+
 function logModel(rows: readonly LogReportRow[]): TableModel {
   const head = [
     AR.colSeq,
@@ -58,7 +68,12 @@ function logModel(rows: readonly LogReportRow[]): TableModel {
   const body = rows.map((row, index) => {
     const noteParts: string[] = [];
     if (row.type === 'EDIT' && row.note !== '') noteParts.push(AR.editedFields(row.note));
-    else if (row.note !== '') noteParts.push(row.note);
+    // A move carries the descents its lift caused, as the card prints them.
+    // The register says how many; the card in hand names them one by one.
+    else if (row.type === 'MOVE' && row.note !== '') {
+      const dropped = countDrops(row.note);
+      if (dropped > 0) noteParts.push(AR.movedDropped(dropped));
+    } else if (row.note !== '') noteParts.push(row.note);
     if (row.deleted) noteParts.push(AR.deletedRecord);
     return [
       cellText(String(index + 1)),

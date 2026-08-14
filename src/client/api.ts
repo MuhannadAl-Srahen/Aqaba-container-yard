@@ -174,7 +174,11 @@ export const api = {
   }): Promise<ContainerDto> =>
     request('/api/containers', { method: 'POST', body: JSON.stringify(input) }),
 
-  move: (id: number, to: Position): Promise<ContainerDto> =>
+  /**
+   * The move hands back the movement as well as the container: the move card
+   * is numbered by the server, so nothing here could know its serial.
+   */
+  move: (id: number, to: Position): Promise<{ container: ContainerDto; move: MovementDto }> =>
     request(`/api/containers/${String(id)}/move`, {
       method: 'POST',
       body: JSON.stringify({ to }),

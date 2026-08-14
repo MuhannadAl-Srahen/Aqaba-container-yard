@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { Handling, Position } from '../shared/types';
+import type { ContainerDto, Handling, Position } from '../shared/types';
 import { HANDLING, sizeOfBay } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
@@ -15,7 +15,7 @@ import { Button, ErrorLine, Field, Sheet, inputClass } from './ui';
  */
 export function GateInSheet(props: {
   position: Position;
-  onDone: (message: string) => void;
+  onDone: (container: ContainerDto, message: string) => void;
   onClose: () => void;
 }): ReactElement {
   const [number, setNumber] = useState('');
@@ -61,7 +61,9 @@ export function GateInSheet(props: {
         handling,
       })
       .then((container) => {
-        props.onDone(AR.gateInDone(container.number, positionText));
+        // The container itself goes up, not just the message: the screen
+        // above puts its entry card on the desk at once.
+        props.onDone(container, AR.gateInDone(container.number, positionText));
       })
       .catch((failure: unknown) => {
         setError(failure instanceof ApiFailure ? failure.arabic : AR.networkError);

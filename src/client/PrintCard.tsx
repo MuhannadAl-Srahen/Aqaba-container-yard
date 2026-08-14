@@ -1,6 +1,6 @@
-import { useEffect, type ReactElement } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto } from '../shared/types';
+import type { ContainerDto, MovementDto } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { api } from './api';
@@ -10,7 +10,29 @@ import { Button, useEscape } from './ui';
  * The gate card, a proper voucher: serial and date strip, the paperwork in a
  * clean two-column grid, and the two signature boxes. Rendered as an
  * overlay; printing isolates it through the .print-area CSS.
+ *
+ * Three papers come off this one shape: the entry card, the exit card, and
+ * the MOVE card the crane is handed. A move card is tied to a movement rather
+ * than to the container — one container is moved many times — so `kind:
+ * 'move'` carries the movement it prints.
  */
+
+/** What a MOVE movement's note carries when the lift brought others down. */
+interface DropNote {
+  readonly n: string;
+  readonly f: string;
+  readonly t: string;
+}
+
+function dropsOf(note: string): readonly DropNote[] {
+  if (note === '') return [];
+  try {
+    const parsed = JSON.parse(note) as { d?: DropNote[] };
+    return Array.isArray(parsed.d) ? parsed.d : [];
+  } catch {
+    return [];
+  }
+}
 
 const dayFormat = new Intl.DateTimeFormat('ar-JO', { weekday: 'long', timeZone: 'Asia/Amman' });
 // Latin digit order (dd/mm/yyyy) so the date never scrambles inside RTL text.
@@ -23,12 +45,14 @@ const timeFormat = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Amman',
 });
 
-export function PrintCard(props: {
-  kind: 'in' | 'out';
-  container: ContainerDto;
-  onClose: () => void;
-}): ReactElement {
+export type CardJob = { container: ContainerDto } & (
+  | { kind: 'in' | 'out' }
+  | { kind: 'move'; move: MovementDto }
+);
+
+export function PrintCard(props: CardJob & { onClose: () => void }): ReactElement {
   const { kind, container } = props;
+  const move = props.kind === 'move' ? props.move : null;
   useEscape(props.onClose);
 
   // A card can now be opened on top of an open register, and both carry the
@@ -64,14 +88,17 @@ export function PrintCard(props: {
       : [...movements].reverse().find((m) => m.type === 'OUT');
   const slot = container.position ?? gateMove?.from ?? lastGate?.to ?? null;
 
-  const at = kind === 'in' ? container.enteredAt : container.exitedAt;
+  // The moment the paper is about: the gate moment, or the lift itself.
+  const at = move !== null ? move.at : kind === 'in' ? container.enteredAt : container.exitedAt;
   // Four places, and the year the count runs in beneath it: the serial starts
   // again at 1 every January, so «0091» alone names no card.
-  const serial = kind === 'in' ? container.cardIn : container.cardOut;
-  const serialYear = kind === 'in' ? container.cardInYear : container.cardOutYear;
+  const serial = move !== null ? move.card : kind === 'in' ? container.cardIn : container.cardOut;
+  const serialYear =
+    move !== null ? move.cardYear : kind === 'in' ? container.cardInYear : container.cardOutYear;
   const serialText = serial === null ? '—' : String(serial).padStart(4, '0');
   const truck = kind === 'in' ? container.truckIn : container.truckOut;
   const driver = kind === 'in' ? container.driverIn : container.driverOut;
+  const drops = move === null ? [] : dropsOf(move.note);
   // One seal, recorded at entry: the exit stopped asking for a second.
   const sealShown = container.sealIn;
 
@@ -88,7 +115,7 @@ export function PrintCard(props: {
    */
   const row = (
     label: string,
-    value: string,
+    value: ReactNode,
     options: { mono?: boolean; wide?: boolean; danger?: boolean; ltr?: boolean } = {},
   ): ReactElement => (
     <div
@@ -150,14 +177,20 @@ export function PrintCard(props: {
                 about which yard issued it. */}
             <div className="flex flex-1 items-center justify-center px-2 py-2.5">
               <span className="text-lg font-extrabold leading-6">
-                {kind === 'in' ? AR.cardInTitle : AR.cardOutTitle}
+                {kind === 'move'
+                  ? AR.cardMoveTitle
+                  : kind === 'in'
+                    ? AR.cardInTitle
+                    : AR.cardOutTitle}
               </span>
             </div>
             <div className="gate-stamp flex w-40 flex-col justify-center gap-0.5 border-s border-rule-strong px-3 py-2.5 text-[12px]">
               {/* Two dates live on this card and they are not the same thing:
                   this one is when the card itself was issued, the one in the
                   table is when the container went into store. */}
-              <span className="text-[10px] font-semibold text-muted">{AR.cardIssuedAt}</span>
+              <span className="text-[10px] font-semibold text-muted">
+                {kind === 'move' ? AR.cardMovedAt : AR.cardIssuedAt}
+              </span>
               <span className="font-bold">{at === null ? '—' : dayFormat.format(new Date(at))}</span>
               <span dir="ltr" className="text-muted">
                 {at === null ? '—' : dateFormat.format(new Date(at))}
@@ -188,9 +221,19 @@ export function PrintCard(props: {
           </div>
 
           <div className="grid sm:grid-cols-2">
+            {/* The move card leads with the two slots — they are the reason
+                the paper exists: which stack it leaves, which it lands on. */}
+            {move !== null && (
+              <>
+                {row(AR.cardFrom, move.from === null ? '—' : positionLabel(move.from), {
+                  mono: true,
+                })}
+                {row(AR.cardTo, move.to === null ? '—' : positionLabel(move.to), { mono: true })}
+              </>
+            )}
             {row(AR.cardBill, container.bill === '' ? '—' : container.bill, { mono: true })}
             {row(AR.cardSize, AR.feet(container.size))}
-            {row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), { mono: true })}
+            {move === null && row(AR.cardSlot, slot === null ? '—' : positionLabel(slot), { mono: true })}
             {/* The weight and the driver's name are the gate's optional
                 fields; a dash on the card is what "not recorded" looks like. */}
             {row(AR.cardWeight, container.weight === '' ? '—' : container.weight, { ltr: true })}
@@ -206,9 +249,38 @@ export function PrintCard(props: {
             {/* Always the date it went INTO store — on the exit card too,
                 where `at` is the departure and would be the wrong answer. */}
             {row(AR.cardStoredAt, dateFormat.format(new Date(container.enteredAt)), { ltr: true })}
-            {row(AR.cardTruck, truck === '' ? '—' : truck, { ltr: true })}
-            {row(AR.cardDriver, driver === '' ? '—' : driver)}
+            {/* No truck and no driver on a move: nothing left the yard. The
+                weight stays, because the crane wants to know what it lifts. */}
+            {move === null && row(AR.cardTruck, truck === '' ? '—' : truck, { ltr: true })}
+            {move === null && row(AR.cardDriver, driver === '' ? '—' : driver)}
             {row(AR.cardNotes, container.notes === '' ? '—' : container.notes, { wide: true })}
+            {/* Gravity: lifting this one brought the stack above it down a
+                tier, and the crew needs the paper to say which ones and where
+                to. Printed only when something actually came down. */}
+            {drops.length > 0 &&
+              row(
+                AR.cardDrops,
+                <span className="flex w-full flex-col gap-0.5">
+                  {drops.map((drop) => (
+                    <span key={drop.n} className="flex flex-wrap items-center gap-x-1.5">
+                      {/* Every code is its own unbreakable left-to-right word,
+                          so no address is ever cut in half by the wrap. */}
+                      <span className="whitespace-nowrap font-mono font-bold" dir="ltr">
+                        {drop.n}
+                      </span>
+                      <span>{AR.dropFrom}</span>
+                      <span className="whitespace-nowrap font-mono" dir="ltr">
+                        {drop.f}
+                      </span>
+                      <span>{AR.dropTo}</span>
+                      <span className="whitespace-nowrap font-mono" dir="ltr">
+                        {drop.t}
+                      </span>
+                    </span>
+                  ))}
+                </span>,
+                { wide: true },
+              )}
           </div>
 
           <div className="flex border-t-2 border-rule-strong">

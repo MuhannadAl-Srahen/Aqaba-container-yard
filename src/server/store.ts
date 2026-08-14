@@ -458,27 +458,34 @@ export function recordMovement(
   to: Position | null,
   note: string,
   userId: number | null,
-): void {
-  db.prepare(
-    `INSERT INTO movements
+  /** A printed card of its own — only a MOVE carries one. */
+  card: { serial: number; year: number } | null = null,
+): number {
+  const result = db
+    .prepare(
+      `INSERT INTO movements
        (container_id, type, at, from_zone, from_bay, from_stack, from_tier,
-        to_zone, to_bay, to_stack, to_tier, note, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    containerId,
-    type,
-    at,
-    from?.zone ?? null,
-    from?.bay ?? null,
-    from?.stack ?? null,
-    from?.tier ?? null,
-    to?.zone ?? null,
-    to?.bay ?? null,
-    to?.stack ?? null,
-    to?.tier ?? null,
-    note,
-    userId === OWNER_ID ? null : userId,
-  );
+        to_zone, to_bay, to_stack, to_tier, note, user_id, card, card_year)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      containerId,
+      type,
+      at,
+      from?.zone ?? null,
+      from?.bay ?? null,
+      from?.stack ?? null,
+      from?.tier ?? null,
+      to?.zone ?? null,
+      to?.bay ?? null,
+      to?.stack ?? null,
+      to?.tier ?? null,
+      note,
+      userId === OWNER_ID ? null : userId,
+      card?.serial ?? null,
+      card?.year ?? null,
+    );
+  return Number(result.lastInsertRowid);
 }
 
 interface MovementRow {
@@ -495,20 +502,36 @@ interface MovementRow {
   to_tier: string | null;
   note: string;
   user_id: number | null;
+  card: number | null;
+  card_year: number | null;
 }
 
-export function listMovements(db: DatabaseSync, containerId: number): MovementDto[] {
-  const rows = db
-    .prepare('SELECT * FROM movements WHERE container_id = ? ORDER BY at, id')
-    .all(containerId) as unknown as MovementRow[];
-  return rows.map((row) => ({
+/** One movement as the wire carries it — a MOVE brings its card along. */
+function movementOf(row: MovementRow): MovementDto {
+  return {
     id: row.id,
     type: row.type as MovementType,
     at: row.at,
     from: slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier),
     to: slotOf(row.to_zone, row.to_bay, row.to_stack, row.to_tier),
     note: row.note,
-  }));
+    card: row.card,
+    cardYear: row.card_year,
+  };
+}
+
+export function getMovement(db: DatabaseSync, id: number): MovementDto | null {
+  const row = db.prepare('SELECT * FROM movements WHERE id = ?').get(id) as
+    | unknown as MovementRow
+    | undefined;
+  return row === undefined ? null : movementOf(row);
+}
+
+export function listMovements(db: DatabaseSync, containerId: number): MovementDto[] {
+  const rows = db
+    .prepare('SELECT * FROM movements WHERE container_id = ? ORDER BY at, id')
+    .all(containerId) as unknown as MovementRow[];
+  return rows.map(movementOf);
 }
 
 /**
@@ -543,10 +566,30 @@ export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out', year: numbe
   return (row.top ?? 0) + 1;
 }
 
+/**
+ * The next serial for a printed MOVE card. A container is moved many times,
+ * so this card belongs to the MOVEMENT and not to the container — the ledger
+ * is the movements table, counted per year like the two gate ledgers.
+ *
+ * Movements of a struck-out record do not count, exactly as its gate cards do
+ * not: a record written by mistake takes its whole paper trail out with it.
+ */
+export function nextMoveCardNumber(db: DatabaseSync, year: number): number {
+  const row = db
+    .prepare(
+      `SELECT MAX(m.card) AS top FROM movements m
+        JOIN containers k ON k.id = m.container_id
+        WHERE m.type = 'MOVE' AND m.card_year = ? AND k.deleted_at IS NULL`,
+    )
+    .get(year) as { top: number | null };
+  return (row.top ?? 0) + 1;
+}
+
 /** One card that is sitting on the wrong serial, and the one it belongs on. */
 export interface CardFix {
+  /** The row's id in its OWN table: a container for in/out, a movement for move. */
   readonly id: number;
-  readonly kind: 'in' | 'out';
+  readonly kind: 'in' | 'out' | 'move';
   readonly serial: number;
 }
 
@@ -563,12 +606,38 @@ export interface CardFix {
  * lets the whole thing be asserted in a test without a write.
  *
  * The seat a card takes is decided by the gate date — the entry date for an
- * entry card, the exit date for an exit one — and ties are broken by the
- * serial already carried, so a register that is already whole plans nothing
- * and running this twice changes nothing the second time.
+ * entry card, the exit date for an exit one, the moment of the lift for a
+ * move — and ties are broken by the serial already carried, so a register
+ * that is already whole plans nothing and running this twice changes nothing
+ * the second time.
+ *
+ * Three ledgers, one rule. The move cards live in the movements table, so
+ * they are counted there, but a struck-out record takes its moves out of the
+ * count with it exactly as it takes its gate cards.
  */
 export function renumberPlan(db: DatabaseSync): CardFix[] {
   const fixes: CardFix[] = [];
+
+  const moves = db
+    .prepare(
+      `SELECT m.id AS id, m.card_year AS year, m.card AS serial FROM movements m
+        JOIN containers k ON k.id = m.container_id
+        WHERE m.type = 'MOVE' AND m.card IS NOT NULL AND m.card_year IS NOT NULL
+          AND k.deleted_at IS NULL
+        ORDER BY m.card_year, m.at, m.card, m.id`,
+    )
+    .all() as Array<{ id: number; year: number; serial: number }>;
+  let moveYear: number | null = null;
+  let moveSeat = 0;
+  for (const row of moves) {
+    if (row.year !== moveYear) {
+      moveYear = row.year;
+      moveSeat = 0;
+    }
+    moveSeat += 1;
+    if (row.serial !== moveSeat) fixes.push({ id: row.id, kind: 'move', serial: moveSeat });
+  }
+
   for (const kind of ['in', 'out'] as const) {
     const column = kind === 'in' ? 'card_in' : 'card_out';
     const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
@@ -599,6 +668,8 @@ export function applyCardFixes(db: DatabaseSync, fixes: readonly CardFix[]): voi
   const seat = {
     in: db.prepare('UPDATE containers SET card_in = ? WHERE id = ?'),
     out: db.prepare('UPDATE containers SET card_out = ? WHERE id = ?'),
+    // A move card is addressed by its movement, not by its container.
+    move: db.prepare('UPDATE movements SET card = ? WHERE id = ?'),
   };
   for (const fix of fixes) seat[fix.kind].run(fix.serial, fix.id);
 }

@@ -111,7 +111,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(15);
+    ).toBe(16);
     db.close();
   });
 
@@ -304,6 +304,77 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(
       upgraded.prepare("SELECT key FROM settings WHERE key LIKE 'card%'").all(),
     ).toHaveLength(0);
+    upgraded.close();
+  });
+
+  /**
+   * v15 → v16: a move inside the yard became a printed card, so the movements
+   * table gains a serial and its year. Two nullable columns, so every
+   * movement already written rides across and reads as no card — which is
+   * what it was: nothing was printed for it.
+   */
+  it('v15 → v16 gives the movements a card of their own, losing nothing', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'office-v15.db');
+    const db = new DatabaseSync(file);
+    db.exec(`
+      CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO settings VALUES ('password', 'scrypt:hash'), ('cookie_secret', 'sekrit');
+      CREATE TABLE users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, pin_hash TEXT NOT NULL,
+        perms TEXT NOT NULL DEFAULT '', deleted_at TEXT
+      );
+      INSERT INTO users (name, pin_hash, perms) VALUES ('وسام', 'salt:pin', 'MOVE');
+      CREATE TABLE containers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT NOT NULL, number_valid INTEGER NOT NULL,
+        size INTEGER NOT NULL CHECK (size IN (20, 40)),
+        notes TEXT NOT NULL DEFAULT '', entered_at TEXT NOT NULL, exited_at TEXT,
+        bill TEXT NOT NULL DEFAULT '',
+        zone TEXT CHECK (zone IN ('A', 'B', 'C', 'D', 'E')), bay INTEGER, stack INTEGER,
+        tier TEXT CHECK (tier IN ('A', 'B', 'C')),
+        weight TEXT NOT NULL DEFAULT '', handling TEXT NOT NULL DEFAULT '',
+        truck_in TEXT NOT NULL DEFAULT '', driver_in TEXT NOT NULL DEFAULT '',
+        seal_in TEXT NOT NULL DEFAULT '', card_in INTEGER,
+        truck_out TEXT NOT NULL DEFAULT '', driver_out TEXT NOT NULL DEFAULT '',
+        seal_out TEXT NOT NULL DEFAULT '', card_out INTEGER,
+        card_in_year INTEGER, card_out_year INTEGER, deleted_at TEXT
+      );
+      INSERT INTO containers (id, number, number_valid, size, entered_at, zone, bay, stack, tier,
+                              card_in, card_in_year, seal_in)
+        VALUES (1, 'MSCU1234566', 1, 20, '2026-08-10T08:00:00.000Z', 'B', 3, 1, 'A', 1, 2026, 'JO1');
+      CREATE TABLE movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, container_id INTEGER NOT NULL REFERENCES containers (id),
+        type TEXT NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
+        at TEXT NOT NULL,
+        from_zone TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
+        to_zone TEXT, to_bay INTEGER, to_stack INTEGER, to_tier TEXT,
+        note TEXT NOT NULL DEFAULT '', user_id INTEGER REFERENCES users (id)
+      );
+      INSERT INTO movements (container_id, type, at, to_zone, to_bay, to_stack, to_tier)
+        VALUES (1, 'IN', '2026-08-10T08:00:00.000Z', 'B', 1, 1, 'A');
+      INSERT INTO movements (container_id, type, at, from_zone, from_bay, from_stack, from_tier,
+                             to_zone, to_bay, to_stack, to_tier)
+        VALUES (1, 'MOVE', '2026-08-11T08:00:00.000Z', 'B', 1, 1, 'A', 'B', 3, 1, 'A');
+      PRAGMA user_version = 15;
+    `);
+    db.close();
+
+    const upgraded = openDatabase(file);
+    expect(columnsOf(upgraded, 'movements')).toContain('card');
+    expect(columnsOf(upgraded, 'movements')).toContain('card_year');
+    // Both movements survive, and the move made before the cards existed
+    // carries none — it was never printed.
+    const movements = upgraded
+      .prepare('SELECT type, card, card_year FROM movements ORDER BY id')
+      .all() as Array<{ type: string; card: number | null; card_year: number | null }>;
+    expect(movements).toEqual([
+      { type: 'IN', card: null, card_year: null },
+      { type: 'MOVE', card: null, card_year: null },
+    ]);
+    // The container and its gate card are untouched by any of it.
+    expect(
+      upgraded.prepare('SELECT number, card_in FROM containers').get(),
+    ).toEqual({ number: 'MSCU1234566', card_in: 1 });
     upgraded.close();
   });
 

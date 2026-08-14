@@ -9,7 +9,7 @@ import { AR } from './ar';
 import { YardMap, computeLayout } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
-import { PrintCard } from './PrintCard';
+import { PrintCard, type CardJob } from './PrintCard';
 import {
   addressMatch,
   bayKey,
@@ -53,9 +53,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   // bill's own sheet — the search's doorway into كشف البوليصة.
   const [reporting, setReporting] = useState<boolean | string>(false);
   const [logView, setLogView] = useState(false);
-  const [printCard, setPrintCard] = useState<{ kind: 'in' | 'out'; container: ContainerDto } | null>(
-    null,
-  );
+  /**
+   * The paper on screen: the entry card the moment a container is received,
+   * the exit card as it leaves, the move card as it is carried across the
+   * yard. A move card names the movement it prints, since one container is
+   * moved many times.
+   */
+  const [printCard, setPrintCard] = useState<CardJob | null>(null);
   const [usersView, setUsersView] = useState(false);
   /** Temporary: the owner's training tools, removed with OwnerToolsScreen. */
   const [toolsView, setToolsView] = useState(false);
@@ -214,8 +218,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setBusy(true);
     api
       .move(confirmMove.container.id, confirmMove.to)
-      .then(() => {
+      .then((moved) => {
         refresh(AR.moveDone(confirmMove.container.number, positionLabel(confirmMove.to)));
+        // The paper the crane is handed, without anybody asking for it: it
+        // names the slot it left and the slot it is going to.
+        setPrintCard({ kind: 'move', container: moved.container, move: moved.move });
       })
       .catch((failure: unknown) => {
         setBusy(false);
@@ -666,7 +673,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {gateInAt !== null && state.data !== undefined && (
         <GateInSheet
           position={gateInAt}
-          onDone={refresh}
+          // The entry card is what the gate is doing this for, so it comes up
+          // by itself — no hunting the container down to press a button.
+          onDone={(container, message) => {
+            refresh(message);
+            setPrintCard({ kind: 'in', container });
+          }}
           onClose={() => {
             setGateInAt(null);
           }}
@@ -681,9 +693,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             setSelected(null);
             setMoving(container);
           }}
-          onPrint={(kind, container) => {
-            setPrintCard({ kind, container });
-          }}
+          onPrint={setPrintCard}
           onExited={(departed, message) => {
             refresh(message);
             setPrintCard({ kind: 'out', container: departed });
@@ -718,8 +728,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {screen}
       {printCard !== null && (
         <PrintCard
-          kind={printCard.kind}
-          container={printCard.container}
+          {...printCard}
           onClose={() => {
             setPrintCard(null);
           }}

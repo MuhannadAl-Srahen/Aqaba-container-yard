@@ -277,6 +277,34 @@ export const AR = {
   printCardIn: 'طباعة بطاقة دخول',
   printCardOut: 'طباعة بطاقة خروج',
 
+  /**
+   * The move card: the paper the crane is handed. Its whole reason is the two
+   * slots — «بدي يبين اذا بدي انقل من المكان الموجودة فيه الى المكان الجديد».
+   * It is a working paper inside the yard: numbered like the gate cards, and
+   * on no register at all.
+   */
+  cardMoveTitle: 'بطاقة نقل',
+  cardMovedAt: 'تاريخ النقل',
+  cardFrom: 'من الموقع',
+  cardTo: 'إلى الموقع',
+  /**
+   * Lifting a container brings whatever stood on it down one tier. The card
+   * says so, or the crane is holding a paper that describes a stack the yard
+   * no longer has.
+   */
+  cardDrops: 'نزلت بسببها',
+  /**
+   * Each descent is its own line, and each address its own word: a slot code
+   * broken across two lines by the wrap — «…من 2» / «-A-01-08-B إلى» — is not
+   * an address any more, which is exactly what one long joined sentence did.
+   */
+  dropFrom: 'من',
+  dropTo: 'إلى',
+  printCardMove: 'طباعة بطاقة نقل',
+  /** In the operations log, where the same fact is one short sentence. */
+  movedDropped: (n: number): string =>
+    n === 1 ? 'نزلت بسببها حاوية واحدة' : `نزلت بسببها ${String(n)} حاويات`,
+
   // ---- reports ----
   reports: 'التقارير',
   backToMap: 'العودة إلى الخريطة',
