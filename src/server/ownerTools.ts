@@ -131,7 +131,7 @@ export function registerOwnerTools(
   app.post(
     '/api/owner/restore',
     { bodyLimit: UPLOAD_LIMIT },
-    (request): { ok: boolean; containers: number; users: number; backup: string } => {
+    (request): { ok: boolean; backup: string } & RestoreCounts => {
       requireOwner(request);
       const file = liveFile();
       const bytes: unknown = request.body;
@@ -174,18 +174,40 @@ export function registerOwnerTools(
   );
 }
 
-/** Copy every table from a restored database into the live one. */
-function copyAcross(
-  db: DatabaseSync,
-  source: DatabaseSync,
-): { containers: number; users: number } {
-  const rowsOf = (table: string): Array<Record<string, unknown>> =>
-    source.prepare(`SELECT * FROM ${table}`).all() as unknown as Array<Record<string, unknown>>;
+/** What the restore answers with, so the screen can prove nothing was lost. */
+interface RestoreCounts {
+  containers: number;
+  movements: number;
+  users: number;
+  carriers: number;
+  trucks: number;
+}
 
-  const users = rowsOf('users');
-  const containers = rowsOf('containers');
-  const movements = rowsOf('movements');
-  const settings = rowsOf('settings');
+/**
+ * Copy EVERY table from a restored database into the live one — the tables
+ * enumerated from the two files themselves, never from a list written by
+ * hand. A hand-written list is a promise that rots: it named four tables the
+ * year it was written, so when the carriers and their trucks arrived, a
+ * restore silently dropped the whole fleet while claiming success — «تأكد من
+ * موضوع النسخ الاحتياطي لانه لا ينسخ كل شي». The uploaded copy has already
+ * been brought up to today's schema, so both sides hold the same tables; the
+ * intersection is taken anyway, and only sanely-named tables pass, because
+ * this file arrived over the wire.
+ */
+function copyAcross(db: DatabaseSync, source: DatabaseSync): RestoreCounts {
+  const tablesOf = (handle: DatabaseSync): Array<{ name: string; sql: string }> =>
+    handle
+      .prepare(
+        "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+      )
+      .all() as unknown as Array<{ name: string; sql: string }>;
+
+  const liveTables = new Set(tablesOf(db).map((table) => table.name));
+  const tables = tablesOf(source)
+    .filter(({ name }) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && liveTables.has(name))
+    .sort((a, b) => (a.name < b.name ? -1 : 1));
+
+  const copied = new Map<string, number>();
 
   // Foreign keys are switched off around the swap: for a moment the movements
   // are gone while their containers are not, and neither table can be emptied
@@ -200,15 +222,14 @@ function copyAcross(
       // landed, including the owner's own, mid-request.
       const cookieSecret = getSetting(db, 'cookie_secret');
 
-      db.exec('DELETE FROM movements');
-      db.exec('DELETE FROM containers');
-      db.exec('DELETE FROM users');
-      db.exec('DELETE FROM settings');
-
-      insertAll(db, 'users', users);
-      insertAll(db, 'containers', containers);
-      insertAll(db, 'movements', movements);
-      insertAll(db, 'settings', settings);
+      for (const { name } of tables) db.exec(`DELETE FROM ${name}`);
+      for (const { name } of tables) {
+        const rows = source
+          .prepare(`SELECT * FROM ${name}`)
+          .all() as unknown as Array<Record<string, unknown>>;
+        insertAll(db, name, rows);
+        copied.set(name, rows.length);
+      }
       if (cookieSecret !== null) setSetting(db, 'cookie_secret', cookieSecret);
 
       // A snapshot may have been taken by an older version, whose deletions
@@ -217,21 +238,29 @@ function copyAcross(
       store.renumberCards(db);
 
       // AUTOINCREMENT reads its next id from here, not from the table, so
-      // without this the first new container would collide with a restored one.
-      for (const table of ['users', 'containers', 'movements']) {
+      // without this the first new row would collide with a restored one —
+      // for every AUTOINCREMENT table that came across, not a chosen few.
+      db.exec('DELETE FROM sqlite_sequence');
+      for (const { name, sql } of tables) {
+        if (!sql.includes('AUTOINCREMENT')) continue;
         const max = (
-          db.prepare(`SELECT MAX(id) AS top FROM ${table}`).get() as { top: number | null }
+          db.prepare(`SELECT MAX(id) AS top FROM ${name}`).get() as { top: number | null }
         ).top;
-        db.prepare('DELETE FROM sqlite_sequence WHERE name = ?').run(table);
         if (max !== null) {
-          db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(table, max);
+          db.prepare('INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)').run(name, max);
         }
       }
     });
   } finally {
     db.exec('PRAGMA foreign_keys = ON');
   }
-  return { containers: containers.length, users: users.length };
+  return {
+    containers: copied.get('containers') ?? 0,
+    movements: copied.get('movements') ?? 0,
+    users: copied.get('users') ?? 0,
+    carriers: copied.get('carriers') ?? 0,
+    trucks: copied.get('trucks') ?? 0,
+  };
 }
 
 function insertAll(

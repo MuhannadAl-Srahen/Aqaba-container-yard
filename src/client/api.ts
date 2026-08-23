@@ -324,7 +324,15 @@ export const api = {
   /** Upload a .db backup and put the whole snapshot back. */
   restoreBackup: async (
     file: File,
-  ): Promise<{ ok: boolean; containers: number; users: number; backup: string }> => {
+  ): Promise<{
+    ok: boolean;
+    containers: number;
+    movements: number;
+    users: number;
+    carriers: number;
+    trucks: number;
+    backup: string;
+  }> => {
     let response: Response;
     try {
       response = await fetch('/api/owner/restore', {
@@ -343,7 +351,10 @@ export const api = {
     return (await response.json()) as {
       ok: boolean;
       containers: number;
+      movements: number;
       users: number;
+      carriers: number;
+      trucks: number;
       backup: string;
     };
   },

@@ -1253,3 +1253,21 @@ plates assigned to عادل each with its trip count and latest driver; «00»
 alone left on the bench, not being a plate. Noted for the owner: the list's
 82462 (محمد جمعه) never passed the gate, while 60-82463 passed 21 times
 under the same driver's name — likely one typo, his call which.
+
+**Backup and restore, same night.** The owner suspected the backup — «تأكد
+من موضوع النسخ الاحتياطي لانه لا ينسخ كل شي». The backup itself was whole
+(VACUUM INTO copies the entire file, fleet included); the RESTORE was not:
+`copyAcross` copied four tables by name — users, containers, movements,
+settings — a list written before the fleet existed, so a restore silently
+dropped every carrier and truck while claiming success. It now enumerates
+the tables from the two files themselves (intersected, sanely-named only,
+since the upload arrives over the wire), copies every one, reseats
+sqlite_sequence for every AUTOINCREMENT table rather than a chosen few, and
+answers with the full count — containers, movements, users, carriers,
+trucks — which the screen prints, so «رجع كل شي؟» is answered by numbers.
+A backup from before v18 restores WITH the fleet: the upload is migrated
+first, and migration now seeds an empty carriers table. Two new tests: a
+distinctive fleet (a truck handed to عادل, one struck out, one registered
+fresh) round-trips exactly, soft-deleted row included, and new ids continue
+past the restored ones; and a pre-v18 file (fleet tables dropped whole)
+comes back seeded. 255 tests.

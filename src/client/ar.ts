@@ -546,10 +546,19 @@ export const AR = {
   toolsNoFile: 'لم يُختر ملف',
   toolsRestoreAction: 'استرجاع النسخة',
   toolsRestoreConfirm: (name: string): string =>
-    `سيعود كل شيء من «${name}»: الحاويات والحركات والموظفون وكلمات السر. ` +
+    `سيعود كل شيء من «${name}»: الحاويات والحركات والموظفون والناقلون وسياراتهم وكلمات السر. ` +
     'وستُحفظ نسخة احتياطية من الوضع الحالي قبل ذلك. هل تريد المتابعة؟',
-  toolsRestoreDone: (containers: number, users: number): string =>
-    `تم الاسترجاع: ${String(containers)} حاوية و${String(users)} موظف.`,
+  /** The whole count, so «رجع كل شي؟» is answered by numbers, not impressions. */
+  toolsRestoreDone: (counts: {
+    containers: number;
+    movements: number;
+    users: number;
+    carriers: number;
+    trucks: number;
+  }): string =>
+    `تم الاسترجاع كاملاً: ${String(counts.containers)} حاوية، ` +
+    `${String(counts.movements)} حركة في السجل، ${String(counts.users)} موظف، ` +
+    `${String(counts.carriers)} ناقل و${String(counts.trucks)} سيارة.`,
   toolsWipeTitle: 'حذف كل البيانات',
   toolsWipeBody:
     'حذف جميع الحاويات والحركات وإعادة أرقام البطاقات إلى 1. يبقى الموظفون ' +

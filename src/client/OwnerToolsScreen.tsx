@@ -292,9 +292,15 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
           busy={busy}
           onConfirm={() => {
             run(api.restoreBackup(file), (result) => {
-              const counts = result as { containers: number; users: number };
+              const counts = result as {
+                containers: number;
+                movements: number;
+                users: number;
+                carriers: number;
+                trucks: number;
+              };
               setFile(null);
-              return AR.toolsRestoreDone(counts.containers, counts.users);
+              return AR.toolsRestoreDone(counts);
             });
           }}
           onCancel={() => {

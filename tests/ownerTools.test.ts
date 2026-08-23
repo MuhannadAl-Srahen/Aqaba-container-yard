@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readdirSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -333,6 +334,120 @@ describe('استرجاع النسخة الاحتياطية', () => {
     expect(added.status).toBe(201);
 
     expect((added.body as { id: number }).id).toBeGreaterThan(Math.max(...restoredIds));
+  });
+
+  it('brings the fleet back exactly as the snapshot holds it', async () => {
+    // Arrange a distinctive fleet: a truck handed to عادل, one struck out,
+    // one registered fresh — the state a restore must reproduce, not the seed.
+    const fleetOf = async (): Promise<{
+      carriers: Array<{ id: number; name: string }>;
+      trucks: Array<{ id: number; carrierId: number; code: string; number: string }>;
+    }> =>
+      (await call({ method: 'GET', url: '/api/fleet' })).body as {
+        carriers: Array<{ id: number; name: string }>;
+        trucks: Array<{ id: number; carrierId: number; code: string; number: string }>;
+      };
+
+    const before = await fleetOf();
+    const bahaa = before.carriers[0];
+    const adel = before.carriers[1];
+    const moved = before.trucks.find((t) => t.number === '84785');
+    const struck = before.trucks.find((t) => t.number === '93896');
+    if (bahaa === undefined || adel === undefined || moved === undefined || struck === undefined)
+      throw new Error('the seeded fleet is missing');
+    await call({
+      method: 'PATCH',
+      url: `/api/trucks/${String(moved.id)}`,
+      payload: { carrierId: adel.id, code: '60', number: '84785', driver: 'عطالله علي' },
+    });
+    await call({ method: 'DELETE', url: `/api/trucks/${String(struck.id)}` });
+    await call({
+      method: 'POST',
+      url: '/api/trucks',
+      payload: { carrierId: adel.id, code: '26', number: '5511', driver: 'سائق عادل' },
+    });
+
+    const backup = await call({ method: 'POST', url: '/api/backup' });
+    expect(backup.status).toBe(200);
+
+    // Wreck the fleet thoroughly after the snapshot.
+    await call({
+      method: 'PATCH',
+      url: `/api/trucks/${String(moved.id)}`,
+      payload: { carrierId: bahaa.id, code: '60', number: '84785', driver: 'غيره' },
+    });
+    await call({
+      method: 'PATCH',
+      url: `/api/carriers/${String(adel.id)}`,
+      payload: { name: 'عادل معدَّل' },
+    });
+    await call({ method: 'POST', url: '/api/carriers', payload: { name: 'ناقل دخيل' } });
+
+    const restored = await call({ method: 'POST', url: '/api/owner/restore', raw: backup.bytes });
+    expect(restored.status).toBe(200);
+    // The reply counts EVERYTHING it put back, fleet included — «تأكد من كل
+    // البيانات من استرجاعها» is answered with numbers.
+    const counts = restored.body as { carriers: number; trucks: number; movements: number };
+    expect(counts.carriers).toBe(2);
+    // 27 seeded + 1 registered = 28 rows; the struck-out one rides along too,
+    // soft-deleted exactly as the snapshot holds it.
+    expect(counts.trucks).toBe(28);
+
+    const after = await fleetOf();
+    expect(after.carriers.map((c) => c.name)).toEqual(['بهاء أبو الربع', 'عادل أبو غليون']);
+    expect(after.trucks).toHaveLength(27);
+    expect(after.trucks.find((t) => t.number === '84785')?.carrierId).toBe(adel.id);
+    expect(after.trucks.find((t) => t.number === '5511')?.carrierId).toBe(adel.id);
+    expect(after.trucks.find((t) => t.number === '93896')).toBeUndefined();
+
+    // AUTOINCREMENT reseated for trucks too: a new registration must not
+    // collide with a restored id.
+    const fresh = await call({
+      method: 'POST',
+      url: '/api/trucks',
+      payload: { carrierId: bahaa.id, code: '11', number: '99887', driver: '' },
+    });
+    expect(fresh.status).toBe(201);
+    expect((fresh.body as { id: number }).id).toBeGreaterThan(
+      Math.max(...after.trucks.map((t) => t.id)),
+    );
+  });
+
+  it('restores a backup from before the fleet existed and seeds it', async () => {
+    const backup = await call({ method: 'POST', url: '/api/backup' });
+    // Rebuild the snapshot as a pre-v18 file: the fleet tables dropped whole.
+    const old = path.join(dir, 'old-era.db');
+    writeFileSync(old, backup.bytes);
+    const surgery = new DatabaseSync(old);
+    surgery.exec('PRAGMA journal_mode = DELETE');
+    surgery.exec('DROP TABLE trucks; DROP TABLE carriers;');
+    surgery.close();
+
+    // Meanwhile the live fleet diverges, so a lazy restore would show through.
+    const live = (await call({ method: 'GET', url: '/api/fleet' })).body as {
+      carriers: Array<{ id: number }>;
+    };
+    await call({
+      method: 'DELETE',
+      url: `/api/trucks/${String(((await call({ method: 'GET', url: '/api/fleet' })).body as { trucks: Array<{ id: number }> }).trucks[0]?.id)}`,
+    });
+    expect(live.carriers).toHaveLength(2);
+
+    const restored = await call({
+      method: 'POST',
+      url: '/api/owner/restore',
+      raw: readFileSync(old),
+    });
+    expect(restored.status).toBe(200);
+    // The old file never had the tables; migration on the copy seeds the
+    // owner's dictated fleet, and THAT is what comes across.
+    expect((restored.body as { carriers: number }).carriers).toBe(2);
+    expect((restored.body as { trucks: number }).trucks).toBe(27);
+    const after = (await call({ method: 'GET', url: '/api/fleet' })).body as {
+      trucks: Array<{ number: string }>;
+    };
+    expect(after.trucks).toHaveLength(27);
+    expect(after.trucks.some((t) => t.number === '84785')).toBe(true);
   });
 
   it('refuses anything that is not a yard backup', async () => {
