@@ -151,6 +151,9 @@ function truckModel(
     AR.colDate,
     AR.colTime,
     AR.colNumber,
+    // Who drove it. The gate records the name already; the truck's own
+    // register is where it is wanted — «لغايات حسابهم».
+    AR.colDriver,
     AR.colBill,
     AR.colSeal,
     AR.colWeight,
@@ -163,6 +166,7 @@ function truckModel(
     cellText(row.statement === 'IN' ? AR.statementIn : AR.statementOut),
     ...stampCells(new Date(row.at)),
     cellLtr(row.number),
+    cellText(row.driver === '' ? dash : row.driver),
     billCell(row.bill, onBill),
     cellLtr(row.seal === '' ? dash : row.seal),
     cellNumeric(row.weight, dash),

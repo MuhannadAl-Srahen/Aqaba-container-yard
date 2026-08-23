@@ -10,6 +10,7 @@ import { YardMap, computeLayout } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard, type CardJob } from './PrintCard';
+import { FillSheet } from './FillSheet';
 import {
   addressMatch,
   bayKey,
@@ -60,6 +61,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * moved many times.
    */
   const [printCard, setPrintCard] = useState<CardJob | null>(null);
+  /** «كم باقٍ حتى تمتلئ الساحة» — opened from the room chip in the header. */
+  const [fillView, setFillView] = useState(false);
   const [usersView, setUsersView] = useState(false);
   /** Temporary: the owner's training tools, removed with OwnerToolsScreen. */
   const [toolsView, setToolsView] = useState(false);
@@ -300,6 +303,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   } else if (logView) {
     screen = (
       <LogScreen
+        // Undoing what the log already records is the owner's alone; the
+        // server refuses either way, this keeps the promise off the screen.
+        isOwner={isOwner}
         onBack={() => {
           setLogView(false);
         }}
@@ -568,10 +574,18 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           )}
 
           {/* How much room is left, per yard the plan actually holds: one
-              chip today, since the whole drawing is one yard. */}
+              chip today, since the whole drawing is one yard. It counts the
+              slots a container could be set down on this minute — press it
+              for the other question, how many more until the yard is full. */}
           <span className="ms-auto flex flex-wrap items-center gap-1.5">
             {free.map((room) => (
-              <FreeChip key={room.yard} label={AR.freeOfYard(room.yard, room.t20, room.t40)} />
+              <FreeChip
+                key={room.yard}
+                label={AR.freeOfYard(room.yard, room.t20, room.t40)}
+                onClick={() => {
+                  setFillView(true);
+                }}
+              />
             ))}
           </span>
         </div>
@@ -726,6 +740,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   return (
     <>
       {screen}
+      {fillView && (
+        <FillSheet
+          containers={containers}
+          onClose={() => {
+            setFillView(false);
+          }}
+        />
+      )}
       {printCard !== null && (
         <PrintCard
           {...printCard}
@@ -740,11 +762,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 }
 
 /** One yard's remaining room, sized to be read across the office. */
-function FreeChip(props: { label: string }): ReactElement {
+function FreeChip(props: { label: string; onClick: () => void }): ReactElement {
   return (
-    <span className="rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-800 dark:bg-blue-950 dark:text-blue-200">
+    <button
+      type="button"
+      onClick={props.onClick}
+      title={AR.fillTitle}
+      className="rounded-lg bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-800 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200"
+    >
       {props.label}
-    </span>
+    </button>
   );
 }
 

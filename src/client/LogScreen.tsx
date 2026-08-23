@@ -94,6 +94,13 @@ function logModel(rows: readonly LogReportRow[]): TableModel {
 }
 
 export function LogScreen(props: {
+  /**
+   * Undoing a deletion or an edit reaches back into what the log already
+   * records, so it is the owner's alone — «اجعل التراجع فقط عند المالك
+   * لعمليات الحذف او التعديل». The server refuses it for anyone else; this
+   * keeps a button off the screen rather than promising what will be refused.
+   */
+  isOwner: boolean;
   onBack: () => void;
 }): ReactElement {
   const queryClient = useQueryClient();
@@ -211,6 +218,7 @@ export function LogScreen(props: {
             const row = rows[rowIndex];
             if (row === undefined) return null;
             const busy = busyRow !== null;
+            if (!props.isOwner) return null;
             if (row.type === 'DELETE' && row.deleted) {
               return (
                 <button

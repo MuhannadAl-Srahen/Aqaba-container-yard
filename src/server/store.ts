@@ -435,6 +435,39 @@ export function lastDeletePosition(db: DatabaseSync, id: number): Position | nul
   return slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier);
 }
 
+/**
+ * Where it stood as it left — read off the OUT movement, which records the
+ * slot it was lifted from. Needed to take an exit back: the container returns
+ * to its own slot or to nowhere.
+ */
+export function lastExitPosition(db: DatabaseSync, id: number): Position | null {
+  const row = db
+    .prepare(
+      `SELECT from_zone, from_bay, from_stack, from_tier FROM movements
+       WHERE container_id = ? AND type = 'OUT' ORDER BY at DESC, id DESC LIMIT 1`,
+    )
+    .get(id) as
+    | { from_zone: string | null; from_bay: number | null; from_stack: number | null; from_tier: string | null }
+    | undefined;
+  if (row === undefined) return null;
+  return slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier);
+}
+
+/**
+ * An exit taken back: the container stands again where it stood, and its exit
+ * paperwork is voided outright — the truck, the driver and THE CARD. The card
+ * is not kept "for the record": it was never a departure, and leaving its
+ * serial behind would hold a number out of the year's count for nothing.
+ */
+export function cancelExit(db: DatabaseSync, id: number, position: Position): void {
+  db.prepare(
+    `UPDATE containers
+        SET exited_at = NULL, zone = ?, bay = ?, stack = ?, tier = ?,
+            truck_out = '', driver_out = '', card_out = NULL, card_out_year = NULL
+      WHERE id = ?`,
+  ).run(position.zone, position.bay, position.stack, position.tier, id);
+}
+
 /** Undo a soft delete, standing the container back where it was (or out). */
 export function restoreContainer(db: DatabaseSync, id: number, position: Position | null): void {
   db.prepare(

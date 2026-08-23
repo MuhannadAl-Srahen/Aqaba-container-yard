@@ -190,6 +190,16 @@ export const api = {
       body: JSON.stringify(gate),
     }),
 
+  /**
+   * An exit taken back — the container never left. It returns to its own slot
+   * and its exit card is voided; the server refuses if that slot is taken.
+   */
+  unexit: (id: number): Promise<ContainerDto> =>
+    request(`/api/containers/${String(id)}/unexit`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
   reportGate: (type: 'IN' | 'OUT', fromIso: string, toIso: string): Promise<{ rows: GateReportRow[] }> =>
     request(
       `/api/reports/gate?type=${type}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,

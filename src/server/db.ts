@@ -185,6 +185,16 @@ export function migrate(db: DatabaseSync, file: string): void {
     db.exec('ALTER TABLE movements ADD COLUMN card_year INTEGER');
   }
 
+  // v17: an exit can be taken back. A gate is worked by a person at night
+  // under a truck engine, so «قد يكون الخطأ وارد» — a container marked out by
+  // mistake returns to its slot and its exit card is voided, and the log says
+  // RETURN rather than pretending the departure never happened. A new
+  // movement type means a wider CHECK, which SQLite cannot edit in place.
+  const v16MovementsSql = tableSql('movements');
+  if (v16MovementsSql !== undefined && !v16MovementsSql.includes("'RETURN'")) {
+    upgradeMovementsV17(db);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -270,7 +280,9 @@ export function migrate(db: DatabaseSync, file: string): void {
       container_id INTEGER NOT NULL REFERENCES containers (id),
       -- DROP is gravity, not a person: the descent of a container whose floor
       -- was lifted out from under it. Its note names the container that left.
-      type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE')),
+      -- RETURN is an exit taken back: the container never left, so it stands
+      -- again where it stood and its exit card is voided.
+      type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE', 'RETURN')),
       at           TEXT    NOT NULL,
       from_zone    TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
       to_zone      TEXT, to_bay   INTEGER, to_stack   INTEGER, to_tier   TEXT,
@@ -287,7 +299,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 16;
+    PRAGMA user_version = 17;
   `);
 
   // v15: the register is rebuilt to run 1, 2, 3 … N with no hole in it. A
@@ -425,6 +437,48 @@ function upgradeV9toV10(db: DatabaseSync): void {
  * when the box under it is lifted away. Same rebuild dance as v10, same
  * promise — every recorded movement rides across untouched.
  */
+/**
+ * v16 → v17: the movements table gains the RETURN type. Same shape as the
+ * v11 rebuild, and it must carry the card columns v16 added — a rebuild that
+ * forgets a column silently drops every move card the yard has printed.
+ */
+function upgradeMovementsV17(db: DatabaseSync): void {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`
+      CREATE TABLE movements_v17 (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        container_id INTEGER NOT NULL REFERENCES containers (id),
+        type         TEXT    NOT NULL CHECK (type IN ('IN', 'MOVE', 'DROP', 'OUT', 'EDIT', 'DELETE', 'RESTORE', 'RETURN')),
+        at           TEXT    NOT NULL,
+        from_zone    TEXT, from_bay INTEGER, from_stack INTEGER, from_tier TEXT,
+        to_zone      TEXT, to_bay   INTEGER, to_stack   INTEGER, to_tier   TEXT,
+        note         TEXT    NOT NULL DEFAULT '',
+        user_id      INTEGER REFERENCES users (id),
+        card         INTEGER,
+        card_year    INTEGER
+      );
+      INSERT INTO movements_v17
+        (id, container_id, type, at, from_zone, from_bay, from_stack, from_tier,
+         to_zone, to_bay, to_stack, to_tier, note, user_id, card, card_year)
+      SELECT id, container_id, type, at, from_zone, from_bay, from_stack, from_tier,
+             to_zone, to_bay, to_stack, to_tier, note, user_id, card, card_year
+      FROM movements;
+      DROP TABLE movements;
+      ALTER TABLE movements_v17 RENAME TO movements;
+      CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
+      CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
+    `);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
 function upgradeMovementsV11(db: DatabaseSync): void {
   db.exec('PRAGMA foreign_keys = OFF');
   db.exec('BEGIN IMMEDIATE');

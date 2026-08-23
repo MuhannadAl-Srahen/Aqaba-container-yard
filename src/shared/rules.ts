@@ -284,3 +284,138 @@ export function freeNow(layout: YardLayout, standing: readonly Standing[]): Free
     .map(([yard, counts]) => ({ yard, ...counts }))
     .sort((a, b) => a.yard - b.yard);
 }
+
+/**
+ * HOW MUCH ROOM IS LEFT — «كم باقي على الساحة ان تمتلئ».
+ *
+ * `freeNow` above answers a different question: how many slots would accept a
+ * container RIGHT NOW, in one move each. For an empty yard that is 681 — one
+ * ground slot per stack — and its forty-foot figure counts POSITIONS, not
+ * containers: every 40 swallows two of them and cancels the positions either
+ * side. Read as «كم أربعين تدخل» it was simply wrong, and the owner said so.
+ *
+ * These figures answer the question actually asked: filling from here, how
+ * many more containers go in — all twenties, or all forties?
+ *
+ * The height is a parameter because not every part of the yard is stacked
+ * three high in practice. It changes nothing about what the yard ACCEPTS:
+ * the rules still allow three tiers everywhere. It is an assumption for the
+ * arithmetic, and the office chooses it on the screen.
+ */
+export interface FillPlan {
+  /** Slots this zone has at the assumed height: stacks × tiers. */
+  readonly capacity: number;
+  /** Slots taken, counting a forty as the TWO it occupies. */
+  readonly used: number;
+  readonly freeSlots: number;
+  /** How many more twenties fit, filling every stack from the ground up. */
+  readonly twenties: number;
+  /** How many more forties fit — a packing count, not a division. */
+  readonly forties: number;
+}
+
+export interface ZoneFill extends FillPlan {
+  readonly zone: Zone;
+  readonly yard: number;
+}
+
+/**
+ * A forty stands across two ADJACENT odd bays of one stack, and only on
+ * forties. So each stack line is walked bay by bay at each tier: free
+ * neighbours pair up (greedy along a path is optimal for this), and a pair on
+ * the tier above is only counted where a pair was counted below it.
+ */
+function fortiesInZone(
+  zone: ZoneDef,
+  taken: ReadonlyMap<string, Standing>,
+  tiers: readonly Tier[],
+): number {
+  let total = 0;
+  const stacks = new Set<number>();
+  for (const bay of zone.bays) for (const stack of zone.stacks[String(bay)] ?? []) stacks.add(stack);
+
+  for (const stack of stacks) {
+    // The odd bays of this zone that have this stack at all, in plan order.
+    const line = zone.bays.filter((bay) => (zone.stacks[String(bay)] ?? []).includes(stack));
+    /**
+     * Which pairs have a forty beneath them — the ones counted here AND the
+     * ones already standing. Counting only the planned ones would refuse to
+     * stack on top of the yard's own forties, which is the commonest case.
+     */
+    let below = new Set<number>();
+    for (const tier of tiers) {
+      const planned = new Set<number>();
+      const carrying = new Set<number>();
+      for (let index = 0; index < line.length - 1; index += 1) {
+        const left = line[index];
+        const right = line[index + 1];
+        if (left === undefined || right === undefined) continue;
+        // Adjacent on the plan: 01 and 03 sit either side of the even bay 02.
+        if (right !== left + 2) continue;
+        const onLeft = taken.get(cellKey(zone.zone, left, stack, tier));
+        const onRight = taken.get(cellKey(zone.zone, right, stack, tier));
+        // One forty across both — it can carry another forty on its back.
+        if (onLeft !== undefined && onLeft === onRight && onLeft.size === 40) {
+          carrying.add(index);
+          continue;
+        }
+        if (planned.has(index - 1)) continue; // its left neighbour is taken
+        // A forty rests on forties: above the ground it needs one below.
+        const supported = tier === tiers[0] || below.has(index);
+        if (onLeft === undefined && onRight === undefined && supported) {
+          planned.add(index);
+          total += 1;
+        }
+      }
+      below = new Set([...planned, ...carrying]);
+    }
+  }
+  return total;
+}
+
+export function fillPlan(
+  layout: YardLayout,
+  standing: readonly Standing[],
+  height: number,
+): { readonly total: FillPlan; readonly zones: readonly ZoneFill[] } {
+  const tiers = TIERS.slice(0, Math.max(1, Math.min(height, TIERS.length)));
+  const taken = buildOccupancy(standing);
+
+  const zones = layout.zones.map((zone): ZoneFill => {
+    let slots = 0;
+    let used = 0;
+    for (const bay of zone.bays) {
+      for (const stack of zone.stacks[String(bay)] ?? []) {
+        for (const tier of tiers) {
+          slots += 1;
+          // The occupancy map already spreads a forty over both its odd bays,
+          // so counting cells counts a forty as the two slots it fills.
+          if (taken.get(cellKey(zone.zone, bay, stack, tier)) !== undefined) used += 1;
+        }
+      }
+    }
+    return {
+      zone: zone.zone,
+      yard: zone.yard,
+      capacity: slots,
+      used,
+      freeSlots: slots - used,
+      // Every empty slot can be reached by filling its stack from the ground
+      // up, so what is free IS what still fits.
+      twenties: slots - used,
+      forties: fortiesInZone(zone, taken, tiers),
+    };
+  });
+
+  const total = zones.reduce<FillPlan>(
+    (sum, zone) => ({
+      capacity: sum.capacity + zone.capacity,
+      used: sum.used + zone.used,
+      freeSlots: sum.freeSlots + zone.freeSlots,
+      twenties: sum.twenties + zone.twenties,
+      forties: sum.forties + zone.forties,
+    }),
+    { capacity: 0, used: 0, freeSlots: 0, twenties: 0, forties: 0 },
+  );
+  return { total, zones };
+}

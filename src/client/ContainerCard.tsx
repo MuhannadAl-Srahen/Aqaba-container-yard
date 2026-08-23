@@ -47,6 +47,8 @@ const MOVEMENT_TONES = {
   EDIT: 'amber',
   DELETE: 'red',
   RESTORE: 'emerald',
+  // An exit taken back: the container is standing again, like a restore.
+  RETURN: 'emerald',
 } as const;
 
 /** Addresses live in one isolated LTR run: nothing fuses, no arrow flips. */
@@ -127,7 +129,7 @@ export function ContainerCard(props: {
   onClose: () => void;
 }): ReactElement {
   const { container } = props;
-  const [confirming, setConfirming] = useState<'exit' | 'delete' | null>(null);
+  const [confirming, setConfirming] = useState<'exit' | 'unexit' | 'delete' | null>(null);
   const [editing, setEditing] = useState(false);
   const [truckOut, setTruckOut] = useState('');
   const [driverOut, setDriverOut] = useState('');
@@ -144,6 +146,10 @@ export function ContainerCard(props: {
   });
 
   const inYard = container.position !== null;
+  /** The exit it would be taken back from: its slot is on that movement. */
+  const lastOut = [...(detail.data?.movements ?? [])]
+    .reverse()
+    .find((movement) => movement.type === 'OUT');
   /** The last time it was carried across the yard — the card to reprint. */
   const lastMove = [...(detail.data?.movements ?? [])]
     .reverse()
@@ -302,10 +308,15 @@ export function ContainerCard(props: {
         <ErrorLine message={error} />
 
         {/* Only what this employee may do is offered. The refusal still lives
-            on the server; this only keeps dead buttons off the screen. */}
-        {inYard && !editing && (
+            on the server; this only keeps dead buttons off the screen.
+
+            A DEPARTED record is not frozen. Moving and gating out belong to a
+            container that is standing, but correcting what a person typed —
+            and taking back an exit that never happened — belong to every
+            record: «الذي يعمل عليه انسان وقد يكون الخطأ وارد». */}
+        {!editing && (
           <div className="grid grid-cols-2 gap-2">
-            {props.may('MOVE') && (
+            {inYard && props.may('MOVE') && (
               <Button
                 onClick={() => {
                   props.onStartMove(container);
@@ -315,7 +326,7 @@ export function ContainerCard(props: {
                 {AR.actionMove}
               </Button>
             )}
-            {props.may('GATE_OUT') && (
+            {inYard && props.may('GATE_OUT') && (
               <Button
                 kind="quiet"
                 onClick={() => {
@@ -324,6 +335,19 @@ export function ContainerCard(props: {
                 disabled={busy}
               >
                 {AR.actionExit}
+              </Button>
+            )}
+            {/* The exit taken back: it returns to its own slot, and refuses
+                plainly if somebody has taken that slot in the meantime. */}
+            {!inYard && props.may('GATE_OUT') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setConfirming('unexit');
+                }}
+                disabled={busy}
+              >
+                {AR.actionUnexit}
               </Button>
             )}
             {props.may('EDIT') && (
@@ -337,7 +361,7 @@ export function ContainerCard(props: {
                 {AR.actionEdit}
               </Button>
             )}
-            {props.may('DELETE') && (
+            {inYard && props.may('DELETE') && (
               <Button
                 kind="danger"
                 onClick={() => {
@@ -442,6 +466,29 @@ export function ContainerCard(props: {
           </div>
         </div>
       )}
+      {confirming === 'unexit' && (
+        <Confirm
+          title={AR.confirmUnexitTitle}
+          body={AR.confirmUnexitBody(
+            container.number,
+            lastOut === undefined || lastOut.from === null ? '—' : positionLabel(lastOut.from),
+          )}
+          confirmLabel={AR.actionUnexit}
+          busy={busy}
+          onConfirm={() => {
+            run(
+              api.unexit(container.id),
+              AR.unexitDone(
+                container.number,
+                lastOut === undefined || lastOut.from === null ? '—' : positionLabel(lastOut.from),
+              ),
+            );
+          }}
+          onCancel={() => {
+            setConfirming(null);
+          }}
+        />
+      )}
       {confirming === 'delete' && (
         <Confirm
           title={AR.confirmDeleteTitle}
@@ -471,7 +518,6 @@ function EditForm(props: {
 }): ReactElement {
   const [number, setNumber] = useState(props.container.number);
   const [bill, setBill] = useState(props.container.bill);
-  const [size, setSize] = useState<20 | 40>(props.container.size);
   const [notes, setNotes] = useState(props.container.notes);
   const [weight, setWeight] = useState(props.container.weight);
   const [handling, setHandling] = useState<Handling | null>(props.container.handling);
@@ -535,31 +581,15 @@ function EditForm(props: {
           }}
         />
       </Field>
-      <Field
-        label={AR.cardSize}
-        hint={props.standing ? <span className="text-faint">{AR.sizeLockedStanding}</span> : undefined}
-      >
-        <div className="grid grid-cols-2 gap-2">
-          {([20, 40] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              disabled={props.standing && option !== props.container.size}
-              onClick={() => {
-                setSize(option);
-              }}
-              className={
-                'rounded-xl border px-3 py-2 text-sm font-semibold ' +
-                'disabled:cursor-not-allowed disabled:border-line disabled:bg-sunken disabled:text-faint ' +
-                (size === option
-                  ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-line-strong bg-surface text-muted')
-              }
-            >
-              {AR.feet(option)}
-            </button>
-          ))}
-        </div>
+      {/* The class is READ ONLY, standing or departed. A 40 occupies two
+          slots and a 20 one, so a class corrected after the fact falsifies
+          the ground and every count taken off it. To change it the record is
+          struck out and the container received again — which is also the
+          truthful account of what happened. */}
+      <Field label={AR.cardSize} hint={<span className="text-faint">{AR.sizeLockedForever}</span>}>
+        <p className="rounded-xl border border-line bg-sunken px-3 py-2 text-sm font-bold text-muted">
+          {AR.feet(props.container.size)}
+        </p>
       </Field>
       <Field label={AR.weight} hint={<span className="text-faint">{AR.optional}</span>}>
         <input
@@ -705,7 +735,7 @@ function EditForm(props: {
             props.onSave({
               number: number.trim(),
               bill: bill.trim(),
-              size,
+              size: props.container.size,
               notes: notes.trim(),
               weight: weight.trim(),
               handling,

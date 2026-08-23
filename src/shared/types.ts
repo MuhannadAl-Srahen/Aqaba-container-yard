@@ -261,7 +261,16 @@ export interface LogReportRow {
  * touched. Its `note` carries the number of the container whose removal
  * caused the descent.
  */
-export type MovementType = 'IN' | 'MOVE' | 'DROP' | 'OUT' | 'EDIT' | 'DELETE' | 'RESTORE';
+/** RETURN: an exit taken back — the container never left after all. */
+export type MovementType =
+  | 'IN'
+  | 'MOVE'
+  | 'DROP'
+  | 'OUT'
+  | 'EDIT'
+  | 'DELETE'
+  | 'RESTORE'
+  | 'RETURN';
 
 export interface MovementDto {
   readonly id: number;
@@ -317,6 +326,14 @@ export const ERROR_CODES = [
   'ALREADY_OUT',
   'NAME_TAKEN',
   'NOT_DELETED',
+  /** Asked to take back an exit for a container that is standing in the yard. */
+  'NOT_EXITED',
+  /**
+   * The class is fixed for the life of the record: a 40 occupies two slots
+   * and a 20 one, so changing it after the fact would falsify the ground.
+   * To change it: strike the record out and receive the container again.
+   */
+  'SIZE_LOCKED',
   /** The uploaded restore file is not a yard backup this version can read. */
   'BAD_BACKUP',
 ] as const;

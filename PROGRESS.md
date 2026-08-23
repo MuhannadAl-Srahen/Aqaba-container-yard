@@ -1126,3 +1126,57 @@ The composition the review found untested — filter, then order, then renumber,
 while every row keeps the original index its buttons are addressed by — was
 pulled out into `src/client/sheetView.ts` as one pure function and locked with
 six tests of its own.
+
+## المرحلة 19 — الخروج يُصحَّح، والفئة تُقفل، وحاسبة الامتلاء — 2026-08-14
+
+Status: complete
+
+The owner sent eleven requests in one message. Four of them are projects in
+their own right (driver accounting, photos, the customs-PDF import, an editor
+for zones and yards) and were named and deferred; he chose this batch, and he
+chose which of it comes first.
+
+Built:
+
+- **An exit can be corrected, and it can be taken back.** The record used to
+  FREEZE the moment a container left: one `inYard` condition wrapped all four
+  action buttons, so a departed container offered نقل, إخراج, تعديل and حذف —
+  none of them. The edit form and the server had supported exit fields all
+  along; nothing opened them. Now تعديل is offered whether it is standing or
+  gone, and **إلغاء الخروج** returns it to its own slot, voids its exit card
+  and hands the serial back to the year's count, writing a `RETURN` movement
+  so the log says what happened rather than pretending nothing did. It
+  returns to ITS OWN slot or not at all: whatever stood on it came down a
+  tier as it left, so the refusal names who is standing there now.
+- **The class is fixed for the life of the record.** It was editable once the
+  container had left — exactly when nothing on the map contradicts it — and a
+  40 occupies two slots to a 20's one, so a class corrected after the fact
+  falsifies the ground and every count taken off it. The control is gone from
+  the form and the server refuses with SIZE_LOCKED.
+- **An edit no longer disturbs the entry date.** The form shows the gate date
+  to the minute, so what it handed back for a field nobody touched was that
+  minute with the seconds shaved off — a different instant every save. Every
+  edit therefore "changed" the entry date: the IN movement was retimed under
+  the register, and since v15 the year's card serials were re-seated too. The
+  dates are compared by the clock now, and an untouched record keeps the
+  instant it already carries.
+- **The log's undo is the owner's alone**, on the server and on the screen.
+- **The truck register names the driver**, from what the gate already records.
+- **«كم باقٍ حتى تمتلئ الساحة»** — the old figure answered a different
+  question: how many slots would accept a container this minute (681 for an
+  empty yard, one per stack), and its forty-foot number counted POSITIONS,
+  which is not a count of forties at all. The calculator answers in
+  containers: twenties are what is free, forties are a packing count — two
+  adjacent odd bays on one stack, standing only on forties — and the height
+  is the office's own assumption, three tiers or two, switchable on the
+  screen without touching what the yard accepts.
+- Schema v17: the movements table gains the RETURN type, rebuilt carrying the
+  card columns v16 added.
+
+Verified: **229 tests** (11 new, including the two defects reproduced before
+they were fixed), typecheck and lint clean, and **31 browser checks** on the
+real build — the departed record's buttons, the class stated with no control
+to press, a note saved with the entry instant and the card serial measured
+before and after, an exit taken back through the screen with the ledger
+re-counted, the calculator's two answers on both heights, the driver column
+filled, and an employee holding every permission seeing no undo in the log.

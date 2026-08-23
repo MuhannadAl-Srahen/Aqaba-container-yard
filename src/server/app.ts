@@ -20,8 +20,8 @@ import type {
   StandingReportRow,
   YardStateDto,
 } from '../shared/types';
-import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
-import { ammanDay, ammanYear, daysBetween } from '../shared/dates';
+import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES } from '../shared/types';
+import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
 import { positionLabel } from '../shared/address';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
@@ -603,12 +603,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         }
       }
 
-      // A size flip while standing is physically impossible on the official
-      // grid: the bay's parity IS the size. Move it out or gate it out first,
-      // then fix the paperwork.
-      if (body.size !== existing.size && existing.position !== null) {
-        if (sizeOfBay(existing.position.bay) !== body.size) refuse(409, 'BAD_SLOT');
-      }
+      // THE CLASS IS FIXED for the life of the record, standing or departed.
+      // A 40 occupies two slots and a 20 one, so a class corrected after the
+      // fact falsifies the ground itself and every count taken off it. The
+      // owner's own bar: «لا يوجد تعديل على فئة الحاوية … الا عند حذفها ثم
+      // ادخالها مره اخرى» — which is also the truthful record of what
+      // happened, since a 20 that turns out to be a 40 was never that 20.
+      if (body.size !== existing.size) refuse(409, 'SIZE_LOCKED');
 
       // The exit paperwork only exists once there has been an exit; offering
       // it on a standing container would invent a departure that never was.
@@ -651,8 +652,21 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       diff('sealIn', body.sealIn, existing.sealIn);
       diff('truckOut', body.truckOut, existing.truckOut);
       diff('driverOut', body.driverOut, existing.driverOut);
-      diff('enteredAt', body.enteredAt, existing.enteredAt);
-      diff('exitedAt', body.exitedAt ?? '', existing.exitedAt ?? '');
+      // THE GATE DATES ARE COMPARED BY THE CLOCK, NOT BY THE TEXT. The form
+      // shows them to the minute, so what it hands back for a field nobody
+      // touched is the same minute with the seconds shaved off — a different
+      // string every time. Compared raw, EVERY edit "changed" the entry date:
+      // the IN movement was retimed under the register and the year's card
+      // serials re-seated, all for a note. «عند التعديل يجب ان لا يغير تاريخ
+      // دخول الحاوية في السجل».
+      const sameMinute = (a: string | null, b: string | null): boolean =>
+        a === b || (a !== null && b !== null && toLocalStamp(a) === toLocalStamp(b));
+      if (!sameMinute(body.enteredAt, existing.enteredAt)) {
+        diff('enteredAt', body.enteredAt, existing.enteredAt);
+      }
+      if (!sameMinute(body.exitedAt, existing.exitedAt)) {
+        diff('exitedAt', body.exitedAt ?? '', existing.exitedAt ?? '');
+      }
 
       if (changed.length > 0) {
         store.updateContainer(db, id, {
@@ -668,8 +682,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           sealIn: body.sealIn,
           truckOut: body.truckOut,
           driverOut: body.driverOut,
-          enteredAt: body.enteredAt,
-          exitedAt: body.exitedAt,
+          // Unchanged to the minute means untouched: the record keeps the
+          // instant it already carries, seconds and all.
+          enteredAt: changed.includes('enteredAt') ? body.enteredAt : existing.enteredAt,
+          exitedAt: changed.includes('exitedAt') ? body.exitedAt : existing.exitedAt,
         });
 
         // A corrected gate date has to move the gate movement with it, or the
@@ -702,9 +718,45 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   });
 
+  /**
+   * An exit taken back. A gate is worked by a person, at night, beside a
+   * running engine — «قد يكون الخطأ وارد» — and until now a container marked
+   * out by mistake could not be brought back at all: its record froze.
+   *
+   * It returns to ITS OWN slot or not at all. Whatever stood on it came down
+   * a tier as it left, so that slot may be taken now; the refusal names who
+   * is standing there rather than shuffling the yard on its own authority.
+   */
+  app.post('/api/containers/:id/unexit', (request) => {
+    const actor = requirePerm(request, 'GATE_OUT');
+    const id = idParam(request);
+
+    return transaction(db, () => {
+      const existing = store.getContainer(db, id);
+      if (existing === null) refuse(404, 'NOT_FOUND');
+      if (existing === null) throw new Error('unreachable');
+      if (existing.exitedAt === null) refuse(409, 'NOT_EXITED');
+
+      const wasAt = store.lastExitPosition(db, id);
+      if (wasAt === null) refuse(409, 'BAD_SLOT');
+      if (wasAt === null) throw new Error('unreachable');
+      const refusal = canPlace(ASEZA, store.listStanding(db), existing.size, wasAt);
+      if (refusal !== null) refuseRule(refusal);
+
+      store.cancelExit(db, id, wasAt);
+      store.recordMovement(db, id, 'RETURN', now(), null, wasAt, '', actorId(actor));
+      // The exit card is void, so its number goes back into the year's count
+      // and the ledger closes over the hole — the same rule as everywhere.
+      store.renumberCards(db);
+      return store.getContainer(db, id);
+    });
+  });
+
   /** Undo a deletion: the record returns, standing where it stood if it can. */
   app.post('/api/containers/:id/restore', (request) => {
-    const actor = requirePerm(request, 'DELETE');
+    // The owner's alone. Striking out a record is an employee's business;
+    // reaching into the log and undoing what is written there is not.
+    const actor = requireOwner(request);
     const id = idParam(request);
 
     return transaction(db, () => {

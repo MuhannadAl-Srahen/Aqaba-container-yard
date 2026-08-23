@@ -671,16 +671,28 @@ describe('edit and delete', () => {
     expect(backwards.status).toBe(409);
   });
 
-  it('a size flip is refused while standing — the bay’s parity is the size', async () => {
+  /**
+   * THE CLASS IS FIXED for the life of the record. A 40 occupies two slots
+   * and a 20 one, so a class corrected after the fact falsifies the ground
+   * and every count taken off it — «لا يوجد تعديل على فئة الحاوية … الا عند
+   * حذفها ثم ادخالها مره اخرى». It used to be editable once the container
+   * had left, which is exactly when nothing on the map contradicts it.
+   */
+  it('refuses to change the class, standing or departed', async () => {
     const entered = await gateIn('EDIT0002', 20, slot('B', 1, 1, 'A'));
     const flipped = await editWith(entered.body.id, { size: 40 });
     expect(flipped.status).toBe(409);
-    expect((flipped.body as { code: string }).code).toBe('BAD_SLOT');
+    expect((flipped.body as { code: string }).code).toBe('SIZE_LOCKED');
 
-    // Once it leaves, the paperwork can be fixed.
+    // And after it leaves, where the old rule let it through.
     await gateOut(entered.body.id);
-    const fixed = await editWith(entered.body.id, { size: 40 });
-    expect(fixed.status).toBe(200);
+    const later = await editWith(entered.body.id, { size: 40 });
+    expect(later.status).toBe(409);
+    expect((later.body as { code: string }).code).toBe('SIZE_LOCKED');
+
+    // The same edit with the class untouched still saves.
+    const fine = await editWith(entered.body.id, { notes: 'الباب مبعوج' });
+    expect(fine.status).toBe(200);
   });
 
   it('renaming onto a number standing elsewhere is refused', async () => {

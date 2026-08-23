@@ -83,6 +83,26 @@ export const AR = {
   freeOfYard: (yard: number, t20: number, t40: number): string =>
     `ساحة ${String(yard)} — المتاح للعشرين: ${String(t20)} · للأربعين: ${String(t40)}`,
   freeTitle: 'المتاح',
+  /**
+   * The fill calculator. «المتاح» in the header counts SLOTS one could set a
+   * container down on this minute; these are the two answers to the question
+   * the office actually asks — how many more containers until the yard is
+   * full, all twenties or all forties.
+   */
+  fillTitle: 'كم باقٍ حتى تمتلئ الساحة',
+  fillHeight: 'احسب على أساس',
+  fillTiers: (n: number): string => (n === 2 ? 'طابقين' : `${String(n)} طوابق`),
+  fillHeightHint:
+    'هذا افتراض للحساب فقط: الساحة تقبل ثلاثة طوابق كما هي، لكن ليست كل الأماكن ' +
+    'تُرصف ثلاثة فعلاً.',
+  fillZone: 'الزون',
+  fillTwenties: 'عشرين',
+  fillForties: 'أربعين',
+  fillUsed: 'المشغول',
+  fillExplain:
+    'العمودان جوابان منفصلان: كم حاوية عشرين تدخل حتى تمتلئ الساحة، أو كم أربعين. ' +
+    'الأربعين ليست نصف العشرين: تشغل حيّزين وتحتاج بايين متجاورين حرّين على الستاك ' +
+    'نفسه، ولا تقف إلا فوق أربعين — لذلك عددها أقل من نصف العشرينات دائماً.',
   inYardCount: (n: number): string => `${String(n)} حاوية في الساحة`,
   fit: 'ملء الشاشة',
   zoomIn: 'تكبير',
@@ -179,9 +199,23 @@ export const AR = {
   actionExit: 'إخراج',
   actionEdit: 'تعديل',
   actionDelete: 'حذف السجل',
-  sizeLockedStanding:
-    'لا تتغير الفئة والحاوية في موقعها — الباي الفردي للعشرين والزوجي للأربعين. ' +
-    'انقلها أو أخرجها أولاً.',
+  /**
+   * The class is fixed for the life of the record — a 40 occupies two slots
+   * and a 20 one, so a class corrected after the fact falsifies the ground.
+   */
+  sizeLockedForever:
+    'الفئة لا تُعدَّل بعد التسجيل: الأربعين تشغل حيّزين والعشرين حيّزاً واحداً. ' +
+    'إن كانت خطأً فاحذف السجل وأدخل الحاوية من جديد.',
+  /** Taking an exit back: the container never left after all. */
+  actionUnexit: 'إلغاء الخروج',
+  confirmUnexitTitle: 'إلغاء خروج',
+  confirmUnexitBody: (number: string, slot: string): string =>
+    `هل تريد إلغاء خروج الحاوية ${number}؟ تعود إلى موقعها ${slot} وتُلغى بطاقة ` +
+    'خروجها، ويعود رقمها إلى تسلسل السنة. استخدم هذا إذا سُجّل الخروج بالخطأ.',
+  unexitDone: (number: string, slot: string): string =>
+    `تم إلغاء خروج الحاوية ${number}، وعادت إلى الموقع ${slot}`,
+  /** The reprint buttons and the edit stay open after a departure. */
+  departedStillEditable: 'الحاوية خارج الساحة — يمكن تصحيح بياناتها أو إلغاء خروجها.',
   movementsTitle: 'الحركات',
   movementIn: 'إدخال',
   movementMove: 'نقل',
@@ -342,6 +376,8 @@ export const AR = {
   colSeal: 'رقم الرصاصة',
   colNotes: 'ملاحظات',
   colUser: 'الموظف',
+  /** In كشف سيارة: who drove this trip, for settling with him later. */
+  colDriver: 'اسم السائق',
   colEnteredAt: 'تاريخ الدخول',
   colDwell: 'المدة',
   daysCount: (n: number): string =>
@@ -422,6 +458,7 @@ export const AR = {
     EDIT: 'تعديل',
     DELETE: 'حذف',
     RESTORE: 'استرجاع',
+    RETURN: 'إلغاء خروج',
   } as Record<string, string>,
   actionColumn: 'إجراء',
   cardAction: 'بطاقة',
@@ -522,6 +559,10 @@ export const AR = {
     ALREADY_OUT: 'هذه الحاوية خرجت من الساحة من قبل.',
     NAME_TAKEN: 'الاسم مستخدم. اختر اسماً آخر.',
     NOT_DELETED: 'هذا السجل غير محذوف أصلاً.',
+    NOT_EXITED: 'هذه الحاوية واقفة في الساحة ولم تخرج، فلا خروج يُلغى.',
+    SIZE_LOCKED:
+      'لا تُغيَّر فئة الحاوية بعد تسجيلها: الأربعين تشغل حيّزين والعشرين حيّزاً ' +
+      'واحداً. لتصحيحها احذف السجل وأدخل الحاوية من جديد.',
     BAD_BACKUP:
       'الملف ليس نسخة احتياطية صالحة. اختر ملف ‎.db مأخوذاً من زر النسخة الاحتياطية.',
   } satisfies Record<ErrorCode, string>,
