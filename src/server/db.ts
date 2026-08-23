@@ -371,7 +371,10 @@ function seedFleet(db: DatabaseSync): void {
     ['84785', 'عطالله علي'],
     ['93896', 'علي جميعان'],
     ['89096', 'ابراهيم عبدالله'],
-    ['82462', 'محمد جمعه'],
+    // 82463, not 82462: the owner first dictated 82462, the gate had carried
+    // 82463 twenty-one times under the same driver's name, and asked which
+    // was true he answered «82463 وهذه هو رقم السيارة».
+    ['82463', 'محمد جمعه'],
     ['60233', 'محمد عبدالله'],
     ['80943', 'يزن ماهر'],
     ['59452', 'صالح ابو زايد'],

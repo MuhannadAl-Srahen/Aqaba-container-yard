@@ -283,6 +283,32 @@ describe('كشف سيارات الناقل', () => {
     expect(rows.every((row) => row.statement === 'IN')).toBe(true);
   });
 
+  it('follows a moved truck: the register reads by the CURRENT carrier', async () => {
+    // «تأكد من موضوع النقل»: a truck handed to another carrier takes its
+    // whole gate history with it — the register asks who owns the plate NOW.
+    await gateIn('MOVE0026', slot(7, 1), '60-84785', 'عطالله علي');
+    const { body: current } = await fleet();
+    const bahaa = current.carriers[0];
+    const adel = current.carriers[1];
+    const truck = current.trucks.find((t) => t.number === '84785');
+    if (truck === undefined) throw new Error('84785 missing from the seed');
+    await call({
+      method: 'PATCH',
+      url: `/api/trucks/${String(truck.id)}`,
+      payload: { carrierId: adel?.id, code: truck.code, number: truck.number, driver: truck.driver },
+    });
+    const his = await call({
+      method: 'GET',
+      url: `/api/reports/truck?carrier=${String(adel?.id)}&${range()}`,
+    });
+    const hers = await call({
+      method: 'GET',
+      url: `/api/reports/truck?carrier=${String(bahaa?.id)}&${range()}`,
+    });
+    expect((his.body.rows as unknown[]).length).toBe(1);
+    expect((hers.body.rows as unknown[]).length).toBe(0);
+  });
+
   it('an unknown carrier is refused by name', async () => {
     const missing = await call({ method: 'GET', url: `/api/reports/truck?carrier=999&${range()}` });
     expect(missing.status).toBe(404);
