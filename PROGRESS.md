@@ -1236,3 +1236,20 @@ fetching its bundle over Tailscale (read-only; not a byte of its data was
 touched, as he ordered three times) and finding «إلغاء الخروج» absent from
 it while the Desktop AqabaYard-Setup folder carries it. The fix is his own
 one step: copy the folder across and run التثبيت.
+
+**Follow-up, same night.** The owner's dev server (tsx watch, live on this
+machine) reloaded mid-edit while v18 was being written: it created the two
+tables before `seedFleet` existed, crashed, and every later open found the
+tables present and never seeded — he opened «الناقلون», found it empty, and
+added «بهاء ابو الربع» by hand. Two consequences: the seed condition now
+counts rows instead of asking whether the table exists (`carriersEver === 0`),
+so a process that dies between creating the tables and seeding them leaves a
+state the next open finishes — while soft-deleted rows still count and
+nothing he strikes out is ever re-planted. And on his order — «افصلهم على
+بيئة التطوير» — the dev database was separated through the store layer
+itself: his own hand-added carrier kept (his spelling, his row), the 27
+registered under it, «عادل ابو غليون» created, and the 43 remaining gate
+plates assigned to عادل each with its trip count and latest driver; «00»
+alone left on the bench, not being a plate. Noted for the owner: the list's
+82462 (محمد جمعه) never passed the gate, while 60-82463 passed 21 times
+under the same driver's name — likely one typo, his call which.

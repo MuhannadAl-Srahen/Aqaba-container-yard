@@ -195,13 +195,6 @@ export function migrate(db: DatabaseSync, file: string): void {
     upgradeMovementsV17(db);
   }
 
-  // v18: the carriers and their trucks arrive below. Whether this open is the
-  // one creating them is decided HERE, before the CREATE block runs — the
-  // fleet the owner dictated is seeded exactly once, on the open that first
-  // brings the tables in, and never again, so a truck he later deletes or
-  // reassigns stays deleted and reassigned.
-  const hadCarriers = tableSql('carriers') !== undefined;
-
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -334,8 +327,17 @@ export function migrate(db: DatabaseSync, file: string): void {
     PRAGMA user_version = 18;
   `);
 
-  // The fleet the owner dictated, planted the one time the tables are born.
-  if (!hadCarriers) seedFleet(db);
+  // v18: the fleet the owner dictated, planted exactly once — into a carriers
+  // table that has never held a row. Counting rows rather than asking whether
+  // the table existed makes the step self-healing: a process that died between
+  // creating the tables and seeding them (a dev server reloading mid-edit did
+  // precisely this) leaves empty tables, and the next open finishes the job.
+  // Soft-deleted rows still count, so a fleet the owner later strikes out or
+  // rearranges is never re-planted behind his back.
+  const carriersEver = (
+    db.prepare('SELECT COUNT(*) AS n FROM carriers').get() as { n: number }
+  ).n;
+  if (carriersEver === 0) seedFleet(db);
 
   // v15: the register is rebuilt to run 1, 2, 3 … N with no hole in it. A
   // deletion under an older version of this program left the numbers after it
