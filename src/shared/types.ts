@@ -134,6 +134,47 @@ export interface MeDto {
   readonly permissions: readonly Permission[];
 }
 
+/**
+ * ناقل: the trucking company whose fleet serves the yard. Soft-deleted like
+ * everything else — an old register still names who carried the box.
+ */
+export interface CarrierDto {
+  readonly id: number;
+  readonly name: string;
+}
+
+/**
+ * One registered truck of one carrier. `code` is the plate's ترميز — the
+ * category prefix Jordanian plates carry (the owner's fleet reads 60) — and
+ * `driver` is the driver usually behind its wheel, offered to the gate as a
+ * suggestion, never forced.
+ */
+export interface TruckDto {
+  readonly id: number;
+  readonly carrierId: number;
+  readonly code: string;
+  readonly number: string;
+  readonly driver: string;
+}
+
+/** The whole registry in one answer: who the carriers are and what they run. */
+export interface FleetDto {
+  readonly carriers: readonly CarrierDto[];
+  readonly trucks: readonly TruckDto[];
+}
+
+/**
+ * A plate the gate has recorded that matches no registered truck yet — the
+ * raw material of «توزيع السيارات»: the owner assigns each to its carrier.
+ */
+export interface UnassignedPlateRow {
+  /** The most recent spelling the gate used. */
+  readonly plate: string;
+  readonly trips: number;
+  /** The most recent driver name typed alongside it, if any. */
+  readonly driver: string;
+}
+
 export interface ContainerDto {
   readonly id: number;
   readonly number: string;
@@ -336,6 +377,10 @@ export const ERROR_CODES = [
   'SIZE_LOCKED',
   /** The uploaded restore file is not a yard backup this version can read. */
   'BAD_BACKUP',
+  /** A live truck with this very plate is already registered. */
+  'TRUCK_EXISTS',
+  /** A carrier still holding trucks cannot be struck out. */
+  'CARRIER_HAS_TRUCKS',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

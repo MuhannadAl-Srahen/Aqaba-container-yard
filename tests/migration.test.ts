@@ -108,10 +108,17 @@ describe('schema v9 — the cutover to the official yard', () => {
     ).toBeUndefined();
 
     // The yard's shape left the database entirely.
-    expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
+    expect(tablesOf(db)).toEqual([
+      'carriers',
+      'containers',
+      'movements',
+      'settings',
+      'trucks',
+      'users',
+    ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(17);
+    ).toBe(18);
     db.close();
   });
 
@@ -161,7 +168,14 @@ describe('schema v9 — the cutover to the official yard', () => {
     const dir = scratch();
     const file = path.join(dir, 'fresh.db');
     const db = openDatabase(file);
-    expect(tablesOf(db)).toEqual(['containers', 'movements', 'settings', 'users']);
+    expect(tablesOf(db)).toEqual([
+      'carriers',
+      'containers',
+      'movements',
+      'settings',
+      'trucks',
+      'users',
+    ]);
     expect(columnsOf(db, 'containers')).toContain('tier');
     expect(columnsOf(db, 'containers')).toContain('bill');
     // A fresh file is never given the three struck-out columns to begin with.

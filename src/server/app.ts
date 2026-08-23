@@ -12,15 +12,18 @@ import type {
   ContainerDto,
   DailyReportRow,
   ErrorCode,
+  FleetDto,
   GateReportRow,
   LogReportRow,
   MeDto,
   Permission,
   Position,
   StandingReportRow,
+  UnassignedPlateRow,
   YardStateDto,
 } from '../shared/types';
 import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES } from '../shared/types';
+import { normalizePlate, plateMatches } from '../shared/fleet';
 import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
 import { positionLabel } from '../shared/address';
@@ -155,6 +158,18 @@ const userPatchSchema = z.object({
   name: z.string().trim().min(1).max(40),
   permissions: permissionSchema,
   pin: pinSchema.optional(),
+});
+
+const carrierSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+});
+
+/** A registered truck: its carrier, the plate's ترميز, its number, its usual driver. */
+const truckSchema = z.object({
+  carrierId: z.number().int().positive(),
+  code: z.string().trim().max(10),
+  number: z.string().trim().min(1).max(20),
+  driver: z.string().trim().max(60),
 });
 
 function parseOrRefuse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
@@ -410,6 +425,130 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return transaction(db, () => {
       if (store.getUser(db, id) === null) refuse(404, 'NOT_FOUND');
       store.softDeleteUser(db, id, now());
+      return { ok: true };
+    });
+  });
+
+  /**
+   * الأسطول: الناقلون وسياراتهم في جواب واحد. Anyone signed in may read it —
+   * the gate needs it to recognise a plate as it is typed and offer the
+   * registered driver; writing it is the owner's alone, below.
+   */
+  app.get('/api/fleet', (request): FleetDto => {
+    requireAuth(request);
+    return { carriers: store.listCarriers(db), trucks: store.listTrucks(db) };
+  });
+
+  /**
+   * السيارات التي مرّت على البوابة ولم تُسجَّل بعد عند أي ناقل — what the
+   * owner distributes: each row is one plate as the gate spelled it, with its
+   * trips and the driver most recently written beside it.
+   */
+  app.get('/api/fleet/unassigned', (request): { rows: UnassignedPlateRow[] } => {
+    requireOwner(request);
+    const trucks = store.listTrucks(db);
+    // Newest usage first, so the display spelling and the driver name are the
+    // latest word the gate had for that plate.
+    const seen = new Map<string, { plate: string; trips: number; driver: string }>();
+    for (const usage of store.listPlateUsage(db)) {
+      const key = normalizePlate(usage.plate);
+      if (key === '') continue;
+      const entry = seen.get(key);
+      if (entry === undefined) {
+        seen.set(key, { plate: usage.plate, trips: 1, driver: usage.driver });
+      } else {
+        entry.trips += 1;
+        if (entry.driver === '' && usage.driver !== '') entry.driver = usage.driver;
+      }
+    }
+    const rows = [...seen.values()]
+      .filter((row) => !trucks.some((truck) => plateMatches(truck, row.plate)))
+      .sort((a, b) => b.trips - a.trips);
+    return { rows };
+  });
+
+  app.post('/api/carriers', (request, reply) => {
+    requireOwner(request);
+    const body = parseOrRefuse(carrierSchema, request.body);
+    return transaction(db, () => {
+      if (store.carrierNameTaken(db, body.name)) refuse(409, 'NAME_TAKEN');
+      const id = store.insertCarrier(db, body.name);
+      void reply.status(201);
+      return store.getCarrier(db, id);
+    });
+  });
+
+  app.patch('/api/carriers/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    const body = parseOrRefuse(carrierSchema, request.body);
+    return transaction(db, () => {
+      if (store.getCarrier(db, id) === null) refuse(404, 'NOT_FOUND');
+      if (store.carrierNameTaken(db, body.name, id)) refuse(409, 'NAME_TAKEN');
+      store.renameCarrier(db, id, body.name);
+      return store.getCarrier(db, id);
+    });
+  });
+
+  /**
+   * Soft, and only once his trucks have been moved or struck out themselves:
+   * silently orphaning a fleet — or worse, cascading it away — would erase
+   * the very distribution the owner just made.
+   */
+  app.delete('/api/carriers/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    return transaction(db, () => {
+      if (store.getCarrier(db, id) === null) refuse(404, 'NOT_FOUND');
+      const holding = store.carrierTruckCount(db, id);
+      if (holding > 0) refuse(409, 'CARRIER_HAS_TRUCKS', { count: holding });
+      store.softDeleteCarrier(db, id, now());
+      return { ok: true };
+    });
+  });
+
+  app.post('/api/trucks', (request, reply) => {
+    requireOwner(request);
+    const body = parseOrRefuse(truckSchema, request.body);
+    return transaction(db, () => {
+      if (store.getCarrier(db, body.carrierId) === null) refuse(404, 'NOT_FOUND');
+      // One plate, one truck: the same normalized code+number under any
+      // carrier is the same physical vehicle registered twice.
+      const plate = normalizePlate(body.code + body.number);
+      const twin = store
+        .listTrucks(db)
+        .find((truck) => normalizePlate(truck.code + truck.number) === plate);
+      if (twin !== undefined) refuse(409, 'TRUCK_EXISTS');
+      const id = store.insertTruck(db, body);
+      void reply.status(201);
+      return store.getTruck(db, id);
+    });
+  });
+
+  /** Correct a plate or driver, or hand the truck to another carrier — «توزيع». */
+  app.patch('/api/trucks/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    const body = parseOrRefuse(truckSchema, request.body);
+    return transaction(db, () => {
+      if (store.getTruck(db, id) === null) refuse(404, 'NOT_FOUND');
+      if (store.getCarrier(db, body.carrierId) === null) refuse(404, 'NOT_FOUND');
+      const plate = normalizePlate(body.code + body.number);
+      const twin = store
+        .listTrucks(db)
+        .find((truck) => truck.id !== id && normalizePlate(truck.code + truck.number) === plate);
+      if (twin !== undefined) refuse(409, 'TRUCK_EXISTS');
+      store.updateTruck(db, id, body);
+      return store.getTruck(db, id);
+    });
+  });
+
+  app.delete('/api/trucks/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    return transaction(db, () => {
+      if (store.getTruck(db, id) === null) refuse(404, 'NOT_FOUND');
+      store.softDeleteTruck(db, id, now());
       return { ok: true };
     });
   });
@@ -891,17 +1030,40 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return { rows: store.listOperationsLog(db, range.from, range.to) };
   });
 
-  /** كشف سيارة: كل اللي حملته سيارة وحدة، دخول وخروج. */
+  /**
+   * كشف سيارة: كل اللي حملته سيارة وحدة، دخول وخروج — أو، بالناقل، كل ما
+   * حملته سيارات ناقل واحد: «اريد كشف سيارات بناءا على الناقل». The carrier's
+   * plates are matched by normalized text, so «60-84785» typed at the gate
+   * still answers for the truck registered as 84785 under code 60.
+   */
   app.get(
     '/api/reports/truck',
     (request): { rows: Array<GateReportRow & { statement: 'IN' | 'OUT' }> } => {
       requirePerm(request, 'REPORTS');
-      const query = request.query as { truck?: string; from?: string; to?: string };
-      const truck = (query.truck ?? '').trim();
-      if (truck === '' || truck.length > 30) refuse(400, 'VALIDATION');
+      const query = request.query as {
+        truck?: string;
+        carrier?: string;
+        from?: string;
+        to?: string;
+      };
       const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
 
-      const rows = store.listTruckMovements(db, truck, range.from, range.to).map((row) => ({
+      let source: Array<ReturnType<typeof store.listTruckMovements>[number]>;
+      if (query.carrier !== undefined) {
+        const carrierId = Number(query.carrier);
+        if (!Number.isInteger(carrierId) || carrierId < 1) refuse(400, 'VALIDATION');
+        if (store.getCarrier(db, carrierId) === null) refuse(404, 'NOT_FOUND');
+        const fleet = store.listTrucks(db).filter((truck) => truck.carrierId === carrierId);
+        source = store
+          .listGateMovementsBoth(db, range.from, range.to)
+          .filter((row) => fleet.some((truck) => plateMatches(truck, row.truck)));
+      } else {
+        const truck = (query.truck ?? '').trim();
+        if (truck === '' || truck.length > 30) refuse(400, 'VALIDATION');
+        source = store.listTruckMovements(db, truck, range.from, range.to);
+      }
+
+      const rows = source.map((row) => ({
         statement: row.type,
         containerId: row.containerId,
         at: row.at,

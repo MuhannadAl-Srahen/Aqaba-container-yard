@@ -1,8 +1,10 @@
 import type {
   ApiError,
+  CarrierDto,
   ContainerDto,
   DailyReportRow,
   ErrorCode,
+  FleetDto,
   GateReportRow,
   Handling,
   LogReportRow,
@@ -11,6 +13,8 @@ import type {
   Permission,
   Position,
   StandingReportRow,
+  TruckDto,
+  UnassignedPlateRow,
   UserDto,
   YardStateDto,
 } from '../shared/types';
@@ -226,6 +230,50 @@ export const api = {
     request(
       `/api/reports/truck?truck=${encodeURIComponent(truck)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
     ),
+
+  /** كشف سيارات ناقل واحد: كل ما حملته سياراته المسجَّلة، دخولاً وخروجاً. */
+  reportCarrier: (
+    carrierId: number,
+    fromIso: string,
+    toIso: string,
+  ): Promise<{ rows: Array<GateReportRow & { statement: 'IN' | 'OUT' }> }> =>
+    request(
+      `/api/reports/truck?carrier=${String(carrierId)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  /** الناقلون وسياراتهم — ما تحتاجه البوابة للتعرّف على رقم مكتوب. */
+  fleet: (): Promise<FleetDto> => request('/api/fleet'),
+
+  /** السيارات التي كتبتها البوابة ولا تطابق أي سيارة مسجّلة — للتوزيع. */
+  unassignedPlates: (): Promise<{ rows: UnassignedPlateRow[] }> =>
+    request('/api/fleet/unassigned'),
+
+  addCarrier: (name: string): Promise<CarrierDto> =>
+    request('/api/carriers', { method: 'POST', body: JSON.stringify({ name }) }),
+
+  renameCarrier: (id: number, name: string): Promise<CarrierDto> =>
+    request(`/api/carriers/${String(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+
+  removeCarrier: (id: number): Promise<{ ok: boolean }> =>
+    request(`/api/carriers/${String(id)}`, { method: 'DELETE' }),
+
+  addTruck: (input: {
+    carrierId: number;
+    code: string;
+    number: string;
+    driver: string;
+  }): Promise<TruckDto> =>
+    request('/api/trucks', { method: 'POST', body: JSON.stringify(input) }),
+
+  /** تعديل بيانات سيارة، أو نقلها إلى ناقل آخر بتغيير carrierId — «توزيع». */
+  editTruck: (
+    id: number,
+    input: { carrierId: number; code: string; number: string; driver: string },
+  ): Promise<TruckDto> =>
+    request(`/api/trucks/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
+
+  removeTruck: (id: number): Promise<{ ok: boolean }> =>
+    request(`/api/trucks/${String(id)}`, { method: 'DELETE' }),
 
   /** كشف البوليصة: every container under one bill, standing first. */
   reportBill: (bill: string): Promise<{ rows: ContainerDto[] }> =>

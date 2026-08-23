@@ -27,6 +27,7 @@ import { ContainerCard } from './ContainerCard';
 import { BaySheet } from './BaySheet';
 import { OwnerToolsScreen } from './OwnerToolsScreen';
 import { UsersScreen } from './UsersScreen';
+import { CarriersScreen } from './CarriersScreen';
 import { ThemePicker } from './ThemePicker';
 import { Button, Confirm, Toast } from './ui';
 
@@ -64,6 +65,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   /** «كم باقٍ حتى تمتلئ الساحة» — opened from the room chip in the header. */
   const [fillView, setFillView] = useState(false);
   const [usersView, setUsersView] = useState(false);
+  /** سجل الناقلين وسياراتهم، وفيه «توزيع السيارات» — للمالك وحده. */
+  const [carriersView, setCarriersView] = useState(false);
   /** Temporary: the owner's training tools, removed with OwnerToolsScreen. */
   const [toolsView, setToolsView] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -105,7 +108,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * paid for gladly when the map is on screen, since that IS the map, and it
    * is pure waste when it is not.
    */
-  const mapShown = !usersView && !toolsView && reporting === false && !logView;
+  const mapShown =
+    !usersView && !toolsView && !carriersView && reporting === false && !logView;
 
   // The map is the shared picture of the ground, so it is the fastest poll:
   // whatever the gate does has to reach the office within a few seconds.
@@ -273,6 +277,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <UsersScreen
         onBack={() => {
           setUsersView(false);
+        }}
+      />
+    );
+  } else if (carriersView && isOwner) {
+    screen = (
+      <CarriersScreen
+        onBack={() => {
+          setCarriersView(false);
         }}
       />
     );
@@ -506,6 +518,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                   }}
                 >
                   {AR.usersButton}
+                </Button>
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setCarriersView(true);
+                  }}
+                >
+                  {AR.carriersButton}
                 </Button>
                 <Button
                   kind="quiet"

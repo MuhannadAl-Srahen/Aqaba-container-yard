@@ -7,6 +7,7 @@ import type {
   StandingReportRow,
 } from '../shared/types';
 import { cardSerial } from '../shared/types';
+import { carrierOfPlate } from '../shared/fleet';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { api, dwellDays } from './api';
@@ -143,13 +144,21 @@ function standingModel(
 function truckModel(
   rows: ReadonlyArray<GateReportRow & { statement: 'IN' | 'OUT' }>,
   onBill: (bill: string) => void,
+  /**
+   * Set in carrier mode, where the rows span the whole fleet: the plate gets
+   * a column of its own, and tapping one drills into that truck's register.
+   * Null in single-plate mode — the sheet's title already names the truck.
+   */
+  onTruck: ((truck: string) => void) | null,
 ): TableModel {
+  const carrierMode = onTruck !== null;
   const head = [
     AR.colSeq,
     AR.colStatement,
     AR.colDay,
     AR.colDate,
     AR.colTime,
+    ...(carrierMode ? [AR.colTruck] : []),
     AR.colNumber,
     // Who drove it. The gate records the name already; the truck's own
     // register is where it is wanted — «لغايات حسابهم».
@@ -165,6 +174,18 @@ function truckModel(
     cellText(String(index + 1)),
     cellText(row.statement === 'IN' ? AR.statementIn : AR.statementOut),
     ...stampCells(new Date(row.at)),
+    ...(carrierMode
+      ? [
+          row.truck === ''
+            ? cellLtr(dash)
+            : {
+                ...cellLtr(row.truck),
+                onClick: () => {
+                  onTruck(row.truck);
+                },
+              },
+        ]
+      : []),
     cellLtr(row.number),
     cellText(row.driver === '' ? dash : row.driver),
     billCell(row.bill, onBill),
@@ -274,13 +295,28 @@ export function ReportsScreen(props: {
   const [tab, setTab] = useState<Tab>(props.initialBill === undefined ? 'in' : 'bill');
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(ammanToday());
+  /** «عرض الكل»: the whole register regardless of the period pickers. */
+  const [all, setAll] = useState(false);
   const [truck, setTruck] = useState('');
+  /** The carrier whose whole fleet the truck register is showing; 0 = by plate. */
+  const [carrier, setCarrier] = useState(0);
   const [bill, setBill] = useState(props.initialBill ?? '');
 
-  const { fromIso, toIso } = useMemo(() => rangeInstants(from, to), [from, to]);
-  const valid = from !== '' && to !== '' && from <= to;
+  const { fromIso, toIso } = useMemo(
+    // The registry has no records before the system existed, so an early
+    // fixed floor honestly reads as «كامل السجل».
+    () => (all ? rangeInstants('2000-01-01', ammanToday()) : rangeInstants(from, to)),
+    [all, from, to],
+  );
+  const valid = all || (from !== '' && to !== '' && from <= to);
   const truckReady = truck.trim() !== '';
   const billReady = bill.trim() !== '';
+
+  // The carriers, for the truck tab's filter and for naming a typed plate's
+  // own carrier in the sheet title.
+  const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, enabled: tab === 'truck' });
+  const carriers = fleet.data?.carriers ?? [];
+  const activeCarrier = carriers.find((row) => row.id === carrier) ?? null;
 
   // A register left open on the office screen keeps up with the gate on its
   // own. Slower than the map — a sheet being read should not reshuffle under
@@ -300,9 +336,12 @@ export function ReportsScreen(props: {
     refetchInterval: LIVE,
   });
   const truckReport = useQuery({
-    queryKey: ['report-truck', truck.trim(), fromIso, toIso],
-    queryFn: () => api.reportTruck(truck.trim(), fromIso, toIso),
-    enabled: valid && tab === 'truck' && truckReady,
+    queryKey: ['report-truck', activeCarrier === null ? truck.trim() : `c${String(carrier)}`, fromIso, toIso],
+    queryFn: () =>
+      activeCarrier === null
+        ? api.reportTruck(truck.trim(), fromIso, toIso)
+        : api.reportCarrier(activeCarrier.id, fromIso, toIso),
+    enabled: valid && tab === 'truck' && (truckReady || activeCarrier !== null),
     refetchInterval: LIVE,
   });
   const standing = useQuery({
@@ -319,12 +358,19 @@ export function ReportsScreen(props: {
   });
 
   const baseTitle = TABS.find(([key]) => key === tab)?.[1] ?? '';
+  /** A typed plate that matches a registered truck names its carrier too. */
+  const plateCarrier =
+    tab === 'truck' && truckReady && fleet.data !== undefined
+      ? carrierOfPlate(fleet.data.carriers, fleet.data.trucks, truck.trim())
+      : null;
   const title =
-    tab === 'truck' && truckReady
-      ? `${baseTitle} ${truck.trim()}`
-      : tab === 'bill' && billReady
-        ? `${baseTitle} ${bill.trim()}`
-        : baseTitle;
+    tab === 'truck' && activeCarrier !== null
+      ? AR.reportCarrier(activeCarrier.name)
+      : tab === 'truck' && truckReady
+        ? `${baseTitle} ${truck.trim()}${plateCarrier === null ? '' : ` — ${AR.carrierChip(plateCarrier.name)}`}`
+        : tab === 'bill' && billReady
+          ? `${baseTitle} ${bill.trim()}`
+          : baseTitle;
 
   const model = useMemo<TableModel>(() => {
     const openTruck = (plate: string): void => {
@@ -344,11 +390,21 @@ export function ReportsScreen(props: {
       case 'daily':
         return dailyModel(daily.data?.rows ?? []);
       case 'truck':
-        return truckModel(truckReport.data?.rows ?? [], openBill);
+        return truckModel(
+          truckReport.data?.rows ?? [],
+          openBill,
+          // Carrier mode: the plate column drills into that one truck.
+          activeCarrier === null
+            ? null
+            : (plate) => {
+                setCarrier(0);
+                setTruck(plate);
+              },
+        );
       case 'bill':
         return billModel(billReport.data?.rows ?? []);
     }
-  }, [tab, gate.data, standing.data, daily.data, truckReport.data, billReport.data]);
+  }, [tab, gate.data, standing.data, daily.data, truckReport.data, billReport.data, activeCarrier]);
 
   // A register row carries its own card: no hunting the exact number down in
   // the search box to reprint the paper the driver already lost.
@@ -394,12 +450,18 @@ export function ReportsScreen(props: {
         tab === 'standing' ? AR.standingNow : tab === 'bill' ? AR.billNow : undefined
       }
       emptyText={
-        tab === 'truck' && !truckReady
+        tab === 'truck' && !truckReady && activeCarrier === null
           ? AR.truckPrompt
           : tab === 'bill' && !billReady
             ? AR.billPrompt
             : undefined
       }
+      allRange={{
+        on: all,
+        toggle: () => {
+          setAll((value) => !value);
+        },
+      }}
       tabs={
         <div className="flex flex-wrap gap-1">
           {TABS.map(([key, tabLabel]) => (
@@ -423,15 +485,36 @@ export function ReportsScreen(props: {
       }
       extraFilters={
         tab === 'truck' ? (
-          <input
-            dir="ltr"
-            placeholder={AR.colTruck}
-            className="w-36 rounded-lg border border-line-strong px-2.5 py-1.5 text-start text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-            value={truck}
-            onChange={(event) => {
-              setTruck(event.target.value);
-            }}
-          />
+          <>
+            {/* «كشف سيارات بناءً على الناقل»: pick the carrier and the sheet
+                gathers every plate of his fleet, however the gate spelled it. */}
+            <select
+              className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
+              value={carrier}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setCarrier(next);
+                if (next !== 0) setTruck('');
+              }}
+            >
+              <option value={0}>{AR.carrierFilterAll}</option>
+              {carriers.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.name}
+                </option>
+              ))}
+            </select>
+            <input
+              dir="ltr"
+              placeholder={AR.colTruck}
+              className="w-36 rounded-lg border border-line-strong px-2.5 py-1.5 text-start text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              value={truck}
+              onChange={(event) => {
+                setTruck(event.target.value);
+                if (event.target.value.trim() !== '') setCarrier(0);
+              }}
+            />
+          </>
         ) : tab === 'bill' ? (
           <input
             dir="ltr"

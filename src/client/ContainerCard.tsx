@@ -1,9 +1,10 @@
-import { useState, type ReactElement } from 'react';
+import { useRef, useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, Handling, MovementDto, Permission } from '../shared/types';
 import { HANDLING } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
+import { findTruck } from '../shared/fleet';
 import { fromLocalStamp, toLocalStamp } from '../shared/dates';
 import { AR } from './ar';
 import type { ContainerEditInput } from './api';
@@ -135,6 +136,13 @@ export function ContainerCard(props: {
   const [driverOut, setDriverOut] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /**
+   * The registry watching the exit plate too: a registered truck brings its
+   * usual driver with it — a suggestion the clerk is free to type over.
+   */
+  const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, staleTime: 60_000 });
+  const autoDriver = useRef('');
 
   const detail = useQuery({
     queryKey: ['container', container.id],
@@ -409,13 +417,36 @@ export function ContainerCard(props: {
               {AR.confirmExitBody(container.number)}
             </p>
             <div className="mt-4 space-y-3">
-              <Field label={AR.truck}>
+              <Field
+                label={AR.truck}
+                hint={(() => {
+                  const match = findTruck(fleet.data?.trucks ?? [], truckOut);
+                  const home =
+                    match === null
+                      ? null
+                      : (fleet.data?.carriers.find((c) => c.id === match.carrierId) ?? null);
+                  return home === null ? undefined : (
+                    <span className="font-semibold text-emerald-600">
+                      {AR.carrierChip(home.name)}
+                    </span>
+                  );
+                })()}
+              >
                 <input
                   dir="ltr"
                   className={`${inputClass} text-start`}
                   value={truckOut}
                   onChange={(event) => {
                     setTruckOut(event.target.value);
+                    const match = findTruck(fleet.data?.trucks ?? [], event.target.value);
+                    if (
+                      match !== null &&
+                      match.driver !== '' &&
+                      (driverOut === '' || driverOut === autoDriver.current)
+                    ) {
+                      setDriverOut(match.driver);
+                      autoDriver.current = match.driver;
+                    }
                   }}
                   autoFocus
                 />

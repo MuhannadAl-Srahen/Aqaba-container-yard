@@ -34,6 +34,49 @@ export const AR = {
   themeDark: 'غامق',
   themeSystem: 'حسب الجهاز',
 
+  // ---- carriers & trucks ----
+  carriersTitle: 'الناقلون والسيارات',
+  carriersButton: 'الناقلون',
+  carriersHint:
+    'سجّل كل ناقل وسياراته مرة واحدة: البوابة تتعرّف على رقم السيارة وتقترح اسم السائق، ' +
+    'وكشف السيارات يُستخرج بحسب الناقل. حذف سيارة أو نقلها لا يغيّر أي سجل قديم.',
+  carriersEmpty: 'لا يوجد ناقلون بعد. أضف أول ناقل من الأسفل.',
+  carrierAdd: 'إضافة ناقل',
+  carrierName: 'اسم الناقل',
+  carrierRename: 'تعديل الاسم',
+  carrierDelete: 'حذف الناقل',
+  carrierTrucks: (count: number): string =>
+    count === 0 ? 'لا سيارات مسجّلة' : count === 1 ? 'سيارة واحدة' : `${String(count)} سيارة`,
+  confirmCarrierDeleteTitle: 'حذف ناقل',
+  confirmCarrierDeleteBody: (name: string): string =>
+    `هل تريد حذف الناقل ${name}؟ الكشوفات القديمة تبقى كما هي.`,
+  carrierAdded: 'تم إضافة الناقل.',
+  carrierRenamed: 'تم تعديل اسم الناقل.',
+  carrierDeleted: 'تم حذف الناقل.',
+  truckAdd: 'إضافة سيارة',
+  truckCode: 'الترميز',
+  truckCodeHint: 'مثل 60 — يُطبع قبل الرقم',
+  truckDriverLabel: 'السائق المعتاد',
+  truckMoveTo: 'نقل إلى ناقل آخر',
+  truckEdit: 'تعديل السيارة',
+  truckDelete: 'حذف السيارة',
+  confirmTruckDeleteTitle: 'حذف سيارة',
+  confirmTruckDeleteBody: (plate: string): string =>
+    `هل تريد حذف السيارة ${plate} من سجل الناقل؟ الكشوفات القديمة تبقى كما هي.`,
+  truckAdded: 'تم تسجيل السيارة.',
+  truckSaved: 'تم حفظ بيانات السيارة.',
+  truckMoved: (carrier: string): string => `تم نقل السيارة إلى الناقل ${carrier}.`,
+  truckDeleted: 'تم حذف السيارة.',
+  unassignedTitle: 'سيارات مرّت على البوابة ولم تُسنَد إلى ناقل',
+  unassignedHint:
+    'كل سطر رقم سيارة كتبته البوابة ولا يطابق أي سيارة مسجّلة. اختر الناقل ثم اضغط «إسناد» ' +
+    'لتسجيلها عنده — وسيظهر اسم السائق الأخير الذي كُتب معها إن وُجد.',
+  unassignedEmpty: 'كل السيارات التي مرّت على البوابة مسجّلة عند ناقليها.',
+  unassignedTrips: (count: number): string =>
+    count === 1 ? 'نقلة واحدة' : `${String(count)} نقلة`,
+  assignAction: 'إسناد',
+  registeredDriver: (name: string): string => `السائق المسجّل: ${name}`,
+
   // ---- employees ----
   usersTitle: 'الموظفون',
   usersButton: 'الموظفون',
@@ -423,7 +466,15 @@ export const AR = {
   reportLog: 'سجل العمليات',
   logButton: 'السجل',
   reportTruck: 'كشف سيارة',
-  truckPrompt: 'أدخل رقم السيارة لعرض جميع الحاويات التي نقلتها.',
+  truckPrompt: 'أدخل رقم السيارة أو اختر ناقلاً لعرض جميع الحاويات المنقولة.',
+  /** The truck tab's carrier filter: null option = by single plate. */
+  carrierFilterAll: 'كل الناقلين — بحسب رقم السيارة',
+  reportCarrier: (name: string): string => `كشف سيارات الناقل ${name}`,
+  carrierChip: (name: string): string => `الناقل: ${name}`,
+  colCarrier: 'الناقل',
+  /** «عرض الكل»: the whole register, no period — the owner's own words. */
+  showAll: 'عرض الكل',
+  rangeAll: 'كامل السجل حتى تاريخه',
   reportBill: 'كشف بوليصة',
   billPrompt: 'أدخل رقم البوليصة لعرض جميع حاوياتها، القائم منها والذي خرج.',
   billOf: (bill: string): string => `بوليصة ${bill}`,
@@ -565,6 +616,9 @@ export const AR = {
       'واحداً. لتصحيحها احذف السجل وأدخل الحاوية من جديد.',
     BAD_BACKUP:
       'الملف ليس نسخة احتياطية صالحة. اختر ملف ‎.db مأخوذاً من زر النسخة الاحتياطية.',
+    TRUCK_EXISTS: 'هذه السيارة مسجّلة من قبل بالرقم نفسه. راجع قائمة السيارات.',
+    CARRIER_HAS_TRUCKS:
+      'لهذا الناقل سيارات مسجّلة. انقل سياراته إلى ناقل آخر أو احذفها أولاً.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
   errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>

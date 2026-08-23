@@ -195,6 +195,13 @@ export function migrate(db: DatabaseSync, file: string): void {
     upgradeMovementsV17(db);
   }
 
+  // v18: the carriers and their trucks arrive below. Whether this open is the
+  // one creating them is decided HERE, before the CREATE block runs — the
+  // fleet the owner dictated is seeded exactly once, on the open that first
+  // brings the tables in, and never again, so a truck he later deletes or
+  // reassigns stays deleted and reassigned.
+  const hadCarriers = tableSql('carriers') !== undefined;
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -299,8 +306,36 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
-    PRAGMA user_version = 17;
+    -- الناقلون: the trucking companies whose fleets serve the yard. The gate
+    -- keeps typing the plate as free text — these tables sit BESIDE the gate
+    -- records, matched by normalized plate, so nothing already written moves.
+    CREATE TABLE IF NOT EXISTS carriers (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT    NOT NULL,
+      deleted_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_carriers_live_name
+      ON carriers (name) WHERE deleted_at IS NULL;
+
+    -- One registered truck of one carrier: the plate's ترميز (category
+    -- prefix), its number, and the driver usually behind its wheel.
+    CREATE TABLE IF NOT EXISTS trucks (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      carrier_id INTEGER NOT NULL REFERENCES carriers (id),
+      code       TEXT    NOT NULL DEFAULT '',
+      number     TEXT    NOT NULL,
+      driver     TEXT    NOT NULL DEFAULT '',
+      deleted_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_trucks_carrier ON trucks (carrier_id);
+
+    PRAGMA user_version = 18;
   `);
+
+  // The fleet the owner dictated, planted the one time the tables are born.
+  if (!hadCarriers) seedFleet(db);
 
   // v15: the register is rebuilt to run 1, 2, 3 … N with no hole in it. A
   // deletion under an older version of this program left the numbers after it
@@ -319,6 +354,54 @@ export function migrate(db: DatabaseSync, file: string): void {
     applyCardFixes(db, repair);
     console.log(`[db] card serials rebuilt: ${String(repair.length)} corrected`);
   }
+}
+
+/**
+ * The two carriers the owner named and the fleet he dictated, list in hand:
+ * «هذه السيارات لناقل بهاء ابو الربع … جميعها ترميزها 60»، والناقل الآخر
+ * عادل أبو غليون تُوزَّع سياراته عليه من الشاشة. Data, not schema — but data
+ * the owner spelled out row by row, so it ships inside the update and lands
+ * on the office machine by itself. Runs once, on the open that creates the
+ * tables; after that the screen is the only author.
+ */
+function seedFleet(db: DatabaseSync): void {
+  const BAHAA: ReadonlyArray<readonly [string, string]> = [
+    ['84785', 'عطالله علي'],
+    ['93896', 'علي جميعان'],
+    ['89096', 'ابراهيم عبدالله'],
+    ['82462', 'محمد جمعه'],
+    ['60233', 'محمد عبدالله'],
+    ['80943', 'يزن ماهر'],
+    ['59452', 'صالح ابو زايد'],
+    ['75165', 'حمزة محمد'],
+    ['45165', 'جمال عطالله'],
+    ['61475', 'انور سالم'],
+    ['81344', 'ايمن محمد'],
+    ['64121', 'يحيى جمعة'],
+    ['83493', 'غانم احمد'],
+    ['71544', 'معاذ'],
+    ['88893', 'محمد عيد'],
+    ['61199', 'عبد ربه سليمان'],
+    ['72415', 'شادي عطا الله'],
+    ['84006', 'محمد احمد'],
+    ['77765', 'جمعة سلامه'],
+    ['97460', 'علاء ابراهيم'],
+    ['75209', 'بشار فايز'],
+    ['79556', 'خالد دهيبش'],
+    ['75540', 'رائد حجاج'],
+    ['83072', 'عدنان عبد الكريم'],
+    ['55272', 'رثاد فواز'],
+    ['73067', 'عدي فواز'],
+    ['79463', 'عبد الله عيسى'],
+  ];
+
+  const addCarrier = db.prepare('INSERT INTO carriers (name) VALUES (?)');
+  const addTruck = db.prepare(
+    'INSERT INTO trucks (carrier_id, code, number, driver) VALUES (?, ?, ?, ?)',
+  );
+  const bahaa = Number(addCarrier.run('بهاء أبو الربع').lastInsertRowid);
+  for (const [number, driver] of BAHAA) addTruck.run(bahaa, '60', number, driver);
+  addCarrier.run('عادل أبو غليون');
 }
 
 /**

@@ -1,8 +1,10 @@
-import { useState, type ReactElement } from 'react';
+import { useMemo, useRef, useState, type ReactElement } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, Handling, Position } from '../shared/types';
 import { HANDLING, sizeOfBay } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
+import { findTruck } from '../shared/fleet';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Button, ErrorLine, Field, Sheet, inputClass } from './ui';
@@ -29,6 +31,24 @@ export function GateInSheet(props: {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  /**
+   * The registry watching over the plate field: a typed plate that names a
+   * registered truck fills the driver in by itself and says whose truck it
+   * is. A suggestion only — whatever the clerk types over it stands, and the
+   * record still stores plain text exactly as before.
+   */
+  const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, staleTime: 60_000 });
+  const knownTruck = useMemo(
+    () => findTruck(fleet.data?.trucks ?? [], truck),
+    [fleet.data, truck],
+  );
+  const knownCarrier =
+    knownTruck === null
+      ? null
+      : (fleet.data?.carriers.find((carrier) => carrier.id === knownTruck.carrierId) ?? null);
+  /** The last driver name this form itself wrote, so it never overwrites a person's typing. */
+  const autoDriver = useRef('');
 
   const check = number.trim() === '' ? null : checkNumber(number);
   const size = sizeOfBay(props.position.bay);
@@ -116,13 +136,33 @@ export function GateInSheet(props: {
         </Field>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label={AR.truck}>
+          <Field
+            label={AR.truck}
+            hint={
+              knownCarrier !== null ? (
+                <span className="font-semibold text-emerald-600">
+                  {AR.carrierChip(knownCarrier.name)}
+                </span>
+              ) : undefined
+            }
+          >
             <input
               dir="ltr"
               className={`${inputClass} text-start`}
               value={truck}
               onChange={(event) => {
                 setTruck(event.target.value);
+                // Fill the driver only into an empty field or over this
+                // form's own earlier suggestion — never over typed work.
+                const match = findTruck(fleet.data?.trucks ?? [], event.target.value);
+                if (
+                  match !== null &&
+                  match.driver !== '' &&
+                  (driver === '' || driver === autoDriver.current)
+                ) {
+                  setDriver(match.driver);
+                  autoDriver.current = match.driver;
+                }
               }}
             />
           </Field>

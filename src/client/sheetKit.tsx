@@ -261,6 +261,13 @@ export function SheetScreen(props: {
    * date inputs disappear.
    */
   rangeless?: string | undefined;
+  /**
+   * «عرض الكل» — the owner's ask: every register offers the whole record in
+   * one press, no fiddling the pickers back to the beginning of time. While
+   * it is on, the date inputs step aside and the paper says so in the period
+   * line, because a sheet must always state what it covers.
+   */
+  allRange?: { on: boolean; toggle: () => void } | undefined;
   /** Screen-only per-row actions (undo buttons and the like); never printed. */
   actions?: { header: string; render: (rowIndex: number) => ReactNode } | undefined;
   onBack: () => void;
@@ -312,10 +319,12 @@ export function SheetScreen(props: {
 
   const rangeText =
     props.rangeless ??
-    `${AR.rangeFrom} ${props.from.split('-').reverse().join('/')} ${AR.rangeTo} ${props.to
-      .split('-')
-      .reverse()
-      .join('/')}`;
+    (props.allRange?.on === true
+      ? AR.rangeAll
+      : `${AR.rangeFrom} ${props.from.split('-').reverse().join('/')} ${AR.rangeTo} ${props.to
+          .split('-')
+          .reverse()
+          .join('/')}`);
   // A filtered or reordered sheet says so on its own face: paper that leaves
   // the office showing some of the register — or the register in an order
   // that is not its own — must never read as the plain thing.
@@ -391,28 +400,46 @@ export function SheetScreen(props: {
         <div className="flex flex-wrap items-center gap-2.5">
           {props.rangeless === undefined ? (
             <>
-              <label className="flex items-center gap-1.5 text-sm">
-                <span className="font-semibold text-muted">{AR.rangeFrom}</span>
-                <input
-                  type="date"
-                  className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
-                  value={props.from}
-                  onChange={(event) => {
-                    props.onFrom(event.target.value);
-                  }}
-                />
-              </label>
-              <label className="flex items-center gap-1.5 text-sm">
-                <span className="font-semibold text-muted">{AR.rangeTo}</span>
-                <input
-                  type="date"
-                  className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
-                  value={props.to}
-                  onChange={(event) => {
-                    props.onTo(event.target.value);
-                  }}
-                />
-              </label>
+              {props.allRange?.on !== true && (
+                <>
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <span className="font-semibold text-muted">{AR.rangeFrom}</span>
+                    <input
+                      type="date"
+                      className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
+                      value={props.from}
+                      onChange={(event) => {
+                        props.onFrom(event.target.value);
+                      }}
+                    />
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <span className="font-semibold text-muted">{AR.rangeTo}</span>
+                    <input
+                      type="date"
+                      className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
+                      value={props.to}
+                      onChange={(event) => {
+                        props.onTo(event.target.value);
+                      }}
+                    />
+                  </label>
+                </>
+              )}
+              {props.allRange !== undefined && (
+                <button
+                  type="button"
+                  onClick={props.allRange.toggle}
+                  className={
+                    'rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ' +
+                    (props.allRange.on
+                      ? 'bg-blue-700 text-white hover:bg-blue-800'
+                      : 'bg-sunken text-muted hover:bg-line')
+                  }
+                >
+                  {AR.showAll}
+                </button>
+              )}
             </>
           ) : (
             <span className="text-sm font-semibold text-muted">{props.rangeless}</span>

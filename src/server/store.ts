@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  CarrierDto,
   ContainerDto,
   Handling,
   LogReportRow,
@@ -9,6 +10,7 @@ import type {
   Position,
   Size,
   Tier,
+  TruckDto,
   UserDto,
   Zone,
 } from '../shared/types';
@@ -962,4 +964,197 @@ export function listMovementInstants(
     )
     .all(toIso) as unknown as Array<{ type: 'IN' | 'OUT'; at: string }>;
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// الناقلون والسيارات — the carrier registry. It sits BESIDE the gate records:
+// the gate keeps writing the plate as free text, and everything here is
+// matched to those texts by normalized plate (src/shared/fleet.ts), so
+// registering, moving or deleting a truck never rewrites a single record.
+// ---------------------------------------------------------------------------
+
+interface CarrierRow {
+  id: number;
+  name: string;
+  deleted_at: string | null;
+}
+
+interface TruckRow {
+  id: number;
+  carrier_id: number;
+  code: string;
+  number: string;
+  driver: string;
+  deleted_at: string | null;
+}
+
+const toTruck = (row: TruckRow): TruckDto => ({
+  id: row.id,
+  carrierId: row.carrier_id,
+  code: row.code,
+  number: row.number,
+  driver: row.driver,
+});
+
+/** The carriers working with the yard today, oldest first. */
+export function listCarriers(db: DatabaseSync): CarrierDto[] {
+  const rows = db
+    .prepare('SELECT * FROM carriers WHERE deleted_at IS NULL ORDER BY id')
+    .all() as unknown as CarrierRow[];
+  return rows.map((row) => ({ id: row.id, name: row.name }));
+}
+
+export function getCarrier(db: DatabaseSync, id: number): CarrierDto | null {
+  const row = db.prepare('SELECT * FROM carriers WHERE id = ? AND deleted_at IS NULL').get(id) as
+    | CarrierRow
+    | undefined;
+  return row === undefined ? null : { id: row.id, name: row.name };
+}
+
+/** Is that name free among the carriers still on the books? */
+export function carrierNameTaken(db: DatabaseSync, name: string, exceptId?: number): boolean {
+  const row = db
+    .prepare('SELECT id FROM carriers WHERE name = ? AND deleted_at IS NULL')
+    .get(name) as { id: number } | undefined;
+  return row !== undefined && row.id !== exceptId;
+}
+
+export function insertCarrier(db: DatabaseSync, name: string): number {
+  return Number(db.prepare('INSERT INTO carriers (name) VALUES (?)').run(name).lastInsertRowid);
+}
+
+export function renameCarrier(db: DatabaseSync, id: number, name: string): void {
+  db.prepare('UPDATE carriers SET name = ? WHERE id = ? AND deleted_at IS NULL').run(name, id);
+}
+
+export function softDeleteCarrier(db: DatabaseSync, id: number, at: string): void {
+  db.prepare('UPDATE carriers SET deleted_at = ? WHERE id = ?').run(at, id);
+}
+
+/** How many live trucks still stand under this carrier. */
+export function carrierTruckCount(db: DatabaseSync, id: number): number {
+  const row = db
+    .prepare('SELECT COUNT(*) AS n FROM trucks WHERE carrier_id = ? AND deleted_at IS NULL')
+    .get(id) as { n: number };
+  return row.n;
+}
+
+/** Every live registered truck, its carrier's fleet in plate order. */
+export function listTrucks(db: DatabaseSync): TruckDto[] {
+  const rows = db
+    .prepare('SELECT * FROM trucks WHERE deleted_at IS NULL ORDER BY code, number')
+    .all() as unknown as TruckRow[];
+  return rows.map(toTruck);
+}
+
+export function getTruck(db: DatabaseSync, id: number): TruckDto | null {
+  const row = db.prepare('SELECT * FROM trucks WHERE id = ? AND deleted_at IS NULL').get(id) as
+    | TruckRow
+    | undefined;
+  return row === undefined ? null : toTruck(row);
+}
+
+export function insertTruck(
+  db: DatabaseSync,
+  truck: { carrierId: number; code: string; number: string; driver: string },
+): number {
+  return Number(
+    db
+      .prepare('INSERT INTO trucks (carrier_id, code, number, driver) VALUES (?, ?, ?, ?)')
+      .run(truck.carrierId, truck.code, truck.number, truck.driver).lastInsertRowid,
+  );
+}
+
+/** Re-plate, re-driver, or hand the truck to another carrier — «توزيع». */
+export function updateTruck(
+  db: DatabaseSync,
+  id: number,
+  truck: { carrierId: number; code: string; number: string; driver: string },
+): void {
+  db.prepare(
+    'UPDATE trucks SET carrier_id = ?, code = ?, number = ?, driver = ? WHERE id = ? AND deleted_at IS NULL',
+  ).run(truck.carrierId, truck.code, truck.number, truck.driver, id);
+}
+
+export function softDeleteTruck(db: DatabaseSync, id: number, at: string): void {
+  db.prepare('UPDATE trucks SET deleted_at = ? WHERE id = ?').run(at, id);
+}
+
+/**
+ * Every plate spelling the gate has recorded on a live container, with how
+ * many gate movements it made and the driver name most recently typed beside
+ * it — the raw material «توزيع السيارات» filters against the registry.
+ * Newest first within each plate, so `driver` and the display spelling are
+ * the latest word the gate had.
+ */
+export function listPlateUsage(
+  db: DatabaseSync,
+): Array<{ plate: string; at: string; driver: string }> {
+  return db
+    .prepare(
+      `SELECT truck_in AS plate, driver_in AS driver, entered_at AS at
+         FROM containers WHERE deleted_at IS NULL AND truck_in <> ''
+       UNION ALL
+       SELECT truck_out AS plate, driver_out AS driver, exited_at AS at
+         FROM containers
+        WHERE deleted_at IS NULL AND truck_out <> '' AND exited_at IS NOT NULL
+       ORDER BY at DESC`,
+    )
+    .all() as unknown as Array<{ plate: string; at: string; driver: string }>;
+}
+
+/**
+ * Every gate movement in [from, to), both directions — the pool the carrier
+ * register is sieved out of. The sieve itself (which plates are this
+ * carrier's) is normalized-text matching, which SQL cannot be trusted with;
+ * the route filters these rows through src/shared/fleet.ts.
+ */
+export function listGateMovementsBoth(
+  db: DatabaseSync,
+  fromIso: string,
+  toIso: string,
+): Array<GateReportRowInternal & { type: 'IN' | 'OUT' }> {
+  const rows = db
+    .prepare(
+      `SELECT m.type, m.container_id, m.at, m.user_id,
+              m.from_zone, m.from_bay, m.from_stack, m.from_tier,
+              m.to_zone, m.to_bay, m.to_stack, m.to_tier,
+              k.zone AS live_zone, k.bay AS live_bay, k.stack AS live_stack, k.tier AS live_tier,
+              k.number, k.size, k.bill, k.weight, k.notes,
+              k.truck_in, k.driver_in, k.seal_in, k.card_in, k.card_in_year,
+              k.truck_out, k.driver_out, k.seal_out, k.card_out, k.card_out_year,
+              k.entered_at
+       FROM movements m
+       JOIN containers k ON k.id = m.container_id
+       WHERE m.at >= ? AND m.at < ? AND m.type IN ('IN', 'OUT')
+         AND k.deleted_at IS NULL
+       ORDER BY m.at, m.id`,
+    )
+    .all(fromIso, toIso) as unknown as Array<MovementRow & GateRow>;
+  const names = listUserNames(db);
+  return rows.map((row) => {
+    const type = row.type === 'IN' ? ('IN' as const) : ('OUT' as const);
+    return {
+      type,
+      containerId: row.container_id,
+      at: row.at,
+      card: type === 'IN' ? row.card_in : row.card_out,
+      cardYear: type === 'IN' ? row.card_in_year : row.card_out_year,
+      truck: type === 'IN' ? row.truck_in : row.truck_out,
+      driver: type === 'IN' ? row.driver_in : row.driver_out,
+      seal: row.seal_in,
+      number: row.number,
+      bill: row.bill,
+      weight: row.weight,
+      notes: row.notes,
+      size: row.size as Size,
+      position:
+        slotOf(row.live_zone, row.live_bay, row.live_stack, row.live_tier) ??
+        (type === 'IN'
+          ? slotOf(row.to_zone, row.to_bay, row.to_stack, row.to_tier)
+          : slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier)),
+      user: userLabel(names, row.user_id),
+      enteredAt: row.entered_at,
+    };
+  });
 }

@@ -1180,3 +1180,59 @@ to press, a note saved with the entry instant and the card serial measured
 before and after, an exit taken back through the screen with the ledger
 re-counted, the calculator's two answers on both heights, the driver column
 filled, and an employee holding every permission seeing no undo in the log.
+
+## المرحلة 20 — الناقلون وسياراتهم، و«عرض الكل» — 2026-08-23
+
+The owner sent his fleet list and asked to SEE it in the system: «يوجد لدي
+بعض ارقام السيارات لدى الناقل بهاء اريد ان اضفيفهم لدى بهاء … اريد ان ارى
+الكشف وكيف بأمكاني اضفة الناقل وكيف بأمكاني توزيع السيارات … واريد كشف
+سيارات بناءا على الناقل» — and, in the same message, «وفي التقارير اريد جعل
+في كل صفحة عرض الكل».
+
+- **Schema v18: `carriers` and `trucks`**, soft-deleted like everything
+  else, seeded ONCE on the open that creates them: بهاء أبو الربع with the
+  27 trucks he dictated (all code 60, each with its driver), and عادل أبو
+  غليون empty, to be distributed from the screen. The registry sits BESIDE
+  the gate records — the gate still writes free text, and nothing already
+  written moves when a truck is registered, moved or struck out.
+- **Matching is normalization, not equality** (`src/shared/fleet.ts`, pure,
+  shared by both sides): «60-84785», «60 84785», «٦٠٨٤٧٨٥» and «84785» all
+  name one truck. A bare number carried by two carriers under different
+  codes is refused as a guess — only the full plate decides. The same module
+  splits a gate spelling back into code and number for the assignment form.
+- **«الناقلون» screen** (owner alone): carriers with their fleets, add and
+  rename and delete (a carrier still holding trucks refuses by name —
+  CARRIER_HAS_TRUCKS), add a truck, edit it, hand it to another carrier from
+  a select on its own row — and the distribution bench: every plate the gate
+  has recorded that no carrier owns, with its trip count and the last driver
+  written beside it, an «إسناد» button away from its carrier.
+- **The gate recognises a registered plate** as it is typed, at entry and at
+  exit alike: the carrier's name appears under the field and the driver
+  fills in by itself — into an empty field or over this form's own earlier
+  suggestion only, never over a person's typing.
+- **كشف سيارة grew a second face**: pick a carrier and the sheet gathers his
+  whole fleet's movements whatever the gate's spelling, with a plate column
+  whose every cell drills into that one truck's register; the single-plate
+  face names the plate's carrier in the title when it knows it.
+- **«عرض الكل»** on every dated register (entries, exits, daily, truck, log):
+  one press shows the whole record, the date pickers step aside, and the
+  paper's period line says «كامل السجل حتى تاريخه» so a full-record sheet
+  never reads as a period sheet.
+
+Verified: **253 tests** (24 new: the normalizer's spellings, the ambiguity
+rule, the seed counted and proven to seed exactly once on a real file, CRUD
+and its refusals, the bench filling and emptying, and the carrier register
+gathering three spellings of one plate while a stranger's stays out),
+typecheck and lint clean, and **28 browser checks** on the real build from a
+first-run database — the seeded fleet on screen, a truck moved to عادل and
+back, the gate filling «علي جميعان» off «60-93896», the carrier sheet titled
+and filled, «عرض الكل» swallowing the pickers, the bench assigning
+«77-55555» split into code and number, and an employee seeing no button and
+being refused by the server anyway.
+
+Away from the code: the office machine was found still running the previous
+build — the owner's «النسخة القديمة … يوجد مشاكل لم يتم حلها» — proven by
+fetching its bundle over Tailscale (read-only; not a byte of its data was
+touched, as he ordered three times) and finding «إلغاء الخروج» absent from
+it while the Desktop AqabaYard-Setup folder carries it. The fix is his own
+one step: copy the folder across and run التثبيت.

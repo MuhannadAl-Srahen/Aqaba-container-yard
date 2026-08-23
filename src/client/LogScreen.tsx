@@ -106,6 +106,8 @@ export function LogScreen(props: {
   const queryClient = useQueryClient();
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(ammanToday());
+  /** «عرض الكل»: the whole log regardless of the period pickers. */
+  const [all, setAll] = useState(false);
   const [busyRow, setBusyRow] = useState<number | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -119,8 +121,11 @@ export function LogScreen(props: {
     };
   }, [toast]);
 
-  const { fromIso, toIso } = useMemo(() => rangeInstants(from, to), [from, to]);
-  const valid = from !== '' && to !== '' && from <= to;
+  const { fromIso, toIso } = useMemo(
+    () => (all ? rangeInstants('2000-01-01', ammanToday()) : rangeInstants(from, to)),
+    [all, from, to],
+  );
+  const valid = all || (from !== '' && to !== '' && from <= to);
 
   const log = useQuery({
     queryKey: ['report-log', fromIso, toIso],
@@ -212,6 +217,12 @@ export function LogScreen(props: {
         onFrom={setFrom}
         onTo={setTo}
         onBack={props.onBack}
+        allRange={{
+          on: all,
+          toggle: () => {
+            setAll((value) => !value);
+          },
+        }}
         actions={{
           header: AR.actionColumn,
           render: (rowIndex) => {
