@@ -188,6 +188,7 @@ interface RestoreCounts {
   carriers: number;
   trucks: number;
   permits: number;
+  zones: number;
 }
 
 /**
@@ -271,6 +272,7 @@ function copyAcross(db: DatabaseSync, source: DatabaseSync): RestoreCounts {
     carriers: copied.get('carriers') ?? 0,
     trucks: copied.get('trucks') ?? 0,
     permits: copied.get('permits') ?? 0,
+    zones: copied.get('custom_zones') ?? 0,
   };
 }
 

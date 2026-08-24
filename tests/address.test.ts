@@ -84,11 +84,14 @@ describe('reading an address back', () => {
     expect(parseAddress('')).toBeNull();
     expect(parseAddress('TGHU1234567')).toBeNull();
     expect(parseAddress('شركة البحر')).toBeNull();
-    // A zone that does not exist, a bay off the end, a tier that is not one.
+    // A zone that does not exist, a tier that is not one, numbers past two
+    // digits. Whether a bay or stack EXISTS is the layout's judgment now —
+    // the owner's own zones reach where the plan's never did — so the
+    // parser accepts any two-digit number and the map answers for it.
     expect(parseAddress('X-03-01-A')).toBeNull();
-    expect(parseAddress('A-99-01-A')).toBeNull();
+    expect(parseAddress('A-999-01-A')).toBeNull();
     expect(parseAddress('A-03-01-Z')).toBeNull();
-    expect(parseAddress('A-03-99-A')).toBeNull();
+    expect(parseAddress('A-99-01-A')).not.toBeNull();
     // A tier without a stack is half an address.
     expect(parseAddress('A-03--A')).toBeNull();
   });

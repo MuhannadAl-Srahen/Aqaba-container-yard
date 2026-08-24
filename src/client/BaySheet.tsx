@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState, type ReactElement } from 'react';
 import type { ContainerDto, Position, Tier, ZoneDef } from '../shared/types';
 import { TIERS } from '../shared/types';
-import { ASEZA } from '../shared/asezaLayout';
+import type { YardLayout } from '../shared/types';
 import { positionLabel, bayLabel } from '../shared/address';
 import { canPlace } from '../shared/rules';
 import { AR } from './ar';
@@ -19,6 +19,8 @@ import { Button, useEscape } from './ui';
  * from «حط هون» to «انقلها لهون» and the rules ignore its current slot.
  */
 export function BaySheet(props: {
+  /** The whole effective ground — the rules judge against all of it. */
+  layout: YardLayout;
   zone: ZoneDef;
   /** The odd bay this sheet opens. */
   bay: number;
@@ -58,7 +60,7 @@ export function BaySheet(props: {
     const try40 = placing === null || placing.size === 40;
     if (try20) {
       const here: Position = { zone: zone.zone, bay, stack: picked.stack, tier: picked.tier };
-      if (canPlace(ASEZA, standing, 20, here, ignoreId) === null) {
+      if (canPlace(props.layout, standing, 20, here, ignoreId) === null) {
         list.push({ position: here, caption: placing === null ? AR.put20Here : AR.moveHere });
       }
     }
@@ -66,7 +68,7 @@ export function BaySheet(props: {
       for (const even of [bay - 1, bay + 1]) {
         if (even < 2) continue;
         const across: Position = { zone: zone.zone, bay: even, stack: picked.stack, tier: picked.tier };
-        if (canPlace(ASEZA, standing, 40, across, ignoreId) === null) {
+        if (canPlace(props.layout, standing, 40, across, ignoreId) === null) {
           const other = String(even === bay - 1 ? bay - 2 : bay + 2).padStart(2, '0');
           list.push({
             position: across,
@@ -76,7 +78,7 @@ export function BaySheet(props: {
       }
     }
     return list;
-  }, [picked, placing, standing, zone, bay]);
+  }, [picked, placing, standing, zone, bay, props.layout]);
 
   const mayPlace = placing === null ? props.canGateIn : props.canMove;
 

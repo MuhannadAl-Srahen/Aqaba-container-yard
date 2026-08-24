@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ContainerDto, Permission, PermitDto, Position, Zone } from '../shared/types';
-import { ASEZA } from '../shared/asezaLayout';
-import { bayLabel, positionLabel } from '../shared/address';
+import { composeLayout, yardSlice, yardsOf } from '../shared/layout';
+import { bayLabel, positionLabel, yardOf } from '../shared/address';
 import { freeNow, zoneOf } from '../shared/rules';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
@@ -30,6 +30,7 @@ import { BaySheet } from './BaySheet';
 import { OwnerToolsScreen } from './OwnerToolsScreen';
 import { UsersScreen } from './UsersScreen';
 import { CarriersScreen } from './CarriersScreen';
+import { ZonesScreen } from './ZonesScreen';
 import { ThemePicker } from './ThemePicker';
 import { Button, Confirm, Toast } from './ui';
 
@@ -75,8 +76,21 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [usersView, setUsersView] = useState(false);
   /** سجل الناقلين وسياراتهم، وفيه «توزيع السيارات» — للمالك وحده. */
   const [carriersView, setCarriersView] = useState(false);
+  /** الزونات والساحات التي يعرّفها المالك بنفسه — للمالك وحده. */
+  const [zonesView, setZonesView] = useState(false);
+  /** أي ساحة تعرضها الخريطة الآن؛ الساحة 2 هي المخطط الرسمي. */
+  const [yardView, setYardView] = useState(2);
   /** Temporary: the owner's training tools, removed with OwnerToolsScreen. */
   const [toolsView, setToolsView] = useState(false);
+
+  /**
+   * Selecting a container in another yard swings the map to that yard —
+   * a search answer must never light a cell on a drawing that is off
+   * screen. Deleting the yard's last zone falls back to the plan's own.
+   */
+  const followSelection = (zone: string | undefined): void => {
+    if (zone !== undefined) setYardView(yardOf(zone));
+  };
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
@@ -154,13 +168,36 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   const containers = useMemo(() => state.data?.containers ?? [], [state.data]);
   const loads = useMemo(() => buildBayLoads(containers), [containers]);
-  const layout = useMemo(() => computeLayout(ASEZA), []);
+
+  /**
+   * The whole ground as it stands: the official plan plus the zones the
+   * owner has defined — one composed layout for the rules, and one slice of
+   * it per yard for the drawing. The zones change only from the editor, so
+   * the query rests until it is invalidated there.
+   */
+  const zonesQuery = useQuery({ queryKey: ['zones'], queryFn: api.zones, staleTime: 60_000 });
+  const yardLayout = useMemo(
+    () => composeLayout(zonesQuery.data?.zones ?? []),
+    [zonesQuery.data],
+  );
+  const yards = useMemo(() => yardsOf(yardLayout), [yardLayout]);
+  // Deleting a yard's last zone must not leave the map on an empty page.
+  useEffect(() => {
+    if (!yards.includes(yardView)) setYardView(2);
+  }, [yards, yardView]);
+  const layout = useMemo(
+    () => computeLayout(yardSlice(yardLayout, yardView)),
+    [yardLayout, yardView],
+  );
 
   /**
    * A typed address is a search too: «2-E-18-01-A» asks where that is, and
    * the answer is the bay itself — this is a map, so the search opens it.
    */
-  const addressHit = useMemo(() => addressMatch(ASEZA, containers, search), [containers, search]);
+  const addressHit = useMemo(
+    () => addressMatch(yardLayout, containers, search),
+    [yardLayout, containers, search],
+  );
 
   const matches = useMemo(() => {
     const found = searchMatches(containers, search);
@@ -176,11 +213,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   // While a move is placing: the bays holding at least one legal landing.
   const targets = useMemo(() => {
     if (moving === null) return null;
-    return targetBays(ASEZA, containers, moving.size, moving.id);
-  }, [containers, moving]);
+    return targetBays(yardLayout, containers, moving.size, moving.id);
+  }, [yardLayout, containers, moving]);
 
   // «قديش باقي» — legal landings for each size, per yard, right now.
-  const free = useMemo(() => freeNow(ASEZA, toStanding(containers)), [containers]);
+  const free = useMemo(
+    () => freeNow(yardLayout, toStanding(containers)),
+    [yardLayout, containers],
+  );
 
   // Out-of-yard hits come from the server: the map query only carries who is standing.
   const remote = useQuery({
@@ -258,6 +298,32 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     [wasDrag],
   );
 
+  /**
+   * The OWNER drags a zone he defined by its title bar and it parks where
+   * he drops it — «تغيير الموقع عن طريق السحب، وهذه الصلاحية فقط لدى
+   * المالك». The official zones are not in the set, so they never move.
+   */
+  const zoneRows = zonesQuery.data?.zones;
+  const dragZones = useMemo(() => {
+    if (!isOwner || zoneRows === undefined || zoneRows.length === 0) return null;
+    return {
+      names: new Set(zoneRows.map((zone) => zone.zone)),
+      onDrop: (name: string, x: number, y: number): void => {
+        const dropped = zoneRows.find((zone) => zone.zone === name);
+        if (dropped === undefined) return;
+        api
+          .editZone(dropped.id, { x: Math.round(x), y: Math.round(y) })
+          .then(() => {
+            void queryClient.invalidateQueries({ queryKey: ['zones'] });
+            setToast(AR.zoneMoved);
+          })
+          .catch((failure: unknown) => {
+            setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+          });
+      },
+    };
+  }, [isOwner, zoneRows, queryClient]);
+
   const mapProps = useMemo(
     () => ({
       loads,
@@ -267,11 +333,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       targets,
       movingId: moving?.id ?? null,
       onBayClick,
+      dragZones,
     }),
-    [loads, selected, matches, searchActive, targets, moving, onBayClick],
+    [loads, selected, matches, searchActive, targets, moving, onBayClick, dragZones],
   );
 
-  const openZone = openBay === null ? null : zoneOf(ASEZA, openBay.zone);
+  const openZone = openBay === null ? null : zoneOf(yardLayout, openBay.zone);
 
   /**
    * The screen the app is on. It is a VALUE, not an early return, because the
@@ -293,6 +360,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <CarriersScreen
         onBack={() => {
           setCarriersView(false);
+        }}
+      />
+    );
+  } else if (zonesView && isOwner) {
+    screen = (
+      <ZonesScreen
+        onBack={() => {
+          setZonesView(false);
         }}
       />
     );
@@ -394,6 +469,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                       type="button"
                       className="flex w-full items-center justify-between gap-2 border-b border-line px-3 py-2.5 text-sm hover:bg-sunken"
                       onClick={() => {
+                        followSelection(addressHit.zone);
                         setOpenBay({ zone: addressHit.zone, bay: addressHit.bay });
                         setSearch('');
                       }}
@@ -442,6 +518,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                       type="button"
                       className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-sunken"
                       onClick={() => {
+                        followSelection(container.position?.zone);
                         setSelected(container);
                       }}
                     >
@@ -546,6 +623,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                   }}
                 >
                   {AR.carriersButton}
+                </Button>
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setZonesView(true);
+                  }}
+                >
+                  {AR.zonesButton}
                 </Button>
                 <Button
                   kind="quiet"
@@ -675,6 +760,30 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           </div>
         </div>
 
+        {/* More than one yard: the drawings sit behind tabs, one ground at
+            a time, and the search swings to the yard its answer stands in. */}
+        {yards.length > 1 && (
+          <div className="absolute start-3 top-3 z-10 flex gap-1 rounded-xl border border-line bg-surface/95 p-1 shadow-md">
+            {yards.map((yard) => (
+              <button
+                key={yard}
+                type="button"
+                onClick={() => {
+                  setYardView(yard);
+                }}
+                className={
+                  'rounded-lg px-3 py-1.5 text-sm font-bold transition-colors ' +
+                  (yardView === yard
+                    ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                    : 'text-muted hover:bg-sunken')
+                }
+              >
+                {AR.yardTab(yard)}
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="absolute bottom-4 end-4 flex flex-col gap-1.5">
           {(
             [
@@ -698,6 +807,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
       {openBay !== null && openZone !== null && (
         <BaySheet
+          layout={yardLayout}
           zone={openZone}
           bay={openBay.bay}
           containers={containers}
@@ -782,6 +892,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {screen}
       {fillView && (
         <FillSheet
+          layout={yardLayout}
           containers={containers}
           onClose={() => {
             setFillView(false);

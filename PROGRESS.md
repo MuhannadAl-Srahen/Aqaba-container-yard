@@ -1382,3 +1382,48 @@ permit and the gate cards are white sheets whatever the office theme, and
 @media print forces the same on every print area so a register printed
 from a dark screen comes out on white paper too. المجموع also learned its
 Arabic agreement: «5 حاويات», not «5 حاوية».
+
+## المرحلة 23 — الأرض التي يرسمها المالك — 2026-08-24
+
+«ليس لدي امكانية من اضافة زون او ساحة» — the biggest deferred project,
+started the hour the owner answered its three questions: addresses read
+like yard 2's (`1-F-07-09-A`), a closed slot refuses placement and he
+chooses which, and the tiers stay three, always.
+
+- **The ground opens without the plan moving**: `Zone` widens from the
+  A…E union to a string; the LAYOUT — the committed ASEZA drawing plus the
+  owner's zones (v21 `custom_zones`) — becomes the one judge of what
+  exists. `composeLayout` (shared) builds the effective yard for both
+  sides and teaches the address registry each zone's yard, so
+  `positionLabel` writes the right leading digit everywhere; the
+  containers table is REBUILT to drop its `zone IN (A…E)` CHECK (the
+  schema stops judging ground; sniffed by the CHECK's own text, per the
+  v11/v17 pattern).
+- **The editor** («الساحات», owner-only): yard number, letter (unique
+  across every yard — the letter alone decides the address digit), bays ×
+  stacks; the grid drawn THE YARD'S WAY on the owner's correction —
+  bordered strip, bay numbers over wide dashed cells, three tier layers
+  inside each — and a tap closes a slot into the map's own hatch. The
+  server refuses any reshape or delete that leaves a standing container
+  without ground (ZONE_HAS_CONTAINERS), and the PATCH is PARTIAL — a
+  nudge sends the position alone, a save the closed slots alone — after
+  the harness caught a nudge resurrecting a stale empty `closed` over a
+  save made a second earlier.
+- **The map**: yard tabs when more than one yard exists; the search swings
+  to the yard its answer stands in; the free-space chips count per yard;
+  and the OWNER drags his zone by its title bar (pointer capture, deltas
+  read through the SVG's screen matrix so pan/zoom cannot lie) — official
+  zones are not in the draggable set and never move. Arrow-nudge and
+  auto-place remain in the editor.
+- **Permits follow the ground**: the paper names the yard its standing
+  containers are in (v21 `permits.yard`, sniffed in for older books).
+- **«عرض الكل» في كل صفحة**: the page-size list's last entry shows the
+  whole register on one page — the owner's ask, pointed at the dropdown.
+
+Verified: **278 tests** (8 new: definition and refusals, ground realness
+at `1-F-07-09-A`, the closed slot, the no-orphaning rule end-to-end, the
+permit's yard, the composer's shape and registry) and an **11-check
+browser harness** on the real build — the editor's yard-style grid, the
+closed cell hatching and refusing from the server, the yard tabs, a
+gate-in through the map of ساحة 1, the drag-savable position, and the
+whole-register page — its screenshots read by eye.

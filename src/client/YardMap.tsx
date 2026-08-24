@@ -1,4 +1,4 @@
-import { memo, type ReactElement } from 'react';
+import { memo, useState, type ReactElement } from 'react';
 import type { ContainerDto, Landmark, YardLayout, Zone, ZoneDef } from '../shared/types';
 import { AR } from './ar';
 import { bayKey, countBay, maxStackOf, summarizeZone } from './mapModel';
@@ -76,6 +76,15 @@ export interface MapProps {
   targets: ReadonlySet<string> | null;
   movingId: number | null;
   onBayClick: (zone: Zone, bay: number) => void;
+  /**
+   * «بدي اقدر احرك الزون … عن طريق السحب»: the OWNER may drag a zone he
+   * defined by its title bar to park it anywhere on its yard's drawing.
+   * Null for everyone else and for the official zones, which never move.
+   */
+  dragZones: {
+    names: ReadonlySet<string>;
+    onDrop: (zone: string, x: number, y: number) => void;
+  } | null;
 }
 
 function BayCell(props: {
@@ -180,8 +189,26 @@ const ZonePanel = memo(
     const cellW = (zone.w - PAD * 2) / zone.bays.length;
     const summary = summarizeZone(zone, view.loads);
 
+    // Dragging: the offset rides in local state while the pointer is down,
+    // and the drop hands the final parking spot up. Pointer deltas are read
+    // back through the SVG's own screen matrix, so pan and zoom cannot lie
+    // about how far the zone actually moved.
+    const draggable = view.dragZones !== null && view.dragZones.names.has(zone.zone);
+    const [drag, setDrag] = useState<{
+      pointerId: number;
+      startX: number;
+      startY: number;
+      dx: number;
+      dy: number;
+    } | null>(null);
+    const place = (event: { clientX: number; clientY: number }, start: { startX: number; startY: number }): { dx: number; dy: number } => {
+      return { dx: event.clientX - start.startX, dy: event.clientY - start.startY };
+    };
+
     return (
-      <g transform={`translate(${String(zone.x)}, ${String(zone.y)})`}>
+      <g
+        transform={`translate(${String(zone.x + (drag?.dx ?? 0))}, ${String(zone.y + (drag?.dy ?? 0))})`}
+      >
         <rect width={zone.w} height={zone.h} rx={12} fill={C.panel} stroke={C.panelBorder} />
         {/* Under dir=rtl, text-anchor follows reading order: "start" pins the
             right edge of Arabic text at x, "end" pins its left edge. */}
@@ -204,6 +231,46 @@ const ZonePanel = memo(
         {zone.bays.map((bay, index) => (
           <BayCell key={bay} zone={zone} bay={bay} index={index} cellW={cellW} view={view} />
         ))}
+        {draggable && (
+          <rect
+            width={zone.w}
+            height={TITLE_H}
+            fill="transparent"
+            style={{ cursor: 'move' }}
+            onPointerDown={(event) => {
+              event.stopPropagation();
+              event.currentTarget.setPointerCapture(event.pointerId);
+              setDrag({
+                pointerId: event.pointerId,
+                startX: event.clientX,
+                startY: event.clientY,
+                dx: 0,
+                dy: 0,
+              });
+            }}
+            onPointerMove={(event) => {
+              if (drag === null || event.pointerId !== drag.pointerId) return;
+              const svg = event.currentTarget.ownerSVGElement;
+              const scale = svg?.getScreenCTM()?.a ?? 1;
+              const raw = place(event, drag);
+              setDrag({ ...drag, dx: raw.dx / scale, dy: raw.dy / scale });
+            }}
+            onPointerUp={(event) => {
+              if (drag === null || event.pointerId !== drag.pointerId) return;
+              const landedX = Math.max(0, zone.x + drag.dx);
+              const landedY = Math.max(0, zone.y + drag.dy);
+              setDrag(null);
+              if (Math.abs(drag.dx) + Math.abs(drag.dy) > 2) {
+                view.dragZones?.onDrop(zone.zone, landedX, landedY);
+              }
+            }}
+            onPointerCancel={() => {
+              setDrag(null);
+            }}
+          >
+            <title>{AR.zoneDragHint}</title>
+          </rect>
+        )}
       </g>
     );
   },
@@ -217,7 +284,8 @@ const ZonePanel = memo(
     prev.view.searchActive === next.view.searchActive &&
     prev.view.targets === next.view.targets &&
     prev.view.movingId === next.view.movingId &&
-    prev.view.onBayClick === next.view.onBayClick,
+    prev.view.onBayClick === next.view.onBayClick &&
+    prev.view.dragZones === next.view.dragZones,
 );
 
 function LandmarkShape(props: { landmark: Landmark }): ReactElement {

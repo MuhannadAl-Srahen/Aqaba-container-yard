@@ -104,6 +104,7 @@ export function SetupScreen(props: { onDone: () => void }): ReactElement {
                     selectedId: null,
                     matches: new Set(),
                     searchActive: false,
+                    dragZones: null,
                     targets: null,
                     movingId: null,
                     onBayClick: () => undefined,

@@ -28,10 +28,11 @@ import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES } from '../shared/types';
 import { normalizePlate, plateMatches } from '../shared/fleet';
 import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
-import { positionLabel } from '../shared/address';
+import { baySpan, positionLabel, yardOf } from '../shared/address';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
-import { canMove, canPlace, planRemoval } from '../shared/rules';
-import { ASEZA } from '../shared/asezaLayout';
+import { canMove, canPlace, planRemoval, slotUsable } from '../shared/rules';
+import { composeLayout, zoneDefOf } from '../shared/layout';
+import type { YardLayout } from '../shared/types';
 import {
   SESSION_COOKIE,
   hasPassword,
@@ -68,11 +69,15 @@ const refuse = (status: number, code: ErrorCode, details?: ApiError['details']):
 const refuseRule = (refusal: RuleRefusal): never =>
   refuse(409, refusal.code, refusal.other === undefined ? undefined : { other: refusal.other });
 
-/** The official five-part slot. The yard digit derives from the zone. */
+/**
+ * The five-part slot. The zone may be an official letter or one the owner
+ * defined; the shape here only gates nonsense — the LAYOUT is the judge of
+ * what exists, and it answers BAD_SLOT with the address in hand.
+ */
 const positionSchema = z.object({
-  zone: z.enum(ZONES),
-  bay: z.number().int().min(1).max(60),
-  stack: z.number().int().min(1).max(10),
+  zone: z.string().regex(/^[A-Z]{1,2}$/),
+  bay: z.number().int().min(1).max(99),
+  stack: z.number().int().min(1).max(99),
   tier: z.enum(TIERS),
 });
 
@@ -237,6 +242,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   // visitor shares 127.0.0.1 and one stranger's failed logins would throttle
   // the whole yard.
   const app = Fastify({ logger: false, trustProxy: true });
+
+  /**
+   * The yard as it stands right now: the official ASEZA drawing plus the
+   * zones the owner has defined. Composed per request — a handful of rows —
+   * so every placement check judges against the layout of this moment, and
+   * the address registry learns each zone's yard on the way.
+   */
+  const layoutNow = (): YardLayout => composeLayout(store.listCustomZones(db));
   void app.register(cookie);
   // A restored backup arrives as raw database bytes. Fastify only knows JSON
   // out of the box; the route that receives this sets its own body limit.
@@ -570,6 +583,111 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   });
 
   /**
+   * الزونات التي يعرّفها المالك — his own yards (1، 3 …) or zones added
+   * beside the official plan, which stays committed data and is never
+   * edited. A grid of odd bays and stacks, three tiers always (the owner's
+   * explicit call), and the slots he closes refuse placement exactly the
+   * way the plan's walls do. Reading needs a session — every screen draws
+   * the map — while shaping the ground is the owner's alone.
+   */
+  // Every field optional: a nudge sends the position alone and the grid
+  // save sends the closed slots alone, so neither can overwrite the other
+  // with a stale copy of what it never meant to touch.
+  const zoneShapeSchema = z.object({
+    bays: z.number().int().min(1).max(40).optional(),
+    stacks: z.number().int().min(1).max(20).optional(),
+    closed: z
+      .array(z.tuple([z.number().int().min(1), z.number().int().min(1)]))
+      .max(800)
+      .optional(),
+    // Where the owner parked the zone on the drawing; null = automatic.
+    x: z.number().min(0).max(5000).nullable().optional(),
+    y: z.number().min(0).max(5000).nullable().optional(),
+  });
+
+  app.get('/api/zones', (request): { zones: ReturnType<typeof store.listCustomZones> } => {
+    requireAuth(request);
+    return { zones: store.listCustomZones(db) };
+  });
+
+  app.post('/api/zones', (request, reply) => {
+    requireOwner(request);
+    const body = parseOrRefuse(
+      z.object({
+        yard: z.number().int().min(1).max(9),
+        name: z.string().regex(/^[A-Z]{1,2}$/),
+        bays: z.number().int().min(1).max(40),
+        stacks: z.number().int().min(1).max(20),
+      }),
+      request.body,
+    );
+    return transaction(db, () => {
+      // One letter, one zone, across every yard: the zone alone decides the
+      // address's leading digit, so a twin letter would fork the ground.
+      const taken =
+        (ZONES as readonly string[]).includes(body.name) ||
+        store.listCustomZones(db).some((zone) => zone.zone === body.name);
+      if (taken) refuse(409, 'NAME_TAKEN');
+      const id = store.insertCustomZone(db, body);
+      void reply.status(201);
+      return store.getCustomZone(db, id);
+    });
+  });
+
+  /**
+   * Reshape a zone: grow or shrink the grid, open or close slots. Refused
+   * whenever a standing container would be left without ground under it —
+   * the ground under a stored box never vanishes by edit.
+   */
+  app.patch('/api/zones/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    const body = parseOrRefuse(zoneShapeSchema, request.body);
+    return transaction(db, () => {
+      const zone = store.getCustomZone(db, id);
+      if (zone === null) refuse(404, 'NOT_FOUND');
+      if (zone === null) throw new Error('unreachable');
+      const next = {
+        bays: body.bays ?? zone.bays,
+        stacks: body.stacks ?? zone.stacks,
+        closed:
+          body.closed === undefined
+            ? zone.closed
+            : body.closed.map((pair) => [pair[0], pair[1]] as const),
+        x: body.x === undefined ? zone.x : body.x,
+        y: body.y === undefined ? zone.y : body.y,
+      };
+      const reshaped = zoneDefOf({ ...zone, ...next }, 0, 0);
+      const trial: YardLayout = { zones: [reshaped], landmarks: [] };
+      for (const standing of store.listStanding(db)) {
+        if (standing.position.zone !== zone.zone) continue;
+        const grounded = baySpan(standing.position.bay).every((oddBay) =>
+          slotUsable(trial, zone.zone, oddBay, standing.position.stack),
+        );
+        if (!grounded) refuse(409, 'ZONE_HAS_CONTAINERS');
+      }
+      store.updateCustomZone(db, id, next);
+      return store.getCustomZone(db, id);
+    });
+  });
+
+  app.delete('/api/zones/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    return transaction(db, () => {
+      const zone = store.getCustomZone(db, id);
+      if (zone === null) refuse(404, 'NOT_FOUND');
+      if (zone === null) throw new Error('unreachable');
+      const occupied = store
+        .listStanding(db)
+        .some((standing) => standing.position.zone === zone.zone);
+      if (occupied) refuse(409, 'ZONE_HAS_CONTAINERS');
+      store.softDeleteCustomZone(db, id, now());
+      return { ok: true };
+    });
+  });
+
+  /**
    * تصريح تحميل وخروج داخلي — the permission paper مؤسسة الحق issues for one
    * bill: load the containers listed and take them to موقع المقص only. The
    * paper authorizes; it moves nothing — the actual departures still happen
@@ -606,12 +724,24 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       });
       const at = now();
       const year = ammanYear(at);
+      // The paper names its yard off the containers themselves: the first
+      // one still standing decides, and a group already through the gate
+      // reads as the plan's own ground.
+      layoutNow();
+      const anchor = body.items
+        .map((item) => store.getContainer(db, item.containerId))
+        .find((container) => container !== null && container.position !== null);
+      const yard =
+        anchor !== undefined && anchor !== null && anchor.position !== null
+          ? yardOf(anchor.position.zone)
+          : 2;
       const id = store.insertPermit(db, {
         serial: store.nextPermitNumber(db, year),
         serialYear: year,
         bill: body.bill,
         at,
         userId: actorId(actor),
+        yard,
         items: lines,
       });
       void reply.status(201);
@@ -674,7 +804,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (duplicate !== null) refuse(409, 'NUMBER_IN_YARD', { number: check.normalized });
 
       const standing = store.listStanding(db);
-      const refusal = canPlace(ASEZA, standing, body.size, body.position);
+      const refusal = canPlace(layoutNow(), standing, body.size, body.position);
       if (refusal !== null) refuseRule(refusal);
 
       const at = now();
@@ -741,7 +871,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
   /** The lift plan for a standing container, refusing if the stack cannot fall. */
   const liftPlan = (standing: readonly Standing[], mover: Standing): readonly Descent[] => {
-    const plan = planRemoval(ASEZA, standing, mover);
+    const plan = planRemoval(layoutNow(), standing, mover);
     if (!plan.ok) refuseRule(plan.refusal);
     if (!plan.ok) throw new Error('unreachable');
     return plan.descents;
@@ -758,7 +888,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const mover = { id, number: dto.number, size: dto.size, position };
       // The lift AND the landing — and the landing is judged against the yard
       // as it stands AFTER the stack above has come down.
-      const refusal = canMove(ASEZA, standing, mover, body.to);
+      const refusal = canMove(layoutNow(), standing, mover, body.to);
       if (refusal !== null) refuseRule(refusal);
       const descents = liftPlan(standing, mover);
 
@@ -979,7 +1109,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const wasAt = store.lastExitPosition(db, id);
       if (wasAt === null) refuse(409, 'BAD_SLOT');
       if (wasAt === null) throw new Error('unreachable');
-      const refusal = canPlace(ASEZA, store.listStanding(db), existing.size, wasAt);
+      const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, wasAt);
       if (refusal !== null) refuseRule(refusal);
 
       store.cancelExit(db, id, wasAt);
@@ -1006,7 +1136,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       const wasAt = store.lastDeletePosition(db, id);
       if (wasAt !== null) {
-        const refusal = canPlace(ASEZA, store.listStanding(db), existing.size, wasAt);
+        const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, wasAt);
         if (refusal !== null) refuseRule(refusal);
       }
       store.restoreContainer(db, id, wasAt);

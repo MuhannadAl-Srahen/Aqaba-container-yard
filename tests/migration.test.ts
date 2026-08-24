@@ -111,6 +111,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual([
       'carriers',
       'containers',
+      'custom_zones',
       'movements',
       'permit_items',
       'permits',
@@ -120,7 +121,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(20);
+    ).toBe(21);
     db.close();
   });
 
@@ -211,6 +212,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     expect(tablesOf(db)).toEqual([
       'carriers',
       'containers',
+      'custom_zones',
       'movements',
       'permit_items',
       'permits',

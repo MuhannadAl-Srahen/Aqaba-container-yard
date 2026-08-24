@@ -1,6 +1,6 @@
 import { useEffect, type ReactElement } from 'react';
 import type { PermitDto } from '../shared/types';
-import { cardSerial, yardOf, ZONES } from '../shared/types';
+import { cardSerial } from '../shared/types';
 import { AR } from './ar';
 import { Button, useEscape } from './ui';
 
@@ -37,9 +37,9 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
     };
   }, []);
 
-  // Every zone this system models is in one yard, so the paper names it off
-  // the layout's own answer rather than a literal written here.
-  const yard = yardOf(ZONES[0]);
+  // The paper names the yard it was issued for — pinned on the permit at
+  // issue time, like every other fact the stamp made true.
+  const yard = permit.yard;
   // The serial prints the way the gate cards print theirs: the number big,
   // the year on its own small line — sized for the box on paper.
   const serialText = String(permit.serial).padStart(4, '0');

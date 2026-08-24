@@ -1,5 +1,6 @@
 import type { Position, Tier, Zone } from './types';
-import { TIERS, ZONES, yardOf } from './types';
+import { TIERS, ZONES } from './types';
+import { ASEZA } from './asezaLayout';
 
 /**
  * The official five-part code, exactly as the yard writes it:
@@ -13,6 +14,31 @@ import { TIERS, ZONES, yardOf } from './types';
  *
  * Western digits, LTR — the code reads the same on screen, paper and radio.
  */
+
+/**
+ * Which yard each zone belongs to — the address digit nobody types by hand.
+ * Seeded from the official plan (A…E are SAHA 2) and taught the owner's own
+ * zones whenever the effective layout is composed; an unknown letter reads
+ * as yard 2, the plan's own ground.
+ */
+const yardRegistry = new Map<string, number>(
+  ASEZA.zones.map((zone) => [zone.zone, zone.yard]),
+);
+
+export function registerYards(
+  zones: ReadonlyArray<{ readonly zone: string; readonly yard: number }>,
+): void {
+  for (const zone of zones) yardRegistry.set(zone.zone, zone.yard);
+}
+
+export function yardOf(zone: Zone): number {
+  return yardRegistry.get(zone) ?? 2;
+}
+
+/** Every yard the registry knows, smallest first — the map's tab row. */
+export function knownYards(): readonly number[] {
+  return [...new Set(yardRegistry.values())].sort((a, b) => a - b);
+}
 
 const two = (n: number): string => String(n).padStart(2, '0');
 
@@ -94,11 +120,11 @@ export function parseAddress(text: string): AddressQuery | null {
   if (zone === undefined || !isZone(zone)) return null;
 
   const bay = wholeNumber(rest[1]);
-  if (bay === null || bay < 1 || bay > 60) return null;
+  if (bay === null || bay < 1 || bay > 99) return null;
 
   const stackText = rest[2];
   const stack = stackText === undefined ? undefined : (wholeNumber(stackText) ?? -1);
-  if (stack !== undefined && (stack < 1 || stack > 10)) return null;
+  if (stack !== undefined && (stack < 1 || stack > 99)) return null;
 
   const tierText = rest[3];
   if (tierText !== undefined && !isTier(tierText)) return null;
@@ -116,7 +142,9 @@ export function parseAddress(text: string): AddressQuery | null {
 }
 
 function isZone(text: string): text is Zone {
-  return (ZONES as readonly string[]).includes(text);
+  // The official letters plus whatever the owner's zones have taught the
+  // registry — the layout, not this file, is the judge of what exists.
+  return (ZONES as readonly string[]).includes(text) || yardRegistry.has(text);
 }
 
 function isTier(text: string): text is Tier {

@@ -2,6 +2,7 @@ import type {
   ApiError,
   CarrierDto,
   ContainerDto,
+  CustomZoneDto,
   DailyReportRow,
   ErrorCode,
   FleetDto,
@@ -255,6 +256,36 @@ export const api = {
   /** الناقلون وسياراتهم — ما تحتاجه البوابة للتعرّف على رقم مكتوب. */
   fleet: (): Promise<FleetDto> => request('/api/fleet'),
 
+  /** الزونات التي عرّفها المالك — ما تحتاجه الخريطة لرسم ساحاته كلها. */
+  zones: (): Promise<{ zones: CustomZoneDto[] }> => request('/api/zones'),
+
+  addZone: (input: {
+    yard: number;
+    name: string;
+    bays: number;
+    stacks: number;
+  }): Promise<CustomZoneDto> =>
+    request('/api/zones', { method: 'POST', body: JSON.stringify(input) }),
+
+  /**
+   * تعديل شكل الزون — جزئياً: ما لا يُرسل لا يُمسّ، فتحريك الموقع لا يمسح
+   * خانات أُغلقت قبله بلحظة.
+   */
+  editZone: (
+    id: number,
+    input: {
+      bays?: number;
+      stacks?: number;
+      closed?: ReadonlyArray<readonly [number, number]>;
+      x?: number | null;
+      y?: number | null;
+    },
+  ): Promise<CustomZoneDto> =>
+    request(`/api/zones/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
+
+  removeZone: (id: number): Promise<{ ok: boolean }> =>
+    request(`/api/zones/${String(id)}`, { method: 'DELETE' }),
+
   /** السيارات التي كتبتها البوابة ولا تطابق أي سيارة مسجّلة — للتوزيع. */
   unassignedPlates: (): Promise<{ rows: UnassignedPlateRow[] }> =>
     request('/api/fleet/unassigned'),
@@ -370,6 +401,7 @@ export const api = {
     carriers: number;
     trucks: number;
     permits: number;
+    zones: number;
     backup: string;
   }> => {
     let response: Response;
@@ -395,6 +427,7 @@ export const api = {
       carriers: number;
       trucks: number;
       permits: number;
+      zones: number;
       backup: string;
     };
   },

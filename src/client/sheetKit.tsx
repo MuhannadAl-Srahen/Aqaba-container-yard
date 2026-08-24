@@ -234,7 +234,8 @@ const cellBase = 'border border-rule px-2 py-1.5 text-[13px] align-middle';
  * through the middle of a word.
  */
 const cellFree = ' break-words leading-6';
-const PAGE_SIZES = [20, 50, 80] as const;
+/** Rows per screen page; 0 is «عرض الكل» — the whole register at once. */
+const PAGE_SIZES = [20, 50, 80, 0] as const;
 
 /** Inline custom properties: the sheet hands its measurements to the CSS. */
 type StyleVars = CSSProperties & Record<`--${string}`, string>;
@@ -311,7 +312,9 @@ export function SheetScreen(props: {
     setSort(null);
   }, [props.sheetTitle]);
 
-  const pages = Math.max(1, Math.ceil(sheet.body.length / pageSize));
+  // Page size 0 is «عرض الكل»: one page as long as the register itself.
+  const rowsPerPage = pageSize === 0 ? Math.max(1, sheet.body.length) : pageSize;
+  const pages = Math.max(1, Math.ceil(sheet.body.length / rowsPerPage));
   useEffect(() => {
     setPage(0);
   }, [props.sheetTitle, sheet.body.length, pageSize, sort]);
@@ -487,7 +490,7 @@ export function SheetScreen(props: {
             >
               {PAGE_SIZES.map((size) => (
                 <option key={size} value={size}>
-                  {size}
+                  {size === 0 ? AR.perPageAll : size}
                 </option>
               ))}
             </select>
@@ -633,7 +636,7 @@ export function SheetScreen(props: {
                       printer un-hides the rest. */}
                   {sheet.body.map((row, rowIndex) => {
                     const onPage =
-                      rowIndex >= current * pageSize && rowIndex < (current + 1) * pageSize;
+                      rowIndex >= current * rowsPerPage && rowIndex < (current + 1) * rowsPerPage;
                     return (
                       <tr
                         key={rowIndex}

@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import type {
   CarrierDto,
   ContainerDto,
+  CustomZoneDto,
   PermitDto,
   PermitReportRow,
   Handling,
@@ -1193,6 +1194,7 @@ interface PermitRow {
   serial: number;
   serial_year: number;
   bill: string;
+  yard: number;
   at: string;
   user_id: number | null;
   deleted_at: string | null;
@@ -1216,6 +1218,8 @@ export function insertPermit(
     bill: string;
     at: string;
     userId: number | null;
+    /** The yard the paper names, read off the containers at issue time. */
+    yard: number;
     /** Each line pins the container's facts as the paper is issued. */
     items: ReadonlyArray<{
       containerId: number;
@@ -1230,9 +1234,9 @@ export function insertPermit(
   const id = Number(
     db
       .prepare(
-        'INSERT INTO permits (serial, serial_year, bill, at, user_id) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO permits (serial, serial_year, bill, at, user_id, yard) VALUES (?, ?, ?, ?, ?, ?)',
       )
-      .run(permit.serial, permit.serialYear, permit.bill, permit.at, permit.userId)
+      .run(permit.serial, permit.serialYear, permit.bill, permit.at, permit.userId, permit.yard)
       .lastInsertRowid,
   );
   const addItem = db.prepare(
@@ -1290,6 +1294,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
     serialYear: row.serial_year,
     bill: row.bill,
     at: row.at,
+    yard: row.yard,
     user: userLabel(names, row.user_id),
     items: items.map((item) => ({
       containerId: item.container_id,
@@ -1359,4 +1364,93 @@ export function renumberPermits(db: DatabaseSync): number {
     next += 1;
   }
   return corrected;
+}
+
+// ---- الزونات التي يعرّفها المالك ----
+
+interface CustomZoneRow {
+  id: number;
+  yard: number;
+  name: string;
+  bays: number;
+  stacks: number;
+  closed: string;
+  x: number | null;
+  y: number | null;
+}
+
+/** The closed slots come out of JSON defensively: a bad pair is dropped. */
+function toCustomZone(row: CustomZoneRow): CustomZoneDto {
+  let closed: ReadonlyArray<readonly [number, number]> = [];
+  try {
+    const parsed: unknown = JSON.parse(row.closed);
+    if (Array.isArray(parsed)) {
+      closed = parsed
+        .filter(
+          (pair): pair is [number, number] =>
+            Array.isArray(pair) &&
+            pair.length === 2 &&
+            Number.isInteger(pair[0]) &&
+            Number.isInteger(pair[1]),
+        )
+        .map((pair) => [pair[0], pair[1]] as const);
+    }
+  } catch {
+    closed = [];
+  }
+  return {
+    id: row.id,
+    yard: row.yard,
+    zone: row.name,
+    bays: row.bays,
+    stacks: row.stacks,
+    closed,
+    x: row.x,
+    y: row.y,
+  };
+}
+
+export function listCustomZones(db: DatabaseSync): CustomZoneDto[] {
+  const rows = db
+    .prepare('SELECT * FROM custom_zones WHERE deleted_at IS NULL ORDER BY id')
+    .all() as unknown as CustomZoneRow[];
+  return rows.map(toCustomZone);
+}
+
+export function getCustomZone(db: DatabaseSync, id: number): CustomZoneDto | null {
+  const row = db
+    .prepare('SELECT * FROM custom_zones WHERE id = ? AND deleted_at IS NULL')
+    .get(id) as CustomZoneRow | undefined;
+  return row === undefined ? null : toCustomZone(row);
+}
+
+export function insertCustomZone(
+  db: DatabaseSync,
+  zone: { yard: number; name: string; bays: number; stacks: number },
+): number {
+  return Number(
+    db
+      .prepare('INSERT INTO custom_zones (yard, name, bays, stacks) VALUES (?, ?, ?, ?)')
+      .run(zone.yard, zone.name, zone.bays, zone.stacks).lastInsertRowid,
+  );
+}
+
+export function updateCustomZone(
+  db: DatabaseSync,
+  id: number,
+  shape: {
+    bays: number;
+    stacks: number;
+    closed: ReadonlyArray<readonly [number, number]>;
+    x: number | null;
+    y: number | null;
+  },
+): void {
+  db.prepare(
+    'UPDATE custom_zones SET bays = ?, stacks = ?, closed = ?, x = ?, y = ? WHERE id = ?',
+  ).run(shape.bays, shape.stacks, JSON.stringify(shape.closed), shape.x, shape.y, id);
+}
+
+export function softDeleteCustomZone(db: DatabaseSync, id: number, at: string): void {
+  db.prepare('UPDATE custom_zones SET deleted_at = ? WHERE id = ?').run(at, id);
 }

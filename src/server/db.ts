@@ -195,6 +195,16 @@ export function migrate(db: DatabaseSync, file: string): void {
     upgradeMovementsV17(db);
   }
 
+  // v21: the owner defines zones of his own, so the ground stops being a
+  // closed list — the zone column loses its A…E CHECK and the LAYOUT (the
+  // official plan plus his zones) becomes the one judge of what exists.
+  // SQLite cannot edit a CHECK in place: the table is rebuilt, per the
+  // house pattern above. The tier CHECK stays — three tiers, always.
+  const v20ContainersSql = tableSql('containers');
+  if (v20ContainersSql !== undefined && v20ContainersSql.includes("zone IN (")) {
+    upgradeContainersV21(db);
+  }
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
@@ -236,7 +246,7 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- The exact official slot (1-A-03-01-A), present exactly while it
       -- stands in the yard. The bay's parity repeats the size on purpose:
       -- odd bay = 20, even bay = a 40 across the two odd bays around it.
-      zone          TEXT    CHECK (zone IN ('A', 'B', 'C', 'D', 'E')),
+      zone          TEXT,
       bay           INTEGER,
       stack         INTEGER,
       tier          TEXT    CHECK (tier IN ('A', 'B', 'C')),
@@ -328,6 +338,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     -- containers, going out to موقع المقص. A ledger of its own, counted per
     -- year like the gate cards; its items pin the containers it listed and
     -- the truck assigned to each. Issuing one moves nothing on the ground.
+    -- v21 pinned the yard the paper names, computed at issue time.
     CREATE TABLE IF NOT EXISTS permits (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,
       serial      INTEGER NOT NULL,
@@ -335,6 +346,7 @@ export function migrate(db: DatabaseSync, file: string): void {
       bill        TEXT    NOT NULL,
       at          TEXT    NOT NULL,
       user_id     INTEGER REFERENCES users (id),
+      yard        INTEGER NOT NULL DEFAULT 2,
       deleted_at  TEXT
     );
 
@@ -355,8 +367,47 @@ export function migrate(db: DatabaseSync, file: string): void {
 
     CREATE INDEX IF NOT EXISTS idx_permit_items_permit ON permit_items (permit_id);
 
-    PRAGMA user_version = 20;
+    -- v21: الزونات التي يعرّفها المالك بنفسه — في ساحاته 1 و3 أو بجانب
+    -- المخطط الرسمي، الذي يبقى بيانات مثبّتة لا تُمسّ. شبكة بايات فردية
+    -- وستاكات وثلاثة طوابق دائماً؛ والخانات المغلقة (closed، أزواج
+    -- [باي، ستاك] بصيغة JSON) تمنع الوضع كما تفعل حوائط الساحة 2.
+    CREATE TABLE IF NOT EXISTS custom_zones (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      yard       INTEGER NOT NULL,
+      name       TEXT    NOT NULL,
+      bays       INTEGER NOT NULL,
+      stacks     INTEGER NOT NULL,
+      closed     TEXT    NOT NULL DEFAULT '[]',
+      -- Where the owner parked the zone on its yard's drawing — «بدي اقدر
+      -- احرك الزون». Null = the composer lines it up by itself.
+      x          REAL,
+      y          REAL,
+      deleted_at TEXT
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_zones_live_name
+      ON custom_zones (name) WHERE deleted_at IS NULL;
+
+    PRAGMA user_version = 21;
   `);
+
+  // v21 upgrade: a permits table born before the owner's yards existed does
+  // not name the yard on the paper — every permit it issued was yard 2.
+  const permitColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('permits') as unknown as Array<{ name: string }>;
+  if (!permitColumns.some((column) => column.name === 'yard')) {
+    db.exec('ALTER TABLE permits ADD COLUMN yard INTEGER NOT NULL DEFAULT 2');
+  }
+
+  // A custom_zones table born minutes before the position columns arrived
+  // (a dev server reloading mid-edit does exactly this) is topped up.
+  const zoneColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('custom_zones') as unknown as Array<{ name: string }>;
+  if (zoneColumns.length > 0 && !zoneColumns.some((column) => column.name === 'x')) {
+    db.exec('ALTER TABLE custom_zones ADD COLUMN x REAL; ALTER TABLE custom_zones ADD COLUMN y REAL;');
+  }
 
   // v20 upgrade: a permit_items table born under v19 lacks the snapshot
   // columns. Sniffing the table beats trusting the version stamp — and the
@@ -617,6 +668,70 @@ function upgradeMovementsV17(db: DatabaseSync): void {
       ALTER TABLE movements_v17 RENAME TO movements;
       CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
       CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
+    `);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+}
+
+/**
+ * v21: rebuild `containers` without the zone CHECK. The owner's zones carry
+ * letters the old list never heard of, and the layout — not the schema — is
+ * the judge of the ground. Columns are named on both sides because an old
+ * file's column ORDER differs from a fresh one's (upgrades append).
+ */
+function upgradeContainersV21(db: DatabaseSync): void {
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    db.exec(`
+      CREATE TABLE containers_v21 (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        number        TEXT    NOT NULL,
+        number_valid  INTEGER NOT NULL,
+        size          INTEGER NOT NULL CHECK (size IN (20, 40)),
+        notes         TEXT    NOT NULL DEFAULT '',
+        entered_at    TEXT    NOT NULL,
+        exited_at     TEXT,
+        bill          TEXT    NOT NULL DEFAULT '',
+        zone          TEXT,
+        bay           INTEGER,
+        stack         INTEGER,
+        tier          TEXT    CHECK (tier IN ('A', 'B', 'C')),
+        weight        TEXT    NOT NULL DEFAULT '',
+        handling      TEXT    NOT NULL DEFAULT '',
+        truck_in      TEXT    NOT NULL DEFAULT '',
+        driver_in     TEXT    NOT NULL DEFAULT '',
+        seal_in       TEXT    NOT NULL DEFAULT '',
+        card_in       INTEGER,
+        truck_out     TEXT    NOT NULL DEFAULT '',
+        driver_out    TEXT    NOT NULL DEFAULT '',
+        seal_out      TEXT    NOT NULL DEFAULT '',
+        card_out      INTEGER,
+        card_in_year  INTEGER,
+        card_out_year INTEGER,
+        deleted_at    TEXT
+      );
+      INSERT INTO containers_v21
+        (id, number, number_valid, size, notes, entered_at, exited_at, bill,
+         zone, bay, stack, tier, weight, handling, truck_in, driver_in,
+         seal_in, card_in, truck_out, driver_out, seal_out, card_out,
+         card_in_year, card_out_year, deleted_at)
+      SELECT id, number, number_valid, size, notes, entered_at, exited_at, bill,
+             zone, bay, stack, tier, weight, handling, truck_in, driver_in,
+             seal_in, card_in, truck_out, driver_out, seal_out, card_out,
+             card_in_year, card_out_year, deleted_at
+      FROM containers;
+      DROP TABLE containers;
+      ALTER TABLE containers_v21 RENAME TO containers;
+      CREATE INDEX IF NOT EXISTS idx_containers_number ON containers (number);
+      CREATE INDEX IF NOT EXISTS idx_containers_bill ON containers (bill) WHERE bill <> '';
+      CREATE INDEX IF NOT EXISTS idx_containers_standing
+        ON containers (zone, bay, stack, tier) WHERE zone IS NOT NULL;
     `);
     db.exec('COMMIT');
   } catch (error) {

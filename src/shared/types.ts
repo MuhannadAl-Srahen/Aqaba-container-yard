@@ -14,7 +14,12 @@ export type Size = (typeof SIZES)[number];
 
 /** The five zones of the official plan, all of them inside SAHA 2. */
 export const ZONES = ['A', 'B', 'C', 'D', 'E'] as const;
-export type Zone = (typeof ZONES)[number];
+/**
+ * A zone name. The official plan paints A…E; the owner's own zones (in his
+ * yards 1 and 3, or added beside the plan) carry whatever letter he gives
+ * them — so the type is open, and the LAYOUT is the judge of what exists.
+ */
+export type Zone = string;
 
 /**
  * What lifted the container off the truck: a crane or a straddle carrier.
@@ -45,15 +50,25 @@ export function tierAbove(tier: Tier): Tier | null {
 }
 
 /**
- * Which yard a zone belongs to — the address digit nobody types by hand.
- *
- * Every zone this system knows is in SAHA 2: the whole decoded drawing is
- * that one ground, and the owner's yards 1 and 3 are separate grounds it does
- * not model yet. So every address reads `2-…`. When another yard is decoded,
- * this stops being a constant and starts reading the zone's own layout entry.
+ * الزون الذي يعرّفه المالك بنفسه: في ساحة من ساحاته (1، 3…) أو بجانب
+ * المخطط الرسمي. شبكة بايات فردية للعشرينات وستاكات، وثلاثة طوابق دائماً —
+ * وما أغلقه المالك من خانات (bay, stack) يمنع الوضع فيه كما تفعل حوائط
+ * الساحة 2 تماماً.
  */
-export function yardOf(_zone: Zone): number {
-  return 2;
+export interface CustomZoneDto {
+  readonly id: number;
+  readonly yard: number;
+  /** The letter painted on the ground — unique across every yard. */
+  readonly zone: string;
+  /** How many twenty-foot bays: bays 1, 3, 5 … (2n−1). */
+  readonly bays: number;
+  /** How many stacks across the strip: 1 … n. */
+  readonly stacks: number;
+  /** Ground slots the owner closed, as [oddBay, stack] pairs. */
+  readonly closed: ReadonlyArray<readonly [number, number]>;
+  /** Where he parked it on the drawing; null = lined up automatically. */
+  readonly x: number | null;
+  readonly y: number | null;
 }
 
 /**
@@ -309,6 +324,8 @@ export interface PermitDto {
   readonly id: number;
   readonly serial: number;
   readonly serialYear: number;
+  /** The yard the paper names — pinned at issue time like every other fact. */
+  readonly yard: number;
   readonly bill: string;
   readonly at: string;
   readonly user: string;
@@ -423,6 +440,12 @@ export const ERROR_CODES = [
   'SIZE_LOCKED',
   /** The uploaded restore file is not a yard backup this version can read. */
   'BAD_BACKUP',
+  /**
+   * The zone still holds standing containers where the change would leave
+   * them without ground — a delete, a shrink, or a closed slot under a box.
+   * Move the containers first.
+   */
+  'ZONE_HAS_CONTAINERS',
   /** A live truck with this very plate is already registered. */
   'TRUCK_EXISTS',
   /** A carrier still holding trucks cannot be struck out. */

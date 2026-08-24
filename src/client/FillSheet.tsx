@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactElement } from 'react';
 import type { ContainerDto } from '../shared/types';
 import { TIERS } from '../shared/types';
-import { ASEZA } from '../shared/asezaLayout';
+import type { YardLayout } from '../shared/types';
 import { fillPlan } from '../shared/rules';
 import { AR } from './ar';
 import { toStanding } from './mapModel';
@@ -19,12 +19,17 @@ import { Sheet } from './ui';
  * accepts three tiers everywhere. «مو كل الأماكن بتوخذ 3 طوابق».
  */
 export function FillSheet(props: {
+  /** The whole effective ground — the plan plus the owner's own zones. */
+  layout: YardLayout;
   containers: readonly ContainerDto[];
   onClose: () => void;
 }): ReactElement {
   const [height, setHeight] = useState<number>(TIERS.length);
   const standing = useMemo(() => toStanding(props.containers), [props.containers]);
-  const plan = useMemo(() => fillPlan(ASEZA, standing, height), [standing, height]);
+  const plan = useMemo(
+    () => fillPlan(props.layout, standing, height),
+    [props.layout, standing, height],
+  );
 
   const row = (
     label: string,

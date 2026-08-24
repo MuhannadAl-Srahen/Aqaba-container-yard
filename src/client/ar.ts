@@ -69,6 +69,49 @@ export const AR = {
   permitDeleted: 'تم حذف التصريح.',
   permitsCount: (count: number): string => `عدد التصاريح: ${String(count)}`,
 
+  // ---- الزونات والساحات ----
+  zonesButton: 'الساحات',
+  zonesTitle: 'الزونات والساحات',
+  zonesHint:
+    'عرّف زونات ساحاتك الأخرى هنا: رقم الساحة، حرف الزون، وعدد البايات والستاكات — ' +
+    'والطوابق ثلاثة دائماً. المخطط الرسمي للساحة 2 ثابت لا يُعدَّل. ' +
+    'الخانة التي تغلقها تمنع وضع الحاويات فيها كما تفعل حوائط الساحة 2.',
+  zonesOfficialNote: 'الساحة 2 — المخطط الرسمي: زونات A حتى E ثابتة كما في المخطط المعتمد.',
+  zonesEmpty: 'لم تعرّف أي زون بعد. أضف أول زون من الأسفل.',
+  zoneAdd: 'إضافة زون',
+  zoneYard: 'رقم الساحة',
+  zoneYardHint: 'رقم الساحة كما يُكتب في أول العنوان — 1 أو 3 مثلاً.',
+  zoneName: 'حرف الزون',
+  zoneNameHint: 'حرف لاتيني كبير (مثل F) لا يتكرر في كل الساحات.',
+  zoneBays: 'عدد البايات',
+  zoneBaysHint: 'بايات العشرينات: 1، 3، 5 … والأربعين تنام على بايين متجاورين.',
+  zoneStacks: 'عدد الستاكات',
+  zoneCreate: 'إنشاء الزون',
+  zoneCreated: 'تم إنشاء الزون. اضغط أي خانة لإغلاقها ثم احفظ الشكل.',
+  zoneSaved: 'تم حفظ شكل الزون.',
+  zoneSave: 'حفظ الشكل',
+  zoneDelete: 'حذف الزون',
+  confirmZoneDeleteTitle: 'حذف زون',
+  confirmZoneDeleteBody: (name: string): string =>
+    `هل تريد حذف الزون ${name}؟ لا يُحذف زون فيه حاويات واقفة، وسجلات الحاويات القديمة تبقى كما هي.`,
+  zoneDeleted: 'تم حذف الزون.',
+  zoneClosedHint:
+    'اضغط أي خانة لإغلاقها أو فتحها — الخانة المغلقة (المخططة) تمنع الوضع فيها — ثم احفظ الشكل.',
+  zoneOpenSlots: (n: number): string => `${String(n)} خانة أرضية مفتوحة`,
+  zoneMove: 'موقع الزون على المخطط:',
+  zoneMoveAuto: 'ترتيب تلقائي',
+  zoneMoveStart: 'تحريك إلى جهة البداية',
+  zoneMoveEnd: 'تحريك إلى جهة النهاية',
+  zoneMoveUp: 'تحريك إلى الأعلى',
+  zoneMoveDown: 'تحريك إلى الأسفل',
+  zoneMoved: 'تم تحريك الزون. افتح الخريطة لترى موقعه.',
+  zoneDragHint: 'اسحب من هذا الشريط لتحريك الزون على المخطط',
+  zoneTiersNote: 'كل خانة أرضية فوقها ثلاثة طوابق: A على الأرض ثم B ثم C.',
+  zoneBayWord: 'باي',
+  zoneStackWord: 'ستاك',
+  zoneLabel: (yard: number, name: string): string => `الزون ${name} — ساحة ${String(yard)}`,
+  yardTab: (yard: number): string => `ساحة ${String(yard)}`,
+
   // ---- carriers & trucks ----
   carriersTitle: 'الناقلون والسيارات',
   carriersButton: 'الناقلون',
@@ -556,6 +599,8 @@ export const AR = {
   restoredDone: 'تم استرجاع السجل.',
   revertedDone: 'تم التراجع عن التعديل.',
   perPage: 'في كل صفحة',
+  /** The page-size list's last entry: the whole register on one screen. */
+  perPageAll: 'عرض الكل',
 
   // ---- owner training tools (temporary, for the training period) ----
   toolsButton: 'أدوات التدريب',
@@ -594,11 +639,12 @@ export const AR = {
     carriers: number;
     trucks: number;
     permits: number;
+    zones: number;
   }): string =>
     `تم الاسترجاع كاملاً: ${String(counts.containers)} حاوية، ` +
     `${String(counts.movements)} حركة في السجل، ${String(counts.users)} موظف، ` +
     `${String(counts.carriers)} ناقل و${String(counts.trucks)} سيارة ` +
-    `و${String(counts.permits)} تصريح تحميل وخروج.`,
+    `و${String(counts.permits)} تصريح تحميل وخروج و${String(counts.zones)} زون معرّف.`,
   toolsWipeTitle: 'حذف كل البيانات',
   toolsWipeBody:
     'حذف جميع الحاويات والحركات وإعادة أرقام البطاقات إلى 1. يبقى الموظفون ' +
@@ -668,6 +714,9 @@ export const AR = {
     TRUCK_EXISTS: 'هذه السيارة مسجّلة من قبل بالرقم نفسه. راجع قائمة السيارات.',
     CARRIER_HAS_TRUCKS:
       'لهذا الناقل سيارات مسجّلة. انقل سياراته إلى ناقل آخر أو احذفها أولاً.',
+    ZONE_HAS_CONTAINERS:
+      'في هذا الزون حاويات واقفة سيتركها التعديل أو الحذف بلا أرض. ' +
+      'انقل الحاويات أولاً ثم أعد المحاولة.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
   errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>
