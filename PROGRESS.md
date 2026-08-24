@@ -1444,3 +1444,13 @@ DEFAULT: every register opens already inside the screen, and the button
 turns it OFF for whoever wants full-size type and a scroll. Verified on
 both gate registers: overflow 0 on open, 16 columns, zoom 0.73, and the
 switch-off bringing back 435px of scroll.
+
+Next morning (2026-08-24), one line from the owner — «من كشف خروج وتحميل
+داخلي اريد ازالة ارقام السيارات من الكشف فقط» — and the permit paper
+dropped its «رقم السيارة» column: the plates stay typed and stored in the
+permit screen (the gate still names the carrier from the registered
+plate, and the truck register still shows every haul), but the printed
+paper now rules four columns — التسلسل، سند الإدخال، رقم الحاوية، تاريخ
+الدخول — with the totals row spanning what remains. Nothing else moved:
+the snapshot rule, the yearly ledger, and the reports register (which
+never carried plates) are untouched.

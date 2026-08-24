@@ -112,7 +112,6 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                 <th className={headCell}>{AR.colEntryCard}</th>
                 <th className={headCell}>{AR.colNumber}</th>
                 <th className={headCell}>{AR.colEnteredAt}</th>
-                <th className={headCell}>{AR.colPermitTruck}</th>
               </tr>
             </thead>
             <tbody>
@@ -125,13 +124,10 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                   <td className={`${bodyCell} font-mono tracking-wider`} dir="ltr">
                     {item.number}
                   </td>
+                  {/* No truck column: the owner struck the plates off this
+                      paper — they live in the permit screen alone. */}
                   <td className={bodyCell} dir="ltr">
                     {dateFormat.format(new Date(item.enteredAt))}
-                  </td>
-                  {/* A blank truck cell stays BLANK, not dashed: the plate is
-                      written there by hand at loading time. */}
-                  <td className={`${bodyCell} font-mono`} dir="ltr">
-                    {item.truck}
                   </td>
                 </tr>
               ))}
@@ -142,7 +138,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                   {AR.totalRow}
                 </td>
                 <td
-                  colSpan={4}
+                  colSpan={3}
                   className={`${bodyCell} border-t-2 border-t-rule-strong font-bold`}
                 >
                   {AR.billTotals(permit.items.length, t20, t40)}
