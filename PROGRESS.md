@@ -1427,3 +1427,14 @@ browser harness** on the real build — the editor's yard-style grid, the
 closed cell hatching and refusing from the server, the yard tabs, a
 gate-in through the map of ساحة 1, the drag-savable position, and the
 whole-register page — its screenshots read by eye.
+
+And the same evening: **«ملاءمة العرض»** — «اذا بدي اخلي الكشف ما في سكرول
+يمين وشمال بس دون ما انقص البيانات هل هذه الشي ممكن؟». It is: a toggle on
+every register scales the whole sheet by the plain ratio of the screen's
+width to the sheet's own natural floor (zoom, floored at 0.45 so type
+never shrinks past reading), the same promise the printed page keeps. The
+width watcher chases the scroller with a state ref because the table only
+mounts once rows exist — the first build measured a null node and scaled
+nothing, caught by the harness (426px of overflow → 0, 16 columns before
+and after, zoom 0.73, and the second press putting everything back).
+Print CSS pins zoom back to 1 — paper has its own fitting arithmetic.

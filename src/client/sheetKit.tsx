@@ -279,6 +279,30 @@ export function SheetScreen(props: {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  /**
+   * «ملاءمة العرض»: the whole register scaled down until every column fits
+   * the screen with no sideways scroll and no data dropped — the same
+   * promise the printed page keeps, kept on glass. The scale is the plain
+   * ratio of the screen's width to the sheet's own natural floor, with a
+   * floor of its own so type never shrinks past reading.
+   */
+  const [fit, setFit] = useState(false);
+  // A STATE ref, not a plain one: the scroller mounts only once rows exist,
+  // so the width watcher must chase the node, not the first render.
+  const [glass, setGlass] = useState<HTMLDivElement | null>(null);
+  const [glassWidth, setGlassWidth] = useState(0);
+  useEffect(() => {
+    if (glass === null) return;
+    const read = (): void => {
+      setGlassWidth(glass.clientWidth);
+    };
+    read();
+    const watcher = new ResizeObserver(read);
+    watcher.observe(glass);
+    return () => {
+      watcher.disconnect();
+    };
+  }, [glass]);
   /** Which heading the reader pressed, and which way. Null = the register's own order. */
   const [sort, setSort] = useState<SortState | null>(null);
 
@@ -381,6 +405,10 @@ export function SheetScreen(props: {
 
   const footer = sheet.footer;
   const metrics = sheetMetrics(sheet, props.actions !== undefined);
+  const fitZoom =
+    fit && glassWidth > 0 && metrics.minWidth > glassWidth
+      ? Math.max(0.45, glassWidth / metrics.minWidth)
+      : 1;
   const sheetStyle: StyleVars = { '--sheet-font': metrics.printFont };
 
   return (
@@ -447,6 +475,20 @@ export function SheetScreen(props: {
           ) : (
             <span className="text-sm font-semibold text-muted">{props.rangeless}</span>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              setFit((value) => !value);
+            }}
+            className={
+              'rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ' +
+              (fit
+                ? 'bg-blue-700 text-white hover:bg-blue-800'
+                : 'bg-sunken text-muted hover:bg-line')
+            }
+          >
+            {AR.fitWidth}
+          </button>
           {props.extraFilters}
           {/* Every register, one box, every column. It reads what the sheet
               itself says — so a date, a plate, a bill, a slot, a note or the
@@ -554,10 +596,10 @@ export function SheetScreen(props: {
                   own columns need at screen type, so nothing overlaps here
                   either. On paper the page decides the width and every column
                   comes back in. Print gets every row; the screen pages. */}
-              <div className="sheet-scroll overflow-x-auto">
+              <div ref={setGlass} className="sheet-scroll overflow-x-auto">
               <table
                 className="w-full table-fixed border-collapse border-2 border-rule-strong"
-                style={{ minWidth: `${String(metrics.minWidth)}px` }}
+                style={{ minWidth: `${String(metrics.minWidth)}px`, zoom: fitZoom }}
               >
                 <colgroup>
                   {metrics.shares.map((share, index) => {

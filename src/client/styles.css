@@ -320,6 +320,11 @@ body {
   .report-sheet .sheet-scroll {
     overflow: visible !important;
   }
+  /* «ملاءمة العرض» is a screen convenience: paper has its own fitting
+     arithmetic, so the screen's zoom never rides into the printer. */
+  .report-sheet table {
+    zoom: 1 !important;
+  }
   .report-sheet table {
     width: 100%;
     min-width: 0 !important;

@@ -601,6 +601,12 @@ export const AR = {
   perPage: 'في كل صفحة',
   /** The page-size list's last entry: the whole register on one screen. */
   perPageAll: 'عرض الكل',
+  /**
+   * «ما في سكرول يمين وشمال بس دون ما انقص البيانات»: shrink the whole
+   * sheet until every column fits the screen's width, like the printed
+   * page does — nothing dropped, nothing hidden.
+   */
+  fitWidth: 'ملاءمة العرض',
 
   // ---- owner training tools (temporary, for the training period) ----
   toolsButton: 'أدوات التدريب',
