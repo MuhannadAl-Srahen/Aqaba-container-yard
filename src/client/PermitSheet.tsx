@@ -95,9 +95,12 @@ export function PermitSheet(props: {
                 match === null
                   ? null
                   : (fleet.data?.carriers.find((c) => c.id === match.carrierId) ?? null);
+              // Two quiet lines, never a squeeze: the box and its badges on
+              // the first, the entry facts and the plate on the second — a
+              // narrow panel wraps nothing and overlaps nothing.
               return (
-                <li key={container.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
-                  <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5">
+                <li key={container.id} className="px-3 py-2.5">
+                  <label className="flex cursor-pointer items-center gap-2.5">
                     <input
                       type="checkbox"
                       className="h-4 w-4 shrink-0 accent-blue-700"
@@ -106,41 +109,41 @@ export function PermitSheet(props: {
                         toggle(container.id);
                       }}
                     />
-                    <span className="font-mono text-sm font-bold text-ink" dir="ltr">
+                    <span className="truncate font-mono text-sm font-bold text-ink" dir="ltr">
                       {container.number}
                     </span>
                     <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-muted">
                       {AR.feet(container.size)}
                     </span>
-                    <span className="font-mono text-xs text-muted" dir="ltr">
-                      {cardSerial(container.cardIn, container.cardInYear) ?? '—'}
-                    </span>
-                    <span className="text-xs text-muted" dir="ltr">
-                      {formatDateOnly(container.enteredAt)}
-                    </span>
                     {container.position === null && (
-                      <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-muted">
+                      <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-amber-600">
                         {AR.permitExited}
                       </span>
                     )}
                   </label>
-                  <span className="flex items-center gap-2">
-                    {home !== null && (
-                      <span className="whitespace-nowrap text-xs font-semibold text-emerald-600">
-                        {AR.carrierChip(home.name)}
-                      </span>
-                    )}
+                  <div className="mt-1.5 flex items-center gap-3 ps-7">
+                    <span className="shrink-0 font-mono text-xs text-muted" dir="ltr">
+                      {cardSerial(container.cardIn, container.cardInYear) ?? '—'}
+                    </span>
+                    <span className="shrink-0 text-xs text-muted" dir="ltr">
+                      {formatDateOnly(container.enteredAt)}
+                    </span>
                     <input
                       dir="ltr"
                       placeholder={AR.colPermitTruck}
                       disabled={!on}
-                      className={`${inputClass} w-32 py-1 text-start text-sm disabled:opacity-40`}
+                      className={`${inputClass} ms-auto w-28 py-1 text-start text-sm disabled:opacity-40`}
                       value={plate}
                       onChange={(event) => {
                         setTrucks({ ...trucks, [container.id]: event.target.value });
                       }}
                     />
-                  </span>
+                  </div>
+                  {home !== null && (
+                    <p className="mt-1 truncate ps-7 text-xs font-semibold text-emerald-600">
+                      {AR.carrierChip(home.name)}
+                    </p>
+                  )}
                 </li>
               );
             })}

@@ -143,7 +143,7 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
       {/* The card prints upright, unlike the wide report sheets. */}
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
       <div className="max-h-full w-full max-w-2xl overflow-y-auto">
-        <div className="print-area gate-card overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
+        <div className="print-area gate-card paper-light overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
           {/*
             The voucher strip: serial | title | day+date.
 

@@ -97,6 +97,29 @@ html.dark {
   color-scheme: dark;
 }
 
+/*
+ * A paper is white. The gate cards and the permit draw a sheet of paper on
+ * the screen before printing it, and paper does not follow the office's
+ * dark theme: inside a paper the vocabulary reads its light values again —
+ * on the screen and under the printer alike.
+ */
+.paper-light {
+  --color-canvas: #f1f5f9;
+  --color-surface: #ffffff;
+  --color-sunken: #f8fafc;
+  --color-ink: #0f172a;
+  --color-muted: #64748b;
+  --color-faint: #94a3b8;
+  --color-line: #e2e8f0;
+  --color-line-strong: #cbd5e1;
+  --color-rule: #94a3b8;
+  --color-rule-strong: #334155;
+  --color-danger: #b91c1c;
+  --color-danger-soft: #fee2e2;
+  --color-danger-line: #ef4444;
+  color-scheme: light;
+}
+
 body {
   margin: 0;
   background-color: var(--color-canvas);
@@ -191,6 +214,24 @@ body {
   }
   .print-hidden {
     display: none !important;
+  }
+
+  /* Whatever theme the screen wears, what comes out of the printer is a
+     white sheet: every print area reads the light vocabulary on paper. */
+  .print-area {
+    --color-canvas: #f1f5f9;
+    --color-surface: #ffffff;
+    --color-sunken: #f8fafc;
+    --color-ink: #0f172a;
+    --color-muted: #64748b;
+    --color-faint: #94a3b8;
+    --color-line: #e2e8f0;
+    --color-line-strong: #cbd5e1;
+    --color-rule: #94a3b8;
+    --color-rule-strong: #334155;
+    --color-danger: #b91c1c;
+    --color-danger-soft: #fee2e2;
+    --color-danger-line: #ef4444;
   }
 
   /* A gate card can be opened from inside a register, so both print areas are

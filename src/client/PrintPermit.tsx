@@ -62,7 +62,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
       {/* The permit prints upright, like the gate cards. */}
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
       <div className="max-h-full w-full max-w-2xl overflow-y-auto">
-        <div className="print-area gate-card overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
+        <div className="print-area gate-card paper-light overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
           {/* The organisation over the title, as the owner spelled the head:
               «مؤسسة الحق» then the permit's own name with its yard. No fill
               behind it — «ما بدي يصرف حبر» applies to every paper alike. */}
@@ -91,7 +91,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                 {permit.bill}
               </span>
             </div>
-            <div className="flex w-40 flex-col justify-center gap-0.5 border-s border-rule-strong px-3 py-2 text-[12px]">
+            <div className="flex w-40 flex-col items-center justify-center gap-0.5 border-s border-rule-strong px-3 py-2 text-center text-[12px]">
               <span className="text-[10px] font-semibold text-muted">{AR.permitDate}</span>
               <span className="font-bold">{dayFormat.format(new Date(permit.at))}</span>
               <span dir="ltr" className="text-muted">
@@ -151,9 +151,10 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
             </tfoot>
           </table>
 
-          {/* The storage directorate's closing block — signature and stamp. */}
+          {/* The storage directorate's closing block — the label centred over
+              an open space for the pen and the stamp. */}
           <div className="gate-sign h-28 border-t-2 border-rule-strong p-3">
-            <p className="text-[13px] font-bold text-muted">{AR.permitSignature}</p>
+            <p className="text-center text-[13px] font-bold text-ink">{AR.permitSignature}</p>
           </div>
 
           <p className="border-t border-line px-3 py-1 text-[10px] text-faint">

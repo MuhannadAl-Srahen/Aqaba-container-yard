@@ -518,7 +518,7 @@ export const AR = {
   billOf: (bill: string): string => `بوليصة ${bill}`,
   billNow: 'جميع حاويات البوليصة — غير مقيّد بفترة',
   billTotals: (n: number, t20: number, t40: number): string =>
-    `${String(n)} حاوية — ${String(t20)} عشرين · ${String(t40)} أربعين`,
+    `${String(n)} ${n >= 3 && n <= 10 ? 'حاويات' : 'حاوية'} — ${String(t20)} عشرين · ${String(t40)} أربعين`,
   colBill: 'رقم البوليصة',
   cardBill: 'رقم البوليصة',
   colExitedAt: 'تاريخ الخروج',

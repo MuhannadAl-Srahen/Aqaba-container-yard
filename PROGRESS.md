@@ -1369,3 +1369,16 @@ now wears the register's own ruling: the tinted header band, the
 alternating rows, and the bill sheet's المجموع row (عشرين/أربعين split,
 the size joining live because SIZE_LOCKED means it can never drift) closing
 the table before the signature block.
+
+His screenshots then showed the dark office — «يوجد اخطاء عديدة بالتصميم»:
+the issue sheet's one-line rows overpainted each other at 380px (the green
+carrier name across the container number, «خرجت» cropped at the edge), and
+the paper rendered in the dark palette. Two answers, both verified by a
+dark-mode harness with screenshots read by eye: the sheet's rows became two
+quiet lines (box and badges, then entry facts and the plate, the carrier on
+its own truncated line — a geometric overlap probe finds nothing), and
+`paper-light` re-declares the light vocabulary inside every paper — the
+permit and the gate cards are white sheets whatever the office theme, and
+@media print forces the same on every print area so a register printed
+from a dark screen comes out on white paper too. المجموع also learned its
+Arabic agreement: «5 حاويات», not «5 حاوية».
