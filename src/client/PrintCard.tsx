@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, MovementDto } from '../shared/types';
 import { positionLabel } from '../shared/address';
@@ -92,17 +93,32 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
   const at = move !== null ? move.at : kind === 'in' ? container.enteredAt : container.exitedAt;
   // Four places, and the year the count runs in beneath it: the serial starts
   // again at 1 every January, so «0091» alone names no card.
-  // «لحتى ارفقها بالمعاملة عند طباعة بطاقة الدخول»: the entry card offers
-  // the container's photos as pages of the same print — on by default when
-  // photos exist, one press turns the paper back to the card alone.
+  // «فقط اكتفي بكلمة طباعة بصور وبدون صور»: the screen shows the CARD
+  // alone, always. The choice exists only at the moment of printing — one
+  // button prints the card with the photos as following pages, the other
+  // the card by itself — and the photos block stays hidden until the
+  // printer itself asks for the ink.
   const photosQuery = useQuery({
     queryKey: ['photos', container.id],
     queryFn: () => api.photos(container.id),
     enabled: kind === 'in',
   });
   const photos = kind === 'in' ? (photosQuery.data?.photos ?? []) : [];
-  const [attach, setAttach] = useState(true);
-  const attaching = kind === 'in' && attach && photos.length > 0;
+  const [withPhotos, setWithPhotos] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (withPhotos === null) return;
+    // The choice is spent once the print dialog closes; until then the
+    // hidden block stays mounted so the printer reads it.
+    const done = (): void => {
+      setWithPhotos(null);
+    };
+    window.addEventListener('afterprint', done);
+    window.print();
+    return () => {
+      window.removeEventListener('afterprint', done);
+    };
+  }, [withPhotos]);
+  const attaching = withPhotos === true && photos.length > 0;
 
   const serial = move !== null ? move.card : kind === 'in' ? container.cardIn : container.cardOut;
   const serialYear =
@@ -150,7 +166,11 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
     </div>
   );
 
-  return (
+  // Portaled to the document body: a print overlay nested inside a card or
+  // a screen inherits clipping and transformed ancestors, and the printer
+  // then cuts everything past page one. At the body there is nothing above
+  // it to clip — the pages break where the paper says.
+  return createPortal(
     <div
       className={`${attaching ? 'permit-print ' : ''}fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4`}
     >
@@ -314,9 +334,15 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
           </p>
 
           {/* The photos as pages of this same paper, page-broken after the
-              card — the file the clerk staples is one print job. */}
-          {attaching && (
-            <div className="space-y-4 border-t-2 border-rule-strong p-4">
+              card — the file the clerk staples is one print job. NEVER on
+              the screen: display none until «طباعة بصور» is pressed, and
+              even then only the print medium sees it. */}
+          {kind === 'in' && photos.length > 0 && (
+            <div
+              className={
+                attaching ? 'hidden space-y-4 border-t-2 border-rule-strong p-4 print:block' : 'hidden'
+              }
+            >
               <p className="text-center text-sm font-bold text-ink">
                 {AR.photosOnPaper(container.number)}
               </p>
@@ -333,21 +359,30 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
         </div>
 
         <div className="print-hidden mt-3 flex justify-center gap-2">
-          <Button
-            onClick={() => {
-              window.print();
-            }}
-          >
-            {AR.print}
-          </Button>
-          {kind === 'in' && photos.length > 0 && (
+          {kind === 'in' && photos.length > 0 ? (
+            <>
+              <Button
+                onClick={() => {
+                  setWithPhotos(true);
+                }}
+              >
+                {AR.printWithPhotos}
+              </Button>
+              <Button
+                onClick={() => {
+                  setWithPhotos(false);
+                }}
+              >
+                {AR.printWithoutPhotos}
+              </Button>
+            </>
+          ) : (
             <Button
-              kind="quiet"
               onClick={() => {
-                setAttach(!attach);
+                window.print();
               }}
             >
-              {attach ? AR.detachPhotos : AR.attachPhotos(photos.length)}
+              {AR.print}
             </Button>
           )}
           <Button kind="quiet" onClick={props.onClose}>
@@ -355,6 +390,7 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -436,8 +436,8 @@ export const AR = {
   gatePhotosHint: 'تُرفع مع تأكيد الإدخال وتبقى في سجل الحاوية — ويمكن إضافتها لاحقاً من البطاقة.',
   photoRemovePick: 'إزالة الصورة',
   photoUploadFailed: 'تعذّر رفع بعض الصور — أضفها من بطاقة الحاوية.',
-  attachPhotos: (n: number): string => `إرفاق الصور (${String(n)})`,
-  detachPhotos: 'طباعة بلا الصور',
+  printWithPhotos: 'طباعة بصور',
+  printWithoutPhotos: 'طباعة بدون صور',
 
   // ---- correcting a move ----
   correctMoveAction: 'تصحيح النقلة',

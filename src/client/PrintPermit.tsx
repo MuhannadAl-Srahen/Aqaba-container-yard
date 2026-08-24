@@ -1,4 +1,5 @@
 import { useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import type { PermitDto } from '../shared/types';
 import { cardSerial } from '../shared/types';
 import { AR } from './ar';
@@ -53,11 +54,11 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
   const t20 = permit.items.filter((item) => item.size === 20).length;
   const t40 = permit.items.length - t20;
 
-  return (
+  return createPortal(
     // permit-print: on paper this overlay leaves the viewport and lies at the
     // top of the document, so a long table breaks onto page 2 and onward —
     // an overlay pinned to the screen prints exactly one page and swallows
-    // the rest.
+    // the rest. Portaled to the body so no ancestor can clip the pages.
     <div className="permit-print fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
       {/* The permit prints upright, like the gate cards. */}
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
@@ -172,6 +173,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

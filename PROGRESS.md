@@ -1521,3 +1521,20 @@ exist, «طباعة بلا الصور» turns the paper back into the card alone
 overlay borrowing the permit-print flow CSS so the pages actually break
 (proven: a tall photo made page.pdf() count 2). 291 tests, and a
 13-check harness on the real build with the screenshots read by eye.
+
+His screenshots caught what my harness had not: the photos paper opened
+FROM THE CARD printed 1/1 with the third photo sawn off — the overlay
+was nested inside the card's own DOM, and a clipping/transformed
+ancestor cuts an absolutely-positioned print area to one page (the
+permit's old wound, through a door I had not tested). And he ruled the
+card's screen must stay clean: «فقط اكتفي بكلمة طباعة بصور وبدون صور».
+So: every print overlay (PrintCard, PrintPermit, PrintPhotos, the
+driver's paper) now PORTALS to document.body — no ancestor left to clip
+— and the entry card of a photographed container shows exactly two
+buttons, «طباعة بصور» and «طباعة بدون صور»; the photos block lives
+display-none, becomes print-only when the first button is pressed
+(afterprint spends the choice), and the screen never shows a photo.
+Proven by a 14-check harness that counts REAL pdf pages at every print
+door: the register 3, the 40-item permit 2, the plain card 1, the card
+«بدون صور» 1 and «بصور» 4, the three-photo paper 3 (his 1/1 case), and
+the 43-haul driver statement 6 — nothing truncated anywhere.

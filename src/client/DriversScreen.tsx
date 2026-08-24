@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriverHaulRow } from '../shared/types';
 import { cardSerial } from '../shared/types';
@@ -351,7 +352,9 @@ function PrintDriver(props: {
     'border border-rule border-b-2 border-b-rule-strong bg-sunken px-2 py-1.5 text-center text-[12px] font-bold text-ink';
   const bodyCell = 'border border-rule px-2 py-1.5 text-center text-[12px] text-ink';
   const { group } = props;
-  return (
+  // At the body, not inside the screen: clipping ancestors would cut the
+  // printed statement to one page.
+  return createPortal(
     <div className="permit-print fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
       <div className="max-h-full w-full max-w-3xl overflow-y-auto">
@@ -427,6 +430,7 @@ function PrintDriver(props: {
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

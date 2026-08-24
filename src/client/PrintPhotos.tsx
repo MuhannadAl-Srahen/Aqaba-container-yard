@@ -1,4 +1,5 @@
 import { useEffect, type ReactElement } from 'react';
+import { createPortal } from 'react-dom';
 import type { ContainerDto, PhotoDto } from '../shared/types';
 import { AR } from './ar';
 import { formatDateOnly } from './api';
@@ -23,7 +24,9 @@ export function PrintPhotos(props: {
     };
   }, []);
   const { container } = props;
-  return (
+  // At the body, not inside the card: an overlay nested under clipping or
+  // transformed ancestors prints exactly one page and swallows the rest.
+  return createPortal(
     <div className="permit-print fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
       <div className="max-h-full w-full max-w-2xl overflow-y-auto">
@@ -67,6 +70,7 @@ export function PrintPhotos(props: {
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
