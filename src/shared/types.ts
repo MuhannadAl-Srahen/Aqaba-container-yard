@@ -295,6 +295,12 @@ export interface PermitItemDto {
   readonly cardIn: number | null;
   readonly cardInYear: number | null;
   readonly enteredAt: string;
+  /**
+   * For the paper's totals line, the bill sheet's own «n حاوية — عشرين ·
+   * أربعين». Read live rather than snapshotted, which is safe for this one
+   * fact alone: a container's size is locked for life (SIZE_LOCKED).
+   */
+  readonly size: Size;
   /** The truck that will carry this container out; blank = written by hand. */
   readonly truck: string;
 }

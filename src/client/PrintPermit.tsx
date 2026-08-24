@@ -44,8 +44,14 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
   // the year on its own small line — sized for the box on paper.
   const serialText = String(permit.serial).padStart(4, '0');
 
-  const headCell = 'border border-rule-strong bg-sunken px-2 py-1.5 text-center text-[13px] font-bold text-ink';
-  const bodyCell = 'border border-rule-strong px-2 py-1.5 text-center text-sm font-semibold text-ink';
+  // The table wears the register's own ruling — «تماما مثل كشف البوليصة»,
+  // the owner's word: the same header band, the same alternating rows, and
+  // the bill sheet's totals row closing the table before the signature.
+  const headCell =
+    'border border-rule border-b-2 border-b-rule-strong bg-sunken px-2 py-1.5 text-center text-[13px] font-bold text-ink';
+  const bodyCell = 'border border-rule px-2 py-1.5 text-center text-[13px] text-ink';
+  const t20 = permit.items.filter((item) => item.size === 20).length;
+  const t40 = permit.items.length - t20;
 
   return (
     // permit-print: on paper this overlay leaves the viewport and lies at the
@@ -111,7 +117,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
             </thead>
             <tbody>
               {permit.items.map((item, index) => (
-                <tr key={item.containerId}>
+                <tr key={item.containerId} className="odd:bg-surface even:bg-sunken">
                   <td className={bodyCell}>{String(index + 1)}</td>
                   <td className={`${bodyCell} font-mono`} dir="ltr">
                     {cardSerial(item.cardIn, item.cardInYear) ?? '—'}
@@ -130,6 +136,19 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr className="bg-sunken">
+                <td className={`${bodyCell} border-t-2 border-t-rule-strong font-bold`}>
+                  {AR.totalRow}
+                </td>
+                <td
+                  colSpan={4}
+                  className={`${bodyCell} border-t-2 border-t-rule-strong font-bold`}
+                >
+                  {AR.billTotals(permit.items.length, t20, t40)}
+                </td>
+              </tr>
+            </tfoot>
           </table>
 
           {/* The storage directorate's closing block — signature and stamp. */}

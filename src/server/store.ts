@@ -1263,12 +1263,17 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
   // The lines are read from the permit's own snapshot, never from the live
   // container: what left the office under the stamp is what a reprint says,
   // even after the container is corrected, renumbered or struck out.
+  // The size joins live — the ONE container fact that can never drift,
+  // because the size is locked for life — for the totals line the paper
+  // closes its table with, the bill sheet's own.
   const items = db
     .prepare(
-      `SELECT container_id, truck, number, card_in, card_in_year, entered_at
-       FROM permit_items
-       WHERE permit_id = ?
-       ORDER BY id`,
+      `SELECT i.container_id, i.truck, i.number, i.card_in, i.card_in_year, i.entered_at,
+              k.size
+       FROM permit_items i
+       JOIN containers k ON k.id = i.container_id
+       WHERE i.permit_id = ?
+       ORDER BY i.id`,
     )
     .all(id) as unknown as Array<{
     container_id: number;
@@ -1277,6 +1282,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
     card_in: number | null;
     card_in_year: number | null;
     entered_at: string;
+    size: number;
   }>;
   return {
     id: row.id,
@@ -1291,6 +1297,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
       cardIn: item.card_in,
       cardInYear: item.card_in_year,
       enteredAt: item.entered_at,
+      size: (item.size === 40 ? 40 : 20) as Size,
       truck: item.truck,
     })),
   };

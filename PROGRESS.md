@@ -1363,3 +1363,9 @@ digit-run search, the permit count in the restore reply), typecheck and
 lint clean, and **17 browser checks** on the real build — among them the
 issue sheet's three «خرجت» chips with 505 prefilled, the two-page PDF, and
 the log-line exit cancel answering «تم إلغاء خروج الحاوية…».
+
+And on the owner's follow-up — «تماما مثل كشف البوليصة» — the paper's table
+now wears the register's own ruling: the tinted header band, the
+alternating rows, and the bill sheet's المجموع row (عشرين/أربعين split,
+the size joining live because SIZE_LOCKED means it can never drift) closing
+the table before the signature block.

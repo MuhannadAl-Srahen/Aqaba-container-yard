@@ -110,6 +110,8 @@ describe('إصدار التصريح', () => {
     // سند بطاقة الإدخال: the entry card's own serial rides on the permit row.
     expect(one?.cardIn).toBe(1);
     expect(one?.truck).toBe('60-84785');
+    // The locked size rides along for the paper's totals line.
+    expect(one?.size).toBe(20);
     // A blank truck stays blank — written on the paper by hand.
     expect(permit.body.items[1]?.truck).toBe('');
 
