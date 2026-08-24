@@ -78,6 +78,41 @@ export interface RetiredZoneDto {
 }
 
 /**
+ * صورة حاوية — the bytes live in the database itself so the backup carries
+ * them with everything else; the wire lists the facts and serves the bytes
+ * by id.
+ */
+export interface PhotoDto {
+  readonly id: number;
+  readonly mime: string;
+  readonly size: number;
+  readonly at: string;
+}
+
+export type HaulDirection = 'IN' | 'OUT';
+
+/**
+ * نقلة سائق — one gate movement with a named driver, the unit the owner
+ * pays: a manual figure per haul (no currency, his call), and a receipt
+ * confirmation per haul, because one truck may haul many times.
+ */
+export interface DriverHaulRow {
+  readonly containerId: number;
+  readonly direction: HaulDirection;
+  readonly number: string;
+  readonly size: Size;
+  readonly bill: string;
+  readonly truck: string;
+  readonly driver: string;
+  readonly at: string;
+  readonly card: number | null;
+  readonly cardYear: number | null;
+  readonly amount: number | null;
+  readonly paidAt: string | null;
+  readonly paidBy: string | null;
+}
+
+/**
  * The bay's parity IS the container size: an odd bay takes a 20-footer; an
  * even bay is a 40-footer lying across the two odd bays around it (a 40 over
  * bays 01 and 03 is addressed as bay 02).
@@ -135,7 +170,15 @@ export interface YardLayout {
  * What an employee is allowed to do. The owner holds every one of these plus
  * the two that are never granted: employee management and the reset tools.
  */
-export const PERMISSIONS = ['GATE_IN', 'MOVE', 'GATE_OUT', 'EDIT', 'DELETE', 'REPORTS'] as const;
+export const PERMISSIONS = [
+  'GATE_IN',
+  'MOVE',
+  'GATE_OUT',
+  'EDIT',
+  'DELETE',
+  'REPORTS',
+  'ACCOUNTING',
+] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
 /** The owner is not a row in `users`; this is the id their session carries. */
@@ -456,6 +499,16 @@ export const ERROR_CODES = [
   'TRUCK_EXISTS',
   /** A carrier still holding trucks cannot be struck out. */
   'CARRIER_HAS_TRUCKS',
+  /** Correction reaches only the LAST move; an older wrong move needs a new move. */
+  'NOT_LAST_MOVE',
+  /** The record shows others resting on this box — a correction moves no steel. */
+  'MOVE_BURIED',
+  /** A container carries at most 30 photos. */
+  'PHOTO_LIMIT',
+  /** A settled haul's wage is locked until the receipt confirmation is lifted. */
+  'WAGE_PAID',
+  /** Receipt cannot be confirmed before a wage is written. */
+  'WAGE_MISSING',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

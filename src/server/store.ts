@@ -3,8 +3,11 @@ import type {
   CarrierDto,
   ContainerDto,
   CustomZoneDto,
+  DriverHaulRow,
+  HaulDirection,
   PermitDto,
   PermitReportRow,
+  PhotoDto,
   RetiredZoneDto,
   Handling,
   LogReportRow,
@@ -1465,4 +1468,198 @@ export function updateCustomZone(
 
 export function softDeleteCustomZone(db: DatabaseSync, id: number, at: string): void {
   db.prepare('UPDATE custom_zones SET deleted_at = ? WHERE id = ?').run(at, id);
+}
+
+// ---------------------------------------------------------------- photos ----
+
+/** The photos a container carries, facts only — the bytes are served by id. */
+export function listPhotos(db: DatabaseSync, containerId: number): PhotoDto[] {
+  return db
+    .prepare(
+      `SELECT id, mime, size, at FROM photos
+       WHERE container_id = ? AND deleted_at IS NULL ORDER BY id`,
+    )
+    .all(containerId) as unknown as PhotoDto[];
+}
+
+export function getPhoto(
+  db: DatabaseSync,
+  id: number,
+): { mime: string; bytes: Uint8Array } | null {
+  const row = db
+    .prepare('SELECT mime, bytes FROM photos WHERE id = ? AND deleted_at IS NULL')
+    .get(id) as { mime: string; bytes: Uint8Array } | undefined;
+  return row === undefined ? null : row;
+}
+
+export function insertPhoto(
+  db: DatabaseSync,
+  photo: {
+    containerId: number;
+    mime: string;
+    bytes: Uint8Array;
+    at: string;
+    userId: number | null;
+  },
+): number {
+  return Number(
+    db
+      .prepare(
+        `INSERT INTO photos (container_id, mime, bytes, size, at, user_id)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        photo.containerId,
+        photo.mime,
+        photo.bytes,
+        photo.bytes.byteLength,
+        photo.at,
+        photo.userId,
+      ).lastInsertRowid,
+  );
+}
+
+export function softDeletePhoto(db: DatabaseSync, id: number, at: string): boolean {
+  return (
+    db.prepare('UPDATE photos SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(at, id)
+      .changes > 0
+  );
+}
+
+// ----------------------------------------------------------------- wages ----
+
+/**
+ * Every haul of the period that has a driver to pay: the container's IN and
+ * its OUT are two separate hauls, because «قد يكون حملت هذه السيارة اكثر من
+ * مره» — the figure and the receipt belong to the haul, never to the truck.
+ */
+export function listHauls(db: DatabaseSync, fromIso: string, toIso: string): DriverHaulRow[] {
+  const names = listUserNames(db);
+  const rows = db
+    .prepare(
+      `SELECT c.id AS containerId, 'IN' AS direction, c.number AS number,
+              c.size AS size, c.bill AS bill, c.truck_in AS truck,
+              c.driver_in AS driver, c.entered_at AS at,
+              c.card_in AS card, c.card_in_year AS cardYear,
+              w.amount AS amount, w.paid_at AS paidAt, w.paid_by AS paidBy
+       FROM containers c
+       LEFT JOIN wages w
+         ON w.container_id = c.id AND w.direction = 'IN' AND w.deleted_at IS NULL
+       WHERE c.deleted_at IS NULL AND c.driver_in <> ''
+         AND c.entered_at >= ? AND c.entered_at < ?
+       UNION ALL
+       SELECT c.id, 'OUT', c.number, c.size, c.bill, c.truck_out,
+              c.driver_out, c.exited_at, c.card_out, c.card_out_year,
+              w.amount, w.paid_at, w.paid_by
+       FROM containers c
+       LEFT JOIN wages w
+         ON w.container_id = c.id AND w.direction = 'OUT' AND w.deleted_at IS NULL
+       WHERE c.deleted_at IS NULL AND c.driver_out <> '' AND c.exited_at IS NOT NULL
+         AND c.exited_at >= ? AND c.exited_at < ?
+       ORDER BY driver, at, containerId`,
+    )
+    .all(fromIso, toIso, fromIso, toIso) as unknown as Array<
+    Omit<DriverHaulRow, 'paidBy'> & { paidBy: number | null }
+  >;
+  return rows.map((row) => ({
+    ...row,
+    paidBy:
+      row.paidAt === null
+        ? null
+        : row.paidBy === null
+          ? OWNER_NAME
+          : (names[String(row.paidBy)] ?? OWNER_NAME),
+  }));
+}
+
+export function getWage(
+  db: DatabaseSync,
+  containerId: number,
+  direction: HaulDirection,
+): { amount: number; paidAt: string | null } | null {
+  const row = db
+    .prepare(
+      `SELECT amount, paid_at AS paidAt FROM wages
+       WHERE container_id = ? AND direction = ? AND deleted_at IS NULL`,
+    )
+    .get(containerId, direction) as { amount: number; paidAt: string | null } | undefined;
+  return row === undefined ? null : row;
+}
+
+/** Write (or rewrite) the figure of one haul — the amount alone, no receipt. */
+export function setWage(
+  db: DatabaseSync,
+  wage: {
+    containerId: number;
+    direction: HaulDirection;
+    amount: number;
+    at: string;
+    userId: number | null;
+  },
+): void {
+  const changed = db
+    .prepare(
+      `UPDATE wages SET amount = ?, at = ?, user_id = ?
+       WHERE container_id = ? AND direction = ? AND deleted_at IS NULL`,
+    )
+    .run(wage.amount, wage.at, wage.userId, wage.containerId, wage.direction).changes;
+  if (changed === 0) {
+    db.prepare(
+      `INSERT INTO wages (container_id, direction, amount, at, user_id)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(wage.containerId, wage.direction, wage.amount, wage.at, wage.userId);
+  }
+}
+
+/** Stamp — or lift — the receipt: the driver took this haul's wage. */
+export function setWagePaid(
+  db: DatabaseSync,
+  receipt: {
+    containerId: number;
+    direction: HaulDirection;
+    paid: boolean;
+    at: string;
+    userId: number | null;
+  },
+): void {
+  db.prepare(
+    `UPDATE wages SET paid_at = ?, paid_by = ?
+     WHERE container_id = ? AND direction = ? AND deleted_at IS NULL`,
+  ).run(
+    receipt.paid ? receipt.at : null,
+    receipt.paid ? receipt.userId : null,
+    receipt.containerId,
+    receipt.direction,
+  );
+}
+
+// ------------------------------------------------------ correcting a move ----
+
+/** Whose record a movement belongs to — the correction's first question. */
+export function movementContainerId(db: DatabaseSync, id: number): number | null {
+  const row = db
+    .prepare('SELECT container_id AS containerId FROM movements WHERE id = ?')
+    .get(id) as { containerId: number } | undefined;
+  return row === undefined ? null : row.containerId;
+}
+
+/** The movement that last put this container somewhere — only IT corrects. */
+export function latestPlacementId(db: DatabaseSync, containerId: number): number | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM movements WHERE container_id = ? AND to_zone IS NOT NULL
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(containerId) as { id: number } | undefined;
+  return row === undefined ? null : row.id;
+}
+
+/**
+ * Rewrite where a move landed. The correction IS the record — a reprint of
+ * the move's card reads the corrected slot; no second card is born.
+ */
+export function retargetMovement(db: DatabaseSync, id: number, to: Position): void {
+  db.prepare(
+    'UPDATE movements SET to_zone = ?, to_bay = ?, to_stack = ?, to_tier = ? WHERE id = ?',
+  ).run(to.zone, to.bay, to.stack, to.tier, id);
 }

@@ -4,7 +4,9 @@ import type {
   ContainerDto,
   CustomZoneDto,
   DailyReportRow,
+  DriverHaulRow,
   ErrorCode,
+  HaulDirection,
   FleetDto,
   GateReportRow,
   Handling,
@@ -14,6 +16,7 @@ import type {
   Permission,
   PermitDto,
   PermitReportRow,
+  PhotoDto,
   Position,
   RetiredZoneDto,
   StandingReportRow,
@@ -287,6 +290,64 @@ export const api = {
 
   removeZone: (id: number): Promise<{ ok: boolean }> =>
     request(`/api/zones/${String(id)}`, { method: 'DELETE' }),
+
+  // ---- photos ----
+  photos: (id: number): Promise<{ photos: PhotoDto[] }> =>
+    request(`/api/containers/${String(id)}/photos`),
+  /** The one non-JSON POST: the photo's own bytes, typed by the file itself. */
+  addPhoto: async (id: number, file: File): Promise<{ id: number }> => {
+    let response: Response;
+    try {
+      response = await fetch(`/api/containers/${String(id)}/photos`, {
+        method: 'POST',
+        body: file,
+        headers: { 'content-type': file.type },
+      });
+    } catch {
+      throw new ApiFailure('NETWORK', AR.networkError);
+    }
+    if (!response.ok) {
+      let body: ApiError | null = null;
+      try {
+        body = (await response.json()) as ApiError;
+      } catch {
+        // Not JSON; the generic failure below carries the news.
+      }
+      if (body !== null && typeof body.code === 'string') {
+        throw new ApiFailure(body.code, AR.errors[body.code] ?? AR.networkError, body.details);
+      }
+      throw new ApiFailure('NETWORK', AR.networkError);
+    }
+    return (await response.json()) as { id: number };
+  },
+  removePhoto: (id: number): Promise<{ ok: boolean }> =>
+    request(`/api/photos/${String(id)}`, { method: 'DELETE' }),
+
+  // ---- driver accounting ----
+  drivers: (from: string, to: string): Promise<{ rows: DriverHaulRow[] }> =>
+    request(`/api/drivers?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  setWage: (input: {
+    containerId: number;
+    direction: HaulDirection;
+    amount: number;
+  }): Promise<{ ok: boolean }> =>
+    request('/api/wages', { method: 'PUT', body: JSON.stringify(input) }),
+  payWage: (input: {
+    containerId: number;
+    direction: HaulDirection;
+    paid: boolean;
+  }): Promise<{ ok: boolean }> =>
+    request('/api/wages/pay', { method: 'POST', body: JSON.stringify(input) }),
+
+  // ---- correcting a move ----
+  correctMove: (
+    movementId: number,
+    to: Position,
+  ): Promise<{ container: ContainerDto; move: MovementDto }> =>
+    request(`/api/movements/${String(movementId)}/correct`, {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    }),
 
   /** السيارات التي كتبتها البوابة ولا تطابق أي سيارة مسجّلة — للتوزيع. */
   unassignedPlates: (): Promise<{ rows: UnassignedPlateRow[] }> =>

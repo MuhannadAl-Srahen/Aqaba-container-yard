@@ -1478,3 +1478,29 @@ state poll pauses behind the zones editor; and a dragged zone clamps to
 the server's 5000-unit fence so no drop ends in a refusal. Three new
 tests pin the big three: the reserved letter with intact history, the
 departed bill's permit yard, and the parked-band flow — 281 in all.
+
+Then the owner commissioned the two he had deferred — «اشتغل على هدول
+الثنتين» — and answered the open questions in the same breath: the wage
+is written BY HAND per haul, no currency («نكتفي بالرقم»), with a
+receipt confirmation per haul because one truck hauls many times; and
+for the wrongly-recorded move, «نعم تعديل». So one evening shipped three
+features. (1) Driver accounting: a new ACCOUNTING permission, wages and
+receipts on a `wages` table keyed (container, direction) — the IN and
+the OUT are two payable hauls — a paid figure locks until the receipt is
+lifted, and «حساب السائقين» groups the period per driver with totals and
+prints each driver a register-ruled paper closed by his signature line.
+(2) Photos: a `photos` table holding the BYTES IN THE DATABASE so the
+backup and restore carry them with everything else (proven by test);
+raw-body upload capped 8MB/30-per-box, thumbnails and a full view on the
+card beside the notes, soft delete, and «طباعة الصور» printing the
+container's head and every photo across pages. (3) Move correction: the
+card offers «تصحيح النقلة» when the standing slot came from a MOVE; the
+same map picking flow PATCHes the movement itself — same card serial,
+true slot, an EDIT line in the trail, no second move — refusing anything
+but the last placement, a buried box, or an unusable landing. All three
+verified twice: 290 tests (9 new across drivers/photos/correctMove),
+and a 17-check browser harness on the real build — the accountant's
+screen with a written wage and a stamped receipt, the driver's printed
+paper, the photo thumbnail-to-paper flow, and a correction that left one
+MOVE with its original serial reading the corrected slot — screenshots
+read by eye.

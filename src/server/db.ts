@@ -388,7 +388,39 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_custom_zones_live_name
       ON custom_zones (name) WHERE deleted_at IS NULL;
 
-    PRAGMA user_version = 21;
+    -- v22: صور الحاوية — «صور الحاوية من الواتساب بجانب الملاحظات». The
+    -- bytes live HERE, in the database, so the backup and the restore carry
+    -- the photos with everything else and no second machinery exists.
+    CREATE TABLE IF NOT EXISTS photos (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      container_id INTEGER NOT NULL REFERENCES containers (id),
+      mime         TEXT    NOT NULL,
+      bytes        BLOB    NOT NULL,
+      size         INTEGER NOT NULL,
+      at           TEXT    NOT NULL,
+      user_id      INTEGER REFERENCES users (id),
+      deleted_at   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_photos_container ON photos (container_id);
+
+    -- v22: محاسبة السائقين — «يكتب يدويا … نكتفي بالرقم». One row per haul
+    -- (a container's IN or OUT with a named driver): the figure the owner
+    -- writes, and the receipt stamp — who confirmed, and when.
+    CREATE TABLE IF NOT EXISTS wages (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      container_id INTEGER NOT NULL REFERENCES containers (id),
+      direction    TEXT    NOT NULL CHECK (direction IN ('IN', 'OUT')),
+      amount       REAL    NOT NULL CHECK (amount >= 0),
+      paid_at      TEXT,
+      paid_by      INTEGER REFERENCES users (id),
+      at           TEXT    NOT NULL,
+      user_id      INTEGER REFERENCES users (id),
+      deleted_at   TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_wages_live
+      ON wages (container_id, direction) WHERE deleted_at IS NULL;
+
+    PRAGMA user_version = 22;
   `);
 
   // v21 upgrade: a permits table born before the owner's yards existed does

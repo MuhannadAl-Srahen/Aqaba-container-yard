@@ -115,13 +115,15 @@ describe('schema v9 — the cutover to the official yard', () => {
       'movements',
       'permit_items',
       'permits',
+      'photos',
       'settings',
       'trucks',
       'users',
+      'wages',
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(21);
+    ).toBe(22);
     db.close();
   });
 
@@ -216,9 +218,11 @@ describe('schema v9 — the cutover to the official yard', () => {
       'movements',
       'permit_items',
       'permits',
+      'photos',
       'settings',
       'trucks',
       'users',
+      'wages',
     ]);
     expect(columnsOf(db, 'containers')).toContain('tier');
     expect(columnsOf(db, 'containers')).toContain('bill');

@@ -26,6 +26,7 @@ import { downloadBlob } from './sheetKit';
 import { usePanZoom } from './usePanZoom';
 import { GateInSheet } from './GateInSheet';
 import { ContainerCard } from './ContainerCard';
+import { DriversScreen } from './DriversScreen';
 import { BaySheet } from './BaySheet';
 import { OwnerToolsScreen } from './OwnerToolsScreen';
 import { UsersScreen } from './UsersScreen';
@@ -51,6 +52,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [openBay, setOpenBay] = useState<{ zone: Zone; bay: number } | null>(null);
   const [gateInAt, setGateInAt] = useState<Position | null>(null);
   const [moving, setMoving] = useState<ContainerDto | null>(null);
+  /** When set, the placing flow CORRECTS this movement instead of moving. */
+  const [correcting, setCorrecting] = useState<number | null>(null);
   const [confirmMove, setConfirmMove] = useState<{ container: ContainerDto; to: Position } | null>(
     null,
   );
@@ -78,6 +81,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [carriersView, setCarriersView] = useState(false);
   /** الزونات والساحات التي يعرّفها المالك بنفسه — للمالك وحده. */
   const [zonesView, setZonesView] = useState(false);
+  const [driversView, setDriversView] = useState(false);
   /** أي ساحة تعرضها الخريطة الآن؛ الساحة 2 هي المخطط الرسمي. */
   const [yardView, setYardView] = useState(2);
   /** Temporary: the owner's training tools, removed with OwnerToolsScreen. */
@@ -131,7 +135,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * is pure waste when it is not.
    */
   const mapShown =
-    !usersView && !toolsView && !carriersView && reporting === false && !logView && !zonesView;
+    !usersView &&
+    !toolsView &&
+    !carriersView &&
+    reporting === false &&
+    !logView &&
+    !zonesView &&
+    !driversView;
 
   // The map is the shared picture of the ground, so it is the fastest poll:
   // whatever the gate does has to reach the office within a few seconds.
@@ -255,6 +265,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setOpenBay(null);
     setGateInAt(null);
     setMoving(null);
+    setCorrecting(null);
     setConfirmMove(null);
     setBusy(false);
   };
@@ -271,6 +282,22 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const commitMove = (): void => {
     if (confirmMove === null) return;
     setBusy(true);
+    // The same picking flow serves two ends: moving the box, or correcting
+    // where the LAST move said it landed — paper only, no second card.
+    if (correcting !== null) {
+      api
+        .correctMove(correcting, confirmMove.to)
+        .then(({ container: fixed, move }) => {
+          refresh(AR.correctMoveDone(fixed.number, positionLabel(confirmMove.to)));
+          setPrintCard({ kind: 'move', container: fixed, move });
+        })
+        .catch((failure: unknown) => {
+          setBusy(false);
+          setConfirmMove(null);
+          setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+        });
+      return;
+    }
     api
       .move(confirmMove.container.id, confirmMove.to)
       .then((moved) => {
@@ -360,6 +387,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <CarriersScreen
         onBack={() => {
           setCarriersView(false);
+        }}
+      />
+    );
+  } else if (driversView && may('ACCOUNTING')) {
+    screen = (
+      <DriversScreen
+        onBack={() => {
+          setDriversView(false);
         }}
       />
     );
@@ -586,6 +621,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               server refuses the rest regardless — this is just courtesy. */}
           <div className="ms-auto flex items-center gap-1.5">
             <ThemePicker />
+            {may('ACCOUNTING') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setDriversView(true);
+                }}
+              >
+                {AR.driversButton}
+              </Button>
+            )}
             {may('REPORTS') && (
               <>
                 <Button
@@ -718,12 +763,17 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
       {moving !== null && (
         <div className="z-10 flex items-center justify-between gap-3 bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white">
-          <span>{AR.movingBanner(moving.number)}</span>
+          <span>
+            {correcting !== null
+              ? AR.correctingBanner(moving.number)
+              : AR.movingBanner(moving.number)}
+          </span>
           <button
             type="button"
             className="rounded-lg bg-emerald-800 px-3 py-1 hover:bg-emerald-900"
             onClick={() => {
               setMoving(null);
+              setCorrecting(null);
             }}
           >
             {AR.movingCancel}
@@ -875,6 +925,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             setSelected(null);
             setMoving(container);
           }}
+          onStartCorrect={(container, movementId) => {
+            setSelected(null);
+            setMoving(container);
+            setCorrecting(movementId);
+          }}
           onPrint={setPrintCard}
           onExited={(departed, message) => {
             refresh(message);
@@ -891,7 +946,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         <Confirm
           title={AR.confirmMoveTitle}
           body={AR.confirmMoveBody(confirmMove.container.number, positionLabel(confirmMove.to))}
-          confirmLabel={AR.actionMove}
+          confirmLabel={correcting !== null ? AR.correctMoveAction : AR.actionMove}
           busy={busy}
           onConfirm={commitMove}
           onCancel={() => {

@@ -1,6 +1,6 @@
 import { useRef, useState, type ReactElement } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto, Handling, MovementDto, Permission } from '../shared/types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ContainerDto, Handling, MovementDto, Permission, PhotoDto } from '../shared/types';
 import { HANDLING } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
@@ -10,7 +10,8 @@ import { AR } from './ar';
 import type { ContainerEditInput } from './api';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import type { CardJob } from './PrintCard';
-import { Button, Confirm, ErrorLine, Field, Sheet, inputClass } from './ui';
+import { PrintPhotos } from './PrintPhotos';
+import { Button, Confirm, ErrorLine, Field, Sheet, inputClass, useEscape } from './ui';
 
 /**
  * Everything about one container, and everything that can be done to it —
@@ -119,6 +120,8 @@ export function ContainerCard(props: {
   /** What the signed-in employee is allowed to do. */
   may: (permission: Permission) => boolean;
   onStartMove: (container: ContainerDto) => void;
+  /** Correct where the LAST move landed — the record, not the steel. */
+  onStartCorrect: (container: ContainerDto, movementId: number) => void;
   /**
    * Open a printable card. A move card is a movement's paper rather than the
    * container's, so the movement being reprinted comes with it.
@@ -158,6 +161,10 @@ export function ContainerCard(props: {
   const lastOut = [...(detail.data?.movements ?? [])]
     .reverse()
     .find((movement) => movement.type === 'OUT');
+  /** The movement that last put it somewhere; a MOVE there may be corrected. */
+  const lastPlacement = [...(detail.data?.movements ?? [])]
+    .reverse()
+    .find((movement) => movement.to !== null);
   /** The last time it was carried across the yard — the card to reprint. */
   const lastMove = [...(detail.data?.movements ?? [])]
     .reverse()
@@ -278,6 +285,8 @@ export function ContainerCard(props: {
           )}
         </dl>
 
+        <Photos container={container} may={props.may} />
+
         <div className="flex flex-wrap gap-2">
           <Button
             kind="quiet"
@@ -334,6 +343,22 @@ export function ContainerCard(props: {
                 {AR.actionMove}
               </Button>
             )}
+            {/* «بالنسبة لتعديل النقل نعم تعديل»: only when its standing slot
+                came from a MOVE — the record is corrected, no second card. */}
+            {inYard &&
+              props.may('MOVE') &&
+              lastPlacement !== undefined &&
+              lastPlacement.type === 'MOVE' && (
+                <Button
+                  kind="quiet"
+                  disabled={busy}
+                  onClick={() => {
+                    props.onStartCorrect(container, lastPlacement.id);
+                  }}
+                >
+                  {AR.correctMoveAction}
+                </Button>
+              )}
             {inYard && props.may('GATE_OUT') && (
               <Button
                 kind="quiet"
@@ -786,6 +811,208 @@ function EditForm(props: {
           {AR.cancel}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * صور الحاوية — «من الواتساب بجانب الملاحظات»: thumbnails on the card, a
+ * full view on tap, one paper printing them all. The bytes live in the
+ * database, so the backup carries them like everything else.
+ */
+function Photos(props: {
+  container: ContainerDto;
+  may: (permission: Permission) => boolean;
+}): ReactElement | null {
+  const queryClient = useQueryClient();
+  const photosQuery = useQuery({
+    queryKey: ['photos', props.container.id],
+    queryFn: () => api.photos(props.container.id),
+  });
+  const photos = photosQuery.data?.photos ?? [];
+  const [viewing, setViewing] = useState<PhotoDto | null>(null);
+  const [removing, setRemoving] = useState<PhotoDto | null>(null);
+  const [printing, setPrinting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [line, setLine] = useState<{ text: string; bad: boolean } | null>(null);
+
+  const canEdit = props.may('EDIT');
+  if (photos.length === 0 && !canEdit) return null;
+
+  const refetch = (): void => {
+    void queryClient.invalidateQueries({ queryKey: ['photos', props.container.id] });
+  };
+
+  const upload = (files: FileList | null): void => {
+    if (files === null || files.length === 0) return;
+    const usable = [...files].filter(
+      (file) =>
+        (file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp') &&
+        file.size <= 8 * 1024 * 1024,
+    );
+    if (usable.length < files.length) setLine({ text: AR.photoBadFile, bad: true });
+    if (usable.length === 0) return;
+    setBusy(true);
+    void (async () => {
+      let added = 0;
+      let failed: string | null = null;
+      for (const file of usable) {
+        try {
+          await api.addPhoto(props.container.id, file);
+          added += 1;
+        } catch (failure) {
+          failed = failure instanceof ApiFailure ? failure.arabic : AR.networkError;
+          break;
+        }
+      }
+      refetch();
+      setBusy(false);
+      if (failed !== null) setLine({ text: failed, bad: true });
+      else if (added > 0) setLine({ text: AR.photoAdded(added), bad: false });
+    })();
+  };
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-bold text-ink">{AR.photosTitle}</h3>
+        <div className="flex gap-2">
+          {photos.length > 0 && (
+            <Button
+              kind="quiet"
+              onClick={() => {
+                setPrinting(true);
+              }}
+            >
+              {AR.photosPrint}
+            </Button>
+          )}
+          {canEdit && (
+            <label className="cursor-pointer rounded-xl border border-line-strong bg-surface px-3 py-1.5 text-sm font-semibold text-ink hover:border-blue-500">
+              {AR.photoAdd}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                disabled={busy}
+                onChange={(event) => {
+                  upload(event.target.files);
+                  event.target.value = '';
+                }}
+              />
+            </label>
+          )}
+        </div>
+      </div>
+      {photos.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {photos.map((photo) => (
+            <div key={photo.id} className="relative">
+              <button
+                type="button"
+                aria-label={AR.photoView}
+                onClick={() => {
+                  setViewing(photo);
+                }}
+              >
+                <img
+                  src={`/api/photos/${String(photo.id)}`}
+                  alt={AR.photoView}
+                  className="h-20 w-20 rounded-lg border border-line object-cover"
+                />
+              </button>
+              {canEdit && (
+                <button
+                  type="button"
+                  aria-label={AR.confirmPhotoDeleteTitle}
+                  onClick={() => {
+                    setRemoving(photo);
+                  }}
+                  className="absolute -start-1.5 -top-1.5 h-5 w-5 rounded-full bg-red-600 text-[11px] font-bold leading-5 text-white shadow"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {line !== null && (
+        <p
+          className={
+            line.bad
+              ? 'mt-1 text-xs font-semibold text-red-600'
+              : 'mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400'
+          }
+        >
+          {line.text}
+        </p>
+      )}
+
+      {viewing !== null && (
+        <PhotoViewer
+          photo={viewing}
+          onClose={() => {
+            setViewing(null);
+          }}
+        />
+      )}
+      {removing !== null && (
+        <Confirm
+          title={AR.confirmPhotoDeleteTitle}
+          body={AR.confirmPhotoDeleteBody}
+          confirmLabel={AR.actionDelete}
+          danger
+          busy={busy}
+          onConfirm={() => {
+            setBusy(true);
+            api
+              .removePhoto(removing.id)
+              .then(() => {
+                refetch();
+                setRemoving(null);
+                setBusy(false);
+                setLine({ text: AR.photoDeleted, bad: false });
+              })
+              .catch((failure: unknown) => {
+                setBusy(false);
+                setLine({
+                  text: failure instanceof ApiFailure ? failure.arabic : AR.networkError,
+                  bad: true,
+                });
+              });
+          }}
+          onCancel={() => {
+            setRemoving(null);
+          }}
+        />
+      )}
+      {printing && (
+        <PrintPhotos
+          container={props.container}
+          photos={photos}
+          onClose={() => {
+            setPrinting(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PhotoViewer(props: { photo: PhotoDto; onClose: () => void }): ReactElement {
+  useEscape(props.onClose);
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-slate-900/85 p-4">
+      <img
+        src={`/api/photos/${String(props.photo.id)}`}
+        alt={AR.photoView}
+        className="max-h-[85vh] max-w-full rounded-xl"
+      />
+      <Button kind="quiet" onClick={props.onClose}>
+        {AR.close}
+      </Button>
     </div>
   );
 }

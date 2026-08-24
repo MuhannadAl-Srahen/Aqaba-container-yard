@@ -25,10 +25,11 @@ import type {
   YardStateDto,
 } from '../shared/types';
 import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES } from '../shared/types';
+import type { DriverHaulRow } from '../shared/types';
 import { normalizePlate, plateMatches } from '../shared/fleet';
 import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
-import { baySpan, positionLabel, yardOf } from '../shared/address';
+import { baySpan, positionLabel, samePosition, yardOf } from '../shared/address';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
 import { canMove, canPlace, planRemoval, slotUsable } from '../shared/rules';
 import { composeLayout, zoneDefOf } from '../shared/layout';
@@ -257,6 +258,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   app.addContentTypeParser(
     'application/octet-stream',
     { parseAs: 'buffer' },
+    (_request, body, done) => {
+      done(null, body);
+    },
+  );
+
+  // A container photo arrives as its own raw bytes — WhatsApp images are
+  // JPEG/PNG/WebP — capped at 8MB apiece.
+  app.addContentTypeParser(
+    ['image/jpeg', 'image/png', 'image/webp'],
+    { parseAs: 'buffer', bodyLimit: 8 * 1024 * 1024 },
     (_request, body, done) => {
       done(null, body);
     },
@@ -1358,6 +1369,160 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * tap. VACUUM INTO folds the WAL in, so the snapshot is complete and
    * self-contained. The owner's button alone.
    */
+  // ------------------------------------------------------------- photos ----
+
+  /** صور الحاوية: whoever may see the yard may see them; adding is EDIT work. */
+  app.get('/api/containers/:id/photos', (request) => {
+    requireAuth(request);
+    const id = idParam(request);
+    return { photos: store.listPhotos(db, id) };
+  });
+
+  app.post('/api/containers/:id/photos', (request, reply) => {
+    const actor = requirePerm(request, 'EDIT');
+    const id = idParam(request);
+    const bytes = request.body;
+    if (!Buffer.isBuffer(bytes) || bytes.length === 0) refuse(400, 'VALIDATION');
+    if (!Buffer.isBuffer(bytes)) throw new Error('unreachable');
+    const mime = request.headers['content-type'];
+    const isImage = mime === 'image/jpeg' || mime === 'image/png' || mime === 'image/webp';
+    if (!isImage) refuse(400, 'VALIDATION');
+    if (!isImage) throw new Error('unreachable');
+    return transaction(db, () => {
+      if (store.getContainer(db, id) === null) refuse(404, 'NOT_FOUND');
+      // Thirty is far beyond any real condition report; the cap only stops
+      // a runaway upload loop from swallowing the database.
+      if (store.listPhotos(db, id).length >= 30) refuse(409, 'PHOTO_LIMIT');
+      const photoId = store.insertPhoto(db, {
+        containerId: id,
+        mime,
+        bytes,
+        at: now(),
+        userId: actorId(actor),
+      });
+      void reply.status(201);
+      return { id: photoId };
+    });
+  });
+
+  app.get('/api/photos/:id', (request, reply) => {
+    requireAuth(request);
+    const id = idParam(request);
+    const photo = store.getPhoto(db, id);
+    if (photo === null) refuse(404, 'NOT_FOUND');
+    if (photo === null) throw new Error('unreachable');
+    void reply.type(photo.mime);
+    return Buffer.from(photo.bytes);
+  });
+
+  app.delete('/api/photos/:id', (request) => {
+    requirePerm(request, 'EDIT');
+    const id = idParam(request);
+    if (!store.softDeletePhoto(db, id, now())) refuse(404, 'NOT_FOUND');
+    return { ok: true };
+  });
+
+  // -------------------------------------------------------------- wages ----
+
+  /**
+   * محاسبة السائقين: كل نقلة بوابة لها سائق مسمّى بند يُدفع عنه — دخول
+   * الحاوية نقلة وخروجها نقلة أخرى ولو تكررت السيارة. المبلغ رقم يُكتب
+   * يدوياً بلا عملة، والاستلام ختم باسم من أكّده ووقته.
+   */
+  const wageKeySchema = z.object({
+    containerId: z.number().int().positive(),
+    direction: z.enum(['IN', 'OUT']),
+  });
+
+  app.get('/api/drivers', (request): { rows: DriverHaulRow[] } => {
+    requirePerm(request, 'ACCOUNTING');
+    const query = request.query as { from?: string; to?: string };
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+    return { rows: store.listHauls(db, range.from, range.to) };
+  });
+
+  app.put('/api/wages', (request) => {
+    const actor = requirePerm(request, 'ACCOUNTING');
+    const body = parseOrRefuse(
+      wageKeySchema.extend({ amount: z.number().min(0).max(1_000_000) }),
+      request.body,
+    );
+    return transaction(db, () => {
+      const container = store.getContainer(db, body.containerId);
+      if (container === null) refuse(404, 'NOT_FOUND');
+      if (container === null) throw new Error('unreachable');
+      // A wage belongs to a haul that happened: that direction must carry a
+      // named driver, or there is nobody to pay.
+      const driver = body.direction === 'IN' ? container.driverIn : container.driverOut;
+      if (driver === '') refuse(400, 'VALIDATION');
+      const wage = store.getWage(db, body.containerId, body.direction);
+      // A settled haul's figure is locked; lift the receipt first.
+      if (wage !== null && wage.paidAt !== null) refuse(409, 'WAGE_PAID');
+      store.setWage(db, { ...body, at: now(), userId: actorId(actor) });
+      return { ok: true };
+    });
+  });
+
+  app.post('/api/wages/pay', (request) => {
+    const actor = requirePerm(request, 'ACCOUNTING');
+    const body = parseOrRefuse(wageKeySchema.extend({ paid: z.boolean() }), request.body);
+    return transaction(db, () => {
+      if (store.getWage(db, body.containerId, body.direction) === null)
+        refuse(409, 'WAGE_MISSING');
+      store.setWagePaid(db, { ...body, at: now(), userId: actorId(actor) });
+      return { ok: true };
+    });
+  });
+
+  // --------------------------------------------- correcting the last move ----
+
+  /**
+   * «بالنسبة لتعديل النقل نعم تعديل» — a move recorded onto the wrong slot
+   * is CORRECTED, not doubled: the record and its card learn the true slot
+   * and no second move is born. Only the LAST placement corrects, the box
+   * must carry nothing, and the true slot must take it — a correction moves
+   * paper, never steel.
+   */
+  app.post('/api/movements/:id/correct', (request) => {
+    const actor = requirePerm(request, 'MOVE');
+    const id = idParam(request);
+    const body = parseOrRefuse(z.object({ to: positionSchema }), request.body);
+    return transaction(db, () => {
+      const movement = store.getMovement(db, id);
+      if (movement === null || movement.type !== 'MOVE') refuse(404, 'NOT_FOUND');
+      const containerId = store.movementContainerId(db, id);
+      if (containerId === null) refuse(404, 'NOT_FOUND');
+      if (containerId === null) throw new Error('unreachable');
+      const { dto, position } = standingContainer(containerId);
+      if (store.latestPlacementId(db, containerId) !== id) refuse(409, 'NOT_LAST_MOVE');
+      if (samePosition(position, body.to)) refuse(409, 'SAME_SLOT');
+      const standing = store.listStanding(db);
+      // The record shows others resting on it? Rewriting the ground under
+      // them is refused outright — nothing physically moved.
+      const mover = { id: containerId, number: dto.number, size: dto.size, position };
+      if (liftPlan(standing, mover).length > 0) refuse(409, 'MOVE_BURIED');
+      const refusal = canPlace(layoutNow(), standing, dto.size, body.to, containerId);
+      if (refusal !== null) refuseRule(refusal);
+      store.setPosition(db, containerId, body.to);
+      store.retargetMovement(db, id, body.to);
+      store.recordMovement(
+        db,
+        containerId,
+        'EDIT',
+        now(),
+        null,
+        null,
+        JSON.stringify({ k: ['moveTo'], b: [positionLabel(position)] }),
+        actorId(actor),
+      );
+      const container = store.getContainer(db, containerId);
+      const corrected = store.getMovement(db, id);
+      if (container === null || corrected === null) refuse(404, 'NOT_FOUND');
+      if (container === null || corrected === null) throw new Error('unreachable');
+      return { container, move: corrected };
+    });
+  });
+
   app.post('/api/backup', (request, reply) => {
     requireOwner(request);
     if (databaseFile(db) === '') refuse(409, 'NOT_SETUP');

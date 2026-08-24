@@ -185,6 +185,7 @@ export const AR = {
     EDIT: 'تعديل البيانات',
     DELETE: 'حذف سجل',
     REPORTS: 'الكشوفات والسجل',
+    ACCOUNTING: 'محاسبة السائقين',
   } satisfies Record<Permission, string>,
 
   // ---- first-run setup ----
@@ -364,6 +365,7 @@ export const AR = {
       driverOut: 'سائق الخروج',
       enteredAt: 'تاريخ الدخول',
       exitedAt: 'تاريخ الخروج',
+      moveTo: 'وجهة النقلة',
     };
     // Newer notes are JSON {k: keys, b: before-values}; older ones plain CSV.
     let keys: string[];
@@ -384,6 +386,57 @@ export const AR = {
   editExitSection: 'بيانات الخروج',
   badDate: 'التاريخ غير صحيح.',
   exitBeforeEntry: 'يجب أن يكون تاريخ الخروج بعد تاريخ الدخول.',
+
+  // ---- driver accounting ----
+  driversButton: 'حساب السائقين',
+  driversTitle: 'كشف حساب السائقين',
+  driversHint:
+    'كل نقلة لها سائق مسمّى بند مستقل: دخول الحاوية نقلة وخروجها نقلة أخرى ولو ' +
+    'تكررت السيارة. اكتب أجر النقلة، وعندما يقبض السائق أكّد الاستلام.',
+  driversEmpty: 'لا نقلات بسائق مسمّى في هذه الفترة.',
+  colDirection: 'الاتجاه',
+  colWage: 'الأجر',
+  colReceipt: 'الاستلام',
+  wageSaved: 'تم حفظ الأجر.',
+  payAction: 'تأكيد الاستلام',
+  payUndo: 'إلغاء الاستلام',
+  paidMark: 'تم الاستلام',
+  paidByLine: (name: string): string => `أكّده ${name}`,
+  confirmPayTitle: 'تأكيد استلام الأجر',
+  confirmPayBody: (driver: string, number: string): string =>
+    `استلم السائق ${driver} أجر نقلة الحاوية ${number}؟ يُسجَّل التأكيد باسمك ووقته.`,
+  confirmPayUndoTitle: 'إلغاء تأكيد الاستلام',
+  confirmPayUndoBody: (driver: string, number: string): string =>
+    `يُلغى تأكيد استلام السائق ${driver} لأجر نقلة الحاوية ${number} ويعود المبلغ قابلاً للتعديل.`,
+  payDone: 'تم تأكيد الاستلام.',
+  payUndone: 'تم إلغاء تأكيد الاستلام.',
+  haulsCount: (n: number): string => `عدد النقلات: ${String(n)}`,
+  totalWages: 'مجموع الأجور',
+  paidWages: 'المدفوع',
+  dueWages: 'المتبقي',
+  wageUnset: 'بلا أجر',
+  driverSignature: 'توقيع السائق',
+  driversPrintTitle: (driver: string): string => `كشف حساب السائق ${driver}`,
+
+  // ---- photos ----
+  photosTitle: 'الصور',
+  photoAdd: 'إضافة صور',
+  photosPrint: 'طباعة الصور',
+  photoDeleted: 'تم حذف الصورة.',
+  confirmPhotoDeleteTitle: 'حذف الصورة',
+  confirmPhotoDeleteBody: 'تُحذف هذه الصورة من سجل الحاوية. هل أنت متأكد؟',
+  photoAdded: (n: number): string =>
+    n === 1 ? 'تمت إضافة الصورة.' : `تمت إضافة ${String(n)} من الصور.`,
+  photoBadFile: 'يُقبل ملف صورة فقط (JPG أو PNG أو WebP) وبحجم لا يتجاوز 8MB.',
+  photoView: 'عرض الصورة',
+  photosOnPaper: (number: string): string => `صور الحاوية ${number}`,
+
+  // ---- correcting a move ----
+  correctMoveAction: 'تصحيح النقلة',
+  correctingBanner: (number: string): string =>
+    `تصحيح نقلة الحاوية ${number}: اضغط على الباي ثم على الخانة الصحيحة — يُصحَّح السجل وبطاقة النقل نفسها.`,
+  correctMoveDone: (number: string, to: string): string =>
+    `تم تصحيح نقلة الحاوية ${number} إلى ${to}، وبطاقة النقل تقرأ الموقع الصحيح.`,
 
   // ---- moving ----
   movingBanner: (number: string): string =>
@@ -729,6 +782,16 @@ export const AR = {
     ZONE_HAS_CONTAINERS:
       'في هذا الزون حاويات واقفة سيتركها التعديل أو الحذف بلا أرض. ' +
       'انقل الحاويات أولاً ثم أعد المحاولة.',
+    NOT_LAST_MOVE:
+      'هذه ليست آخر نقلة مسجلة للحاوية، والتصحيح لا يطال إلا الأخيرة. ' +
+      'صحّح الموقع بنقلة جديدة من الخريطة.',
+    MOVE_BURIED:
+      'فوق هذه الحاوية حاويات في السجل، فلا يُصحَّح موقعها وهي تسند غيرها. ' +
+      'انقل ما فوقها أولاً ثم أعد المحاولة.',
+    PHOTO_LIMIT: 'بلغت الحاوية حدّها من الصور (30 صورة). احذف صورة قديمة ثم أضف الجديدة.',
+    WAGE_PAID:
+      'هذه النقلة تمت المحاسبة عليها والمبلغ مقفل. ألغِ تأكيد الاستلام أولاً ثم عدّل الأجر.',
+    WAGE_MISSING: 'لا أجر مكتوباً لهذه النقلة بعد. اكتب الأجر أولاً ثم أكّد الاستلام.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
   errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>
