@@ -284,9 +284,11 @@ export function SheetScreen(props: {
    * the screen with no sideways scroll and no data dropped — the same
    * promise the printed page keeps, kept on glass. The scale is the plain
    * ratio of the screen's width to the sheet's own natural floor, with a
-   * floor of its own so type never shrinks past reading.
+   * floor of its own so type never shrinks past reading. ON by default —
+   * «ما بدي يكون في scroll يمين وشمال لحتى اشوف كل البيانات» — and the
+   * button turns it OFF for whoever prefers full-size type and a scroll.
    */
-  const [fit, setFit] = useState(false);
+  const [fit, setFit] = useState(true);
   // A STATE ref, not a plain one: the scroller mounts only once rows exist,
   // so the width watcher must chase the node, not the first render.
   const [glass, setGlass] = useState<HTMLDivElement | null>(null);

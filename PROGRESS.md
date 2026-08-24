@@ -1438,3 +1438,9 @@ mounts once rows exist — the first build measured a null node and scaled
 nothing, caught by the harness (426px of overflow → 0, 16 columns before
 and after, zoom 0.73, and the second press putting everything back).
 Print CSS pins zoom back to 1 — paper has its own fitting arithmetic.
+And on the owner's clarification — «ما بدي يكون في scroll يمين وشمال
+لحتى اشوف كل البيانات … مثل كشف حركة الدخول والخروج» — fitting is the
+DEFAULT: every register opens already inside the screen, and the button
+turns it OFF for whoever wants full-size type and a scroll. Verified on
+both gate registers: overflow 0 on open, 16 columns, zoom 0.73, and the
+switch-off bringing back 435px of scroll.
