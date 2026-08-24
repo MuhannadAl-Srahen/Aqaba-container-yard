@@ -837,7 +837,10 @@ function Photos(props: {
   const [line, setLine] = useState<{ text: string; bad: boolean } | null>(null);
 
   const canEdit = props.may('EDIT');
-  if (photos.length === 0 && !canEdit) return null;
+  // The gate clerk who receives the box may photograph it too — from here
+  // as much as from the gate form. Striking a photo out stays EDIT work.
+  const canAdd = canEdit || props.may('GATE_IN');
+  if (photos.length === 0 && !canAdd) return null;
 
   const refetch = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['photos', props.container.id] });
@@ -887,7 +890,7 @@ function Photos(props: {
               {AR.photosPrint}
             </Button>
           )}
-          {canEdit && (
+          {canAdd && (
             <label className="cursor-pointer rounded-xl border border-line-strong bg-surface px-3 py-1.5 text-sm font-semibold text-ink hover:border-blue-500">
               {AR.photoAdd}
               <input

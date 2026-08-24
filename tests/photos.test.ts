@@ -123,6 +123,28 @@ describe('صور الحاوية', () => {
     const lost = await upload(9999, Buffer.from([1, 2, 3]));
     expect(lost.status).toBe(404);
   });
+
+  it('the gate clerk attaches photos with GATE_IN alone, but striking out stays EDIT work', async () => {
+    const id = await seedContainer();
+    await call({
+      method: 'POST',
+      url: '/api/users',
+      payload: { name: 'بوابة', pin: '7788', permissions: ['GATE_IN'] },
+    });
+    const listed = (await call({ method: 'GET', url: '/api/users' })).body as unknown as {
+      users: Array<{ id: number; name: string }>;
+    };
+    const clerk = listed.users.find((user) => user.name === 'بوابة');
+    await call({ method: 'POST', url: '/api/logout' });
+    cookie = '';
+    await call({ method: 'POST', url: '/api/login', payload: { userId: clerk?.id, pin: '7788' } });
+    const added = await upload(id, Buffer.from([0xff, 0xd8, 1, 2, 0xff, 0xd9]));
+    expect(added.status).toBe(201);
+    const photoId = added.body['id'] as number;
+    expect((await call({ method: 'DELETE', url: `/api/photos/${String(photoId)}` })).status).toBe(
+      403,
+    );
+  });
 });
 
 describe('الصور في النسخة الاحتياطية', () => {

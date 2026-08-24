@@ -1379,7 +1379,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   });
 
   app.post('/api/containers/:id/photos', (request, reply) => {
-    const actor = requirePerm(request, 'EDIT');
+    // Attaching is gate work as much as office work: the clerk receiving
+    // the box photographs its condition, the office adds the WhatsApp ones.
+    // Striking a photo out stays EDIT work alone.
+    const actor = requireAuth(request);
+    if (
+      !actor.owner &&
+      !actor.permissions.includes('EDIT') &&
+      !actor.permissions.includes('GATE_IN')
+    )
+      refuse(403, 'FORBIDDEN');
     const id = idParam(request);
     const bytes = request.body;
     if (!Buffer.isBuffer(bytes) || bytes.length === 0) refuse(400, 'VALIDATION');

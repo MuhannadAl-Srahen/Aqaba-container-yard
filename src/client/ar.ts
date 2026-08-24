@@ -394,6 +394,8 @@ export const AR = {
     'كل نقلة لها سائق مسمّى بند مستقل: دخول الحاوية نقلة وخروجها نقلة أخرى ولو ' +
     'تكررت السيارة. اكتب أجر النقلة، وعندما يقبض السائق أكّد الاستلام.',
   driversEmpty: 'لا نقلات بسائق مسمّى في هذه الفترة.',
+  driversSearch: 'ابحث باسم السائق أو رقم السيارة…',
+  driversNoMatch: 'لا اسم سائق ولا رقم سيارة يطابق البحث في هذه الفترة.',
   colDirection: 'الاتجاه',
   colWage: 'الأجر',
   colReceipt: 'الاستلام',
@@ -430,6 +432,12 @@ export const AR = {
   photoBadFile: 'يُقبل ملف صورة فقط (JPG أو PNG أو WebP) وبحجم لا يتجاوز 8MB.',
   photoView: 'عرض الصورة',
   photosOnPaper: (number: string): string => `صور الحاوية ${number}`,
+  gatePhotosLabel: 'صور الحاوية (اختيارية)',
+  gatePhotosHint: 'تُرفع مع تأكيد الإدخال وتبقى في سجل الحاوية — ويمكن إضافتها لاحقاً من البطاقة.',
+  photoRemovePick: 'إزالة الصورة',
+  photoUploadFailed: 'تعذّر رفع بعض الصور — أضفها من بطاقة الحاوية.',
+  attachPhotos: (n: number): string => `إرفاق الصور (${String(n)})`,
+  detachPhotos: 'طباعة بلا الصور',
 
   // ---- correcting a move ----
   correctMoveAction: 'تصحيح النقلة',

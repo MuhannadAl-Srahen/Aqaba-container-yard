@@ -1504,3 +1504,20 @@ screen with a written wage and a stamped receipt, the driver's printed
 paper, the photo thumbnail-to-paper flow, and a correction that left one
 MOVE with its original serial reading the corrected slot — screenshots
 read by eye.
+
+He answered the shipment with three sharpenings the same night. «بدي
+القدرة البحث عن اسم السايق او رقم سيارته»: the drivers ledger grew a
+search box that folds Arabic and Western digits and keeps the WHOLE
+statement of a driver found through any one of his plates — the point is
+settling with the man, not finding a row. «بدي اقدر اضيفها عند ادخال
+الحاوية وتكون اختيارية»: the gate-in form takes photos with the record —
+picked with previews, uploaded after the 201 so a failed picture never
+fails the entry — and the upload permission widened to GATE_IN (delete
+stays EDIT), so the same clerk who receives the box photographs it, at
+the gate or later from the card («مكاني ثاني» — already there). «لحتى
+ارفقها بالمعاملة عند طباعة بطاقة الدخول»: the entry card now offers the
+container's photos as pages of its own print — on by default when photos
+exist, «طباعة بلا الصور» turns the paper back into the card alone — the
+overlay borrowing the permit-print flow CSS so the pages actually break
+(proven: a tall photo made page.pdf() count 2). 291 tests, and a
+13-check harness on the real build with the screenshots read by eye.

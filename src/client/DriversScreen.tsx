@@ -29,6 +29,8 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
   const queryClient = useQueryClient();
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(ammanToday());
+  /** «بدي القدرة البحث عن اسم السايق او رقم سيارته». */
+  const [term, setTerm] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [paying, setPaying] = useState<DriverHaulRow | null>(null);
   const [printing, setPrinting] = useState<string | null>(null);
@@ -69,6 +71,25 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
       paid: list.reduce((sum, row) => sum + (row.paidAt !== null ? (row.amount ?? 0) : 0), 0),
     }));
   }, [rows]);
+
+  // Digits fold to one alphabet so «٦٠» finds the plate typed 60.
+  const fold = (text: string): string =>
+    text
+      .toLowerCase()
+      .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+      .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+      .trim();
+  const needle = fold(term);
+  // The driver keeps his WHOLE statement when found through one of his
+  // trucks — the point of the search is settling with him, not one row.
+  const shown =
+    needle === ''
+      ? groups
+      : groups.filter(
+          (group) =>
+            fold(group.driver).includes(needle) ||
+            group.rows.some((row) => fold(row.truck).includes(needle)),
+        );
 
   const refetch = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['drivers'] });
@@ -151,13 +172,26 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
             }}
           />
         </Field>
+        <div className="min-w-56 flex-1">
+          <input
+            className={inputClass}
+            value={term}
+            placeholder={AR.driversSearch}
+            onChange={(event) => {
+              setTerm(event.target.value);
+            }}
+          />
+        </div>
       </div>
 
       {groups.length === 0 && (
         <p className="py-6 text-center text-sm text-faint">{AR.driversEmpty}</p>
       )}
+      {groups.length > 0 && shown.length === 0 && (
+        <p className="py-6 text-center text-sm text-faint">{AR.driversNoMatch}</p>
+      )}
 
-      {groups.map((group) => (
+      {shown.map((group) => (
         <section key={group.driver} className="rounded-2xl border border-line bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-bold text-ink">{group.driver}</h3>

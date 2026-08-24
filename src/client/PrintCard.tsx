@@ -1,4 +1,4 @@
-import { useEffect, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, MovementDto } from '../shared/types';
 import { positionLabel } from '../shared/address';
@@ -92,6 +92,18 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
   const at = move !== null ? move.at : kind === 'in' ? container.enteredAt : container.exitedAt;
   // Four places, and the year the count runs in beneath it: the serial starts
   // again at 1 every January, so «0091» alone names no card.
+  // «لحتى ارفقها بالمعاملة عند طباعة بطاقة الدخول»: the entry card offers
+  // the container's photos as pages of the same print — on by default when
+  // photos exist, one press turns the paper back to the card alone.
+  const photosQuery = useQuery({
+    queryKey: ['photos', container.id],
+    queryFn: () => api.photos(container.id),
+    enabled: kind === 'in',
+  });
+  const photos = kind === 'in' ? (photosQuery.data?.photos ?? []) : [];
+  const [attach, setAttach] = useState(true);
+  const attaching = kind === 'in' && attach && photos.length > 0;
+
   const serial = move !== null ? move.card : kind === 'in' ? container.cardIn : container.cardOut;
   const serialYear =
     move !== null ? move.cardYear : kind === 'in' ? container.cardInYear : container.cardOutYear;
@@ -139,7 +151,9 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+    <div
+      className={`${attaching ? 'permit-print ' : ''}fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4`}
+    >
       {/* The card prints upright, unlike the wide report sheets. */}
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
       <div className="max-h-full w-full max-w-2xl overflow-y-auto">
@@ -298,6 +312,24 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
             {AR.printedAt}{' '}
             <span dir="ltr">{`${dateFormat.format(new Date())} ${timeFormat.format(new Date())}`}</span>
           </p>
+
+          {/* The photos as pages of this same paper, page-broken after the
+              card — the file the clerk staples is one print job. */}
+          {attaching && (
+            <div className="space-y-4 border-t-2 border-rule-strong p-4">
+              <p className="text-center text-sm font-bold text-ink">
+                {AR.photosOnPaper(container.number)}
+              </p>
+              {photos.map((photo) => (
+                <img
+                  key={photo.id}
+                  src={`/api/photos/${String(photo.id)}`}
+                  alt={AR.photoView}
+                  className="mx-auto block max-h-[150mm] w-auto max-w-full break-inside-avoid rounded-lg border border-rule"
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="print-hidden mt-3 flex justify-center gap-2">
@@ -308,6 +340,16 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
           >
             {AR.print}
           </Button>
+          {kind === 'in' && photos.length > 0 && (
+            <Button
+              kind="quiet"
+              onClick={() => {
+                setAttach(!attach);
+              }}
+            >
+              {attach ? AR.detachPhotos : AR.attachPhotos(photos.length)}
+            </Button>
+          )}
           <Button kind="quiet" onClick={props.onClose}>
             {AR.close}
           </Button>

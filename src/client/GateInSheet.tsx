@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, Handling, Position } from '../shared/types';
 import { HANDLING, sizeOfBay } from '../shared/types';
@@ -31,6 +31,34 @@ export function GateInSheet(props: {
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** «بدي اقدر اضيفها عند ادخال الحاوية … وتكون اختيارية». */
+  const [photos, setPhotos] = useState<ReadonlyArray<{ file: File; url: string }>>([]);
+  const [photoNote, setPhotoNote] = useState<string | null>(null);
+  // The preview URLs are browser resources; whatever is still held when the
+  // sheet closes is released in one sweep.
+  const photosRef = useRef(photos);
+  photosRef.current = photos;
+  useEffect(
+    () => () => {
+      for (const photo of photosRef.current) URL.revokeObjectURL(photo.url);
+    },
+    [],
+  );
+
+  const pickPhotos = (files: FileList | null): void => {
+    if (files === null) return;
+    const usable = [...files].filter(
+      (file) =>
+        (file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp') &&
+        file.size <= 8 * 1024 * 1024,
+    );
+    setPhotoNote(usable.length < files.length ? AR.photoBadFile : null);
+    if (usable.length === 0) return;
+    setPhotos((prev) => [
+      ...prev,
+      ...usable.map((file) => ({ file, url: URL.createObjectURL(file) })),
+    ]);
+  };
 
   /**
    * The registry watching over the plate field: a typed plate that names a
@@ -80,10 +108,23 @@ export function GateInSheet(props: {
         weight: weight.trim(),
         handling,
       })
-      .then((container) => {
+      .then(async (container) => {
+        // The photos ride the same confirmation — optional, and their
+        // failure never fails the record: the box IS in; a picture that
+        // did not upload can follow later from the card.
+        let failed = false;
+        for (const photo of photos) {
+          try {
+            await api.addPhoto(container.id, photo.file);
+          } catch {
+            failed = true;
+            break;
+          }
+        }
         // The container itself goes up, not just the message: the screen
         // above puts its entry card on the desk at once.
-        props.onDone(container, AR.gateInDone(container.number, positionText));
+        const done = AR.gateInDone(container.number, positionText);
+        props.onDone(container, failed ? `${done} ${AR.photoUploadFailed}` : done);
       })
       .catch((failure: unknown) => {
         setError(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
@@ -248,6 +289,52 @@ export function GateInSheet(props: {
               setNotes(event.target.value);
             }}
           />
+        </Field>
+
+        <Field
+          label={AR.gatePhotosLabel}
+          hint={<span className="text-faint">{AR.gatePhotosHint}</span>}
+        >
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              {photos.map((photo, index) => (
+                <div key={photo.url} className="relative">
+                  <img
+                    src={photo.url}
+                    alt={AR.photoView}
+                    className="h-16 w-16 rounded-lg border border-line object-cover"
+                  />
+                  <button
+                    type="button"
+                    aria-label={AR.photoRemovePick}
+                    onClick={() => {
+                      URL.revokeObjectURL(photo.url);
+                      setPhotos(photos.filter((_, at) => at !== index));
+                    }}
+                    className="absolute -start-1.5 -top-1.5 h-5 w-5 rounded-full bg-red-600 text-[11px] font-bold leading-5 text-white shadow"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <label className="cursor-pointer rounded-xl border border-dashed border-line-strong bg-surface px-3 py-2 text-sm font-semibold text-muted hover:border-blue-500">
+                {AR.photoAdd}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  className="hidden"
+                  onChange={(event) => {
+                    pickPhotos(event.target.files);
+                    event.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+            {photoNote !== null && (
+              <p className="mt-1 text-xs font-semibold text-red-600">{photoNote}</p>
+            )}
+          </div>
         </Field>
 
         <ErrorLine message={error} />
