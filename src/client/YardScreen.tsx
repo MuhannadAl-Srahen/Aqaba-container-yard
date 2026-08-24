@@ -131,7 +131,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * is pure waste when it is not.
    */
   const mapShown =
-    !usersView && !toolsView && !carriersView && reporting === false && !logView;
+    !usersView && !toolsView && !carriersView && reporting === false && !logView && !zonesView;
 
   // The map is the shared picture of the ground, so it is the fastest poll:
   // whatever the gate does has to reach the office within a few seconds.
@@ -177,7 +177,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    */
   const zonesQuery = useQuery({ queryKey: ['zones'], queryFn: api.zones, staleTime: 60_000 });
   const yardLayout = useMemo(
-    () => composeLayout(zonesQuery.data?.zones ?? []),
+    () => composeLayout(zonesQuery.data?.zones ?? [], zonesQuery.data?.retired ?? []),
     [zonesQuery.data],
   );
   const yards = useMemo(() => yardsOf(yardLayout), [yardLayout]);
@@ -781,6 +781,24 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                 {AR.yardTab(yard)}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* A failed zones fetch must not pass for «no owner yards exist»:
+            the map would quietly drop grounds 1 and 3 and every box on
+            them. Say it, and offer the retry. */}
+        {zonesQuery.isError && (
+          <div className="absolute inset-x-0 top-3 z-10 mx-auto flex w-fit items-center gap-2 rounded-xl border border-amber-400 bg-surface/95 px-3 py-1.5 shadow-md">
+            <span className="text-xs font-semibold text-ink">{AR.zonesLoadFailed}</span>
+            <button
+              type="button"
+              onClick={() => {
+                void zonesQuery.refetch();
+              }}
+              className="rounded-lg border border-line-strong px-2 py-0.5 text-xs font-bold text-ink hover:bg-sunken"
+            >
+              {AR.zonesRetry}
+            </button>
           </div>
         )}
 

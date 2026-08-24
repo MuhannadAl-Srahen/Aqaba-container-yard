@@ -48,13 +48,28 @@ export function zoneDefOf(custom: CustomZoneDto, x: number, y: number): ZoneDef 
  * deliberate side effect the yard registry learns every zone's yard, so an
  * address label anywhere in the app writes the right leading digit.
  */
-export function composeLayout(customs: readonly CustomZoneDto[]): YardLayout {
+export function composeLayout(
+  customs: readonly CustomZoneDto[],
+  retired: ReadonlyArray<{ readonly zone: string; readonly yard: number }> = [],
+): YardLayout {
+  // Struck zones first, the living last: a retired letter still names its
+  // old yard so history's papers reprint as stamped — and letters are never
+  // reused, so the two sets cannot disagree.
+  registerYards(retired);
   registerYards(customs);
   const asezaBottom = Math.max(
     ...ASEZA.zones.map((zone) => zone.y + zone.h),
     ...ASEZA.landmarks.map((mark) => mark.y + mark.h),
   );
   const nextY = new Map<number, number>();
+  // A parked zone reserves its band: the automatic flow lines up BELOW the
+  // lowest parked strip of its yard instead of drawing across it.
+  for (const custom of customs) {
+    if (custom.x === null || custom.y === null) continue;
+    const start = custom.yard === 2 ? asezaBottom + ROW_GAP : 0;
+    const below = custom.y + ZONE_H + ROW_GAP;
+    if (below > (nextY.get(custom.yard) ?? start)) nextY.set(custom.yard, below);
+  }
   const defs: ZoneDef[] = [];
   for (const custom of [...customs].sort((a, b) => a.id - b.id)) {
     // A parked zone stands where the owner put it; the rest line up below

@@ -15,6 +15,7 @@ import type {
   PermitDto,
   PermitReportRow,
   Position,
+  RetiredZoneDto,
   StandingReportRow,
   TruckDto,
   UnassignedPlateRow,
@@ -257,7 +258,8 @@ export const api = {
   fleet: (): Promise<FleetDto> => request('/api/fleet'),
 
   /** الزونات التي عرّفها المالك — ما تحتاجه الخريطة لرسم ساحاته كلها. */
-  zones: (): Promise<{ zones: CustomZoneDto[] }> => request('/api/zones'),
+  zones: (): Promise<{ zones: CustomZoneDto[]; retired: RetiredZoneDto[] }> =>
+    request('/api/zones'),
 
   addZone: (input: {
     yard: number;

@@ -5,6 +5,7 @@ import type {
   CustomZoneDto,
   PermitDto,
   PermitReportRow,
+  RetiredZoneDto,
   Handling,
   LogReportRow,
   MovementDto,
@@ -1415,6 +1416,17 @@ export function listCustomZones(db: DatabaseSync): CustomZoneDto[] {
     .prepare('SELECT * FROM custom_zones WHERE deleted_at IS NULL ORDER BY id')
     .all() as unknown as CustomZoneRow[];
   return rows.map(toCustomZone);
+}
+
+/**
+ * The letters of struck zones, each with the yard it named. History keeps
+ * printing 1-F-… after zone F is gone, and no new zone may take the letter.
+ */
+export function listRetiredZones(db: DatabaseSync): RetiredZoneDto[] {
+  const rows = db
+    .prepare('SELECT name, yard FROM custom_zones WHERE deleted_at IS NOT NULL ORDER BY id')
+    .all() as unknown as Array<{ name: string; yard: number }>;
+  return rows.map((row) => ({ zone: row.name, yard: row.yard }));
 }
 
 export function getCustomZone(db: DatabaseSync, id: number): CustomZoneDto | null {

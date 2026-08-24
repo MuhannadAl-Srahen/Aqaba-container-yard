@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CustomZoneDto } from '../shared/types';
 import { composeLayout } from '../shared/layout';
@@ -118,6 +118,15 @@ function ZoneCard(props: {
   const [closed, setClosed] = useState<ReadonlySet<string>>(
     () => new Set(zone.closed.map(([bay, stack]) => `${String(bay)}|${String(stack)}`)),
   );
+  // When the server's own closed set changes under the card (the office and
+  // the gate both run this app), the grid adopts it — otherwise the next
+  // «حفظ الشكل» would silently reopen slots another session closed.
+  const serverClosed = zone.closed
+    .map(([bay, stack]) => `${String(bay)}|${String(stack)}`)
+    .join(';');
+  useEffect(() => {
+    setClosed(new Set(serverClosed === '' ? [] : serverClosed.split(';')));
+  }, [serverClosed]);
   const openSlots = zone.bays * zone.stacks - closed.size;
 
   return (
@@ -250,6 +259,9 @@ export function ZonesScreen(props: { onBack: () => void }): ReactElement {
   const rows = zones.data?.zones ?? [];
   /** The zones as the map actually places them — the nudge starts there. */
   const placed = composeLayout(rows).zones;
+  // The last spot each nudge wrote: the next press builds on it even while
+  // the zones refetch is still in flight, so rapid presses never lose a step.
+  const written = useRef(new Map<number, { x: number; y: number }>());
 
   const reshape = (
     zone: CustomZoneDto,
@@ -298,15 +310,18 @@ export function ZonesScreen(props: { onBack: () => void }): ReactElement {
               .catch(fail);
           }}
           onNudge={(dx, dy) => {
-            const here = placed.find((def) => def.zone === zone.zone);
+            const here =
+              written.current.get(zone.id) ?? placed.find((def) => def.zone === zone.zone);
             if (here === undefined) return;
-            reshape(
-              zone,
-              { x: Math.max(0, here.x + dx), y: Math.max(0, here.y + dy) },
-              AR.zoneMoved,
-            );
+            const next = {
+              x: Math.min(5000, Math.max(0, here.x + dx)),
+              y: Math.min(5000, Math.max(0, here.y + dy)),
+            };
+            written.current.set(zone.id, next);
+            reshape(zone, next, AR.zoneMoved);
           }}
           onAutoPlace={() => {
+            written.current.delete(zone.id);
             reshape(zone, { x: null, y: null }, AR.zoneMoved);
           }}
           onDelete={() => {

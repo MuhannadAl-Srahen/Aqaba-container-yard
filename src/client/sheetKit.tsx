@@ -574,7 +574,9 @@ export function SheetScreen(props: {
         {error !== null && <p className="text-xs font-semibold text-red-600">{error}</p>}
       </header>
 
-      <main className="flex-1 overflow-auto p-4 lg:p-6">
+      {/* stable gutter: the fitted zoom must not feed back through a
+          scrollbar appearing and vanishing — the width holds either way. */}
+      <main className="flex-1 overflow-auto p-4 [scrollbar-gutter:stable] lg:p-6">
         <div
           className={`print-area report-sheet mx-auto max-w-[1700px] rounded-2xl bg-surface p-5 shadow-sm lg:p-8${
             metrics.tight ? ' sheet-tight' : ''

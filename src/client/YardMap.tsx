@@ -257,8 +257,10 @@ const ZonePanel = memo(
             }}
             onPointerUp={(event) => {
               if (drag === null || event.pointerId !== drag.pointerId) return;
-              const landedX = Math.max(0, zone.x + drag.dx);
-              const landedY = Math.max(0, zone.y + drag.dy);
+              // The server parks nothing past 5000 units; the landing is
+              // clamped to the same fence so no drop can end in a refusal.
+              const landedX = Math.min(5000, Math.max(0, zone.x + drag.dx));
+              const landedY = Math.min(5000, Math.max(0, zone.y + drag.dy));
               setDrag(null);
               if (Math.abs(drag.dx) + Math.abs(drag.dy) > 2) {
                 view.dragZones?.onDrop(zone.zone, landedX, landedY);

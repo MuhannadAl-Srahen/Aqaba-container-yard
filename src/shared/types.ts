@@ -71,6 +71,12 @@ export interface CustomZoneDto {
   readonly y: number | null;
 }
 
+/** A struck zone's surviving fact: its letter still names the yard it was in. */
+export interface RetiredZoneDto {
+  readonly zone: string;
+  readonly yard: number;
+}
+
 /**
  * The bay's parity IS the container size: an odd bay takes a 20-footer; an
  * even bay is a 40-footer lying across the two odd bays around it (a 40 over

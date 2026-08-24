@@ -1454,3 +1454,27 @@ paper now rules four columns — التسلسل، سند الإدخال، رقم
 الدخول — with the totals row spanning what remains. Nothing else moved:
 the snapshot rule, the yearly ledger, and the reports register (which
 never carried plates) are untouched.
+
+The adversarial review of the whole zones/papers/fit batch came back: 32
+agents, five lenses, every finding hunted by its own refuters — 26
+confirmed, deduplicating to ten distinct wounds, all closed the same
+night. The deep one: yardOf read a registry taught only by LIVE zones, so
+deleting zone F (or reusing its letter) silently rewrote every historical
+1-F-… address to 2-F-… on the next restart — reprints contradicting the
+stamped originals. Now a struck letter is reserved forever (NAME_TAKEN,
+live or dead), GET /api/zones carries the retired letters, and both
+sides' registries keep labelling history; backup already carries deleted
+rows wholesale, so restores keep the promise too. Alongside it: the
+permit of a fully-departed bill reads its yard off lastExitPosition
+instead of pinning 2; auto-placed zones flow below the lowest parked
+strip instead of across it; BAD_SLOT stopped blaming «المخطط الرسمي» for
+owner ground and now names remedy as well as cause; NAME_TAKEN explains
+the reserved letter; the registers' scroller got scrollbar-gutter:stable
+so default-on fit cannot oscillate with the scrollbar; a failed zones
+fetch shows a retry banner instead of silently dropping owner yards from
+the map; rapid nudges build on the last written spot (no lost steps); the
+closed-slots grid resyncs when the server's own set changes; the 8-second
+state poll pauses behind the zones editor; and a dragged zone clamps to
+the server's 5000-unit fence so no drop ends in a refusal. Three new
+tests pin the big three: the reserved letter with intact history, the
+departed bill's permit yard, and the parked-band flow — 281 in all.

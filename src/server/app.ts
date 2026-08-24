@@ -249,7 +249,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * so every placement check judges against the layout of this moment, and
    * the address registry learns each zone's yard on the way.
    */
-  const layoutNow = (): YardLayout => composeLayout(store.listCustomZones(db));
+  const layoutNow = (): YardLayout =>
+    composeLayout(store.listCustomZones(db), store.listRetiredZones(db));
   void app.register(cookie);
   // A restored backup arrives as raw database bytes. Fastify only knows JSON
   // out of the box; the route that receives this sets its own body limit.
@@ -605,10 +606,20 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     y: z.number().min(0).max(5000).nullable().optional(),
   });
 
-  app.get('/api/zones', (request): { zones: ReturnType<typeof store.listCustomZones> } => {
-    requireAuth(request);
-    return { zones: store.listCustomZones(db) };
-  });
+  app.get(
+    '/api/zones',
+    (
+      request,
+    ): {
+      zones: ReturnType<typeof store.listCustomZones>;
+      retired: ReturnType<typeof store.listRetiredZones>;
+    } => {
+      requireAuth(request);
+      // The retired letters ride along so the client's registry keeps
+      // labelling history: a struck zone's addresses hold their yard digit.
+      return { zones: store.listCustomZones(db), retired: store.listRetiredZones(db) };
+    },
+  );
 
   app.post('/api/zones', (request, reply) => {
     requireOwner(request);
@@ -623,10 +634,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     );
     return transaction(db, () => {
       // One letter, one zone, across every yard: the zone alone decides the
-      // address's leading digit, so a twin letter would fork the ground.
+      // address's leading digit, so a twin letter would fork the ground. A
+      // STRUCK zone keeps its letter too — history prints it with the old
+      // yard digit, and a new zone under it would re-home every old paper.
       const taken =
         (ZONES as readonly string[]).includes(body.name) ||
-        store.listCustomZones(db).some((zone) => zone.zone === body.name);
+        store.listCustomZones(db).some((zone) => zone.zone === body.name) ||
+        store.listRetiredZones(db).some((zone) => zone.zone === body.name);
       if (taken) refuse(409, 'NAME_TAKEN');
       const id = store.insertCustomZone(db, body);
       void reply.status(201);
@@ -725,16 +739,18 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const at = now();
       const year = ammanYear(at);
       // The paper names its yard off the containers themselves: the first
-      // one still standing decides, and a group already through the gate
-      // reads as the plan's own ground.
+      // one with known ground decides — where it stands, or, for a box
+      // already through the gate (the office's own order: exit first, paper
+      // after), where it stood as it left.
       layoutNow();
       const anchor = body.items
-        .map((item) => store.getContainer(db, item.containerId))
-        .find((container) => container !== null && container.position !== null);
-      const yard =
-        anchor !== undefined && anchor !== null && anchor.position !== null
-          ? yardOf(anchor.position.zone)
-          : 2;
+        .map((item) => {
+          const container = store.getContainer(db, item.containerId);
+          if (container === null) return null;
+          return container.position ?? store.lastExitPosition(db, container.id);
+        })
+        .find((position) => position !== null);
+      const yard = anchor === undefined || anchor === null ? 2 : yardOf(anchor.zone);
       const id = store.insertPermit(db, {
         serial: store.nextPermitNumber(db, year),
         serialYear: year,

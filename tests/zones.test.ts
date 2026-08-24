@@ -3,7 +3,7 @@ import type { FastifyInstance, InjectOptions } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from '../src/server/db';
 import { buildApp } from '../src/server/app';
-import type { CustomZoneDto, Position } from '../src/shared/types';
+import type { CustomZoneDto, Position, RetiredZoneDto } from '../src/shared/types';
 import { composeLayout, yardSlice, yardsOf, zoneDefOf } from '../src/shared/layout';
 import { positionLabel, yardOf } from '../src/shared/address';
 import { slotUsable } from '../src/shared/rules';
@@ -184,6 +184,44 @@ describe('الأرض المعرّفة أرض حقيقية', () => {
     expect((await call({ method: 'GET', url: '/api/zones' })).body.zones).toHaveLength(0);
   });
 
+  it('a struck zone keeps its letter and its yard: no re-creation, history intact', async () => {
+    const zone = await addZone({ yard: 1, name: 'F', bays: 4, stacks: 4 });
+    await call({ method: 'DELETE', url: `/api/zones/${String(zone.body.id)}` });
+    // The freed letter is NOT free: a new F anywhere would re-home every
+    // old paper that reads 1-F-… onto ground that did not exist then.
+    const again = await addZone({ yard: 3, name: 'F', bays: 2, stacks: 2 });
+    expect(again.status).toBe(409);
+    expect(again.body.code).toBe('NAME_TAKEN');
+    // The wire carries the retired letters, and composing teaches the
+    // registry, so a fresh process still labels history 1-F-….
+    const listed = await call({ method: 'GET', url: '/api/zones' });
+    const body = listed.body as unknown as {
+      zones: CustomZoneDto[];
+      retired: RetiredZoneDto[];
+    };
+    expect(body.zones).toHaveLength(0);
+    expect(body.retired).toEqual([{ zone: 'F', yard: 1 }]);
+    composeLayout(body.zones, body.retired);
+    expect(yardOf('F')).toBe(1);
+  });
+
+  it('a permit issued after every box left still names the yard they stood in', async () => {
+    await addZone({ yard: 3, name: 'H', bays: 4, stacks: 4 });
+    const entered = await gateIn('ZONE0070', { zone: 'H', bay: 1, stack: 1, tier: 'A' }, '5522');
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/exit`,
+      payload: { truck: '501', driver: '' },
+    });
+    const permit = await call({
+      method: 'POST',
+      url: '/api/permits',
+      payload: { bill: '5522', items: [{ containerId: entered.body.id, truck: '' }] },
+    });
+    expect(permit.status).toBe(201);
+    expect(permit.body.yard).toBe(3);
+  });
+
   it('a permit for boxes standing in an owner yard names that yard on the paper', async () => {
     await addZone({ yard: 3, name: 'G', bays: 4, stacks: 4 });
     const entered = await gateIn('ZONE0064', { zone: 'G', bay: 1, stack: 1, tier: 'A' }, '4411');
@@ -217,6 +255,15 @@ describe('تركيب الشكل الفعّال', () => {
     const trial = { zones: [def], landmarks: [] };
     expect(slotUsable(trial, 'F', 3, 2)).toBe(false);
     expect(slotUsable(trial, 'F', 3, 3)).toBe(true);
+  });
+
+  it('an automatic zone lines up below a parked one, never across it', () => {
+    const parked: CustomZoneDto = { ...custom, id: 7, zone: 'J', x: 40, y: 10 };
+    const auto: CustomZoneDto = { ...custom, id: 8, zone: 'K', x: null, y: null };
+    const layout = composeLayout([parked, auto]);
+    const flowed = layout.zones.find((zone) => zone.zone === 'K');
+    // Below the parked strip (y 10 + height 150 + gap 20), not on top of it.
+    expect(flowed?.y).toBe(180);
   });
 
   it('composing teaches every address its yard, and slices one yard’s drawing', () => {
