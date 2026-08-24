@@ -2,6 +2,8 @@ import type { DatabaseSync } from 'node:sqlite';
 import type {
   CarrierDto,
   ContainerDto,
+  PermitDto,
+  PermitReportRow,
   Handling,
   LogReportRow,
   MovementDto,
@@ -244,7 +246,28 @@ export function listByBill(db: DatabaseSync, bill: string): ContainerDto[] {
   return rows.map(toDto);
 }
 
-export function searchContainers(db: DatabaseSync, query: string): ContainerDto[] {
+/**
+ * كشف البوليصة مفتوحاً على كل شيء: every live container record, the standing
+ * ones first with their slots, then the departed — the same order one bill's
+ * sheet reads in, across all bills at once.
+ */
+export function listBillRegister(db: DatabaseSync): ContainerDto[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM containers
+       WHERE deleted_at IS NULL
+       ORDER BY (zone IS NULL), entered_at, id`,
+    )
+    .all() as unknown as ContainerRow[];
+  return rows.map(toDto);
+}
+
+export function searchContainers(db: DatabaseSync, rawQuery: string): ContainerDto[] {
+  // The office types digits however the keyboard offers them: a search for
+  // ٣٢١٠ is asking for 3210, so the Arabic-Indic digits fold first.
+  const query = rawQuery.replace(/[٠-٩]/g, (digit) =>
+    String.fromCharCode(digit.charCodeAt(0) - 0x0660 + 0x30),
+  );
   // Escape the two LIKE wildcards so a literal % in a search cannot scan
   // everything; \ is the declared escape character below.
   const escaped = query.replace(/[\\%_]/g, (ch) => `\\${ch}`);
@@ -1157,4 +1180,176 @@ export function listGateMovementsBoth(
       enteredAt: row.entered_at,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// تصريح تحميل وخروج داخلي — the permit ledger. One bill, its containers as
+// listed the moment the paper was issued, and the truck assigned to each.
+// A numbered yearly ledger like the gate cards, held to the same 1 … N rule.
+// ---------------------------------------------------------------------------
+
+interface PermitRow {
+  id: number;
+  serial: number;
+  serial_year: number;
+  bill: string;
+  at: string;
+  user_id: number | null;
+  deleted_at: string | null;
+}
+
+/** The next serial in this year's permit book, counted over live permits. */
+export function nextPermitNumber(db: DatabaseSync, year: number): number {
+  const row = db
+    .prepare(
+      'SELECT MAX(serial) AS top FROM permits WHERE serial_year = ? AND deleted_at IS NULL',
+    )
+    .get(year) as { top: number | null };
+  return (row.top ?? 0) + 1;
+}
+
+export function insertPermit(
+  db: DatabaseSync,
+  permit: {
+    serial: number;
+    serialYear: number;
+    bill: string;
+    at: string;
+    userId: number | null;
+    /** Each line pins the container's facts as the paper is issued. */
+    items: ReadonlyArray<{
+      containerId: number;
+      truck: string;
+      number: string;
+      cardIn: number | null;
+      cardInYear: number | null;
+      enteredAt: string;
+    }>;
+  },
+): number {
+  const id = Number(
+    db
+      .prepare(
+        'INSERT INTO permits (serial, serial_year, bill, at, user_id) VALUES (?, ?, ?, ?, ?)',
+      )
+      .run(permit.serial, permit.serialYear, permit.bill, permit.at, permit.userId)
+      .lastInsertRowid,
+  );
+  const addItem = db.prepare(
+    `INSERT INTO permit_items (permit_id, container_id, truck, number, card_in, card_in_year, entered_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const item of permit.items) {
+    addItem.run(
+      id,
+      item.containerId,
+      item.truck,
+      item.number,
+      item.cardIn,
+      item.cardInYear,
+      item.enteredAt,
+    );
+  }
+  return id;
+}
+
+/** One permit with its items — the paper exactly as it was issued. */
+export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
+  const row = db.prepare('SELECT * FROM permits WHERE id = ? AND deleted_at IS NULL').get(id) as
+    | PermitRow
+    | undefined;
+  if (row === undefined) return null;
+  const names = listUserNames(db);
+  // The lines are read from the permit's own snapshot, never from the live
+  // container: what left the office under the stamp is what a reprint says,
+  // even after the container is corrected, renumbered or struck out.
+  const items = db
+    .prepare(
+      `SELECT container_id, truck, number, card_in, card_in_year, entered_at
+       FROM permit_items
+       WHERE permit_id = ?
+       ORDER BY id`,
+    )
+    .all(id) as unknown as Array<{
+    container_id: number;
+    truck: string;
+    number: string;
+    card_in: number | null;
+    card_in_year: number | null;
+    entered_at: string;
+  }>;
+  return {
+    id: row.id,
+    serial: row.serial,
+    serialYear: row.serial_year,
+    bill: row.bill,
+    at: row.at,
+    user: userLabel(names, row.user_id),
+    items: items.map((item) => ({
+      containerId: item.container_id,
+      number: item.number,
+      cardIn: item.card_in,
+      cardInYear: item.card_in_year,
+      enteredAt: item.entered_at,
+      truck: item.truck,
+    })),
+  };
+}
+
+/** كشف خروج وتحميل داخلي: the permits issued in [from, to), oldest first. */
+export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): PermitReportRow[] {
+  const names = listUserNames(db);
+  const rows = db
+    .prepare(
+      `SELECT p.*, (SELECT COUNT(*) FROM permit_items i WHERE i.permit_id = p.id) AS containers
+       FROM permits p
+       WHERE p.at >= ? AND p.at < ? AND p.deleted_at IS NULL
+       ORDER BY p.at, p.id`,
+    )
+    .all(fromIso, toIso) as unknown as Array<PermitRow & { containers: number }>;
+  return rows.map((row) => ({
+    id: row.id,
+    serial: row.serial,
+    serialYear: row.serial_year,
+    at: row.at,
+    bill: row.bill,
+    containers: row.containers,
+    user: userLabel(names, row.user_id),
+  }));
+}
+
+export function softDeletePermit(db: DatabaseSync, id: number, at: string): void {
+  db.prepare('UPDATE permits SET deleted_at = ? WHERE id = ?').run(at, id);
+}
+
+/**
+ * Hold the permit book to the ledger rule: the live permits of one year carry
+ * 1 … N in issue order, no hole where one was struck out. Returns how many
+ * serials had to move; on an already-whole book it plans nothing and writes
+ * nothing, which is the normal case.
+ */
+export function renumberPermits(db: DatabaseSync): number {
+  const rows = db
+    .prepare(
+      `SELECT id, serial, serial_year FROM permits
+        WHERE deleted_at IS NULL
+        ORDER BY serial_year, at, id`,
+    )
+    .all() as unknown as Array<{ id: number; serial: number; serial_year: number }>;
+  const fix = db.prepare('UPDATE permits SET serial = ? WHERE id = ?');
+  let corrected = 0;
+  let year = -1;
+  let next = 1;
+  for (const row of rows) {
+    if (row.serial_year !== year) {
+      year = row.serial_year;
+      next = 1;
+    }
+    if (row.serial !== next) {
+      fix.run(next, row.id);
+      corrected += 1;
+    }
+    next += 1;
+  }
+  return corrected;
 }

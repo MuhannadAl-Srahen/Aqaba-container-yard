@@ -1,13 +1,16 @@
-import { useMemo, useState, type ReactElement, type ReactNode } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useEffect, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ContainerDto,
   DailyReportRow,
   GateReportRow,
+  PermitReportRow,
   StandingReportRow,
 } from '../shared/types';
 import { cardSerial } from '../shared/types';
 import { carrierOfPlate } from '../shared/fleet';
+import { ApiFailure } from './api';
+import { Button, Confirm, Toast } from './ui';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { api, dwellDays } from './api';
@@ -34,7 +37,7 @@ import {
  * operations log lives on its own screen.
  */
 
-type Tab = 'in' | 'out' | 'standing' | 'daily' | 'truck' | 'bill';
+type Tab = 'in' | 'out' | 'standing' | 'daily' | 'truck' | 'bill' | 'permits';
 
 /** The bill cell is a doorway: tap it, get that bill's own sheet. */
 const billCell = (bill: string, onBill: (bill: string) => void): TableCell =>
@@ -205,11 +208,17 @@ function truckModel(
 /**
  * كشف البوليصة: the whole group one bill of lading gathers — the standing
  * ones first with their exact slots, then the departed with their exit dates.
+ * Opened with no bill typed it reads across ALL bills at once, so each row
+ * then names its bill — a doorway into that bill's own sheet.
  */
-function billModel(rows: readonly ContainerDto[]): TableModel {
+function billModel(
+  rows: readonly ContainerDto[],
+  onBill: ((bill: string) => void) | null,
+): TableModel {
   const head = [
     AR.colSeq,
     AR.colNumber,
+    ...(onBill === null ? [] : [AR.colBill]),
     AR.colSize,
     AR.colSlot,
     AR.colSeal,
@@ -221,6 +230,7 @@ function billModel(rows: readonly ContainerDto[]): TableModel {
   const body = rows.map((container, index) => [
     cellText(String(index + 1)),
     cellLtr(container.number),
+    ...(onBill === null ? [] : [billCell(container.bill, onBill)]),
     cellText(String(container.size)),
     container.position === null
       ? cellText(dash)
@@ -283,15 +293,51 @@ const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['bill', AR.reportBill],
   ['daily', AR.reportDaily],
   ['truck', AR.reportTruck],
+  ['permits', AR.reportPermits],
 ];
+
+/** كشف خروج وتحميل داخلي: التصاريح الصادرة في الفترة، الأقدم أولاً. */
+function permitsModel(rows: readonly PermitReportRow[], onBill: (bill: string) => void): TableModel {
+  const head = [
+    AR.colSeq,
+    AR.permitSerial,
+    AR.colDay,
+    AR.colDate,
+    AR.colTime,
+    AR.colBill,
+    AR.colPermitCount,
+    AR.colUser,
+  ];
+  const body = rows.map((row, index) => [
+    cellText(String(index + 1)),
+    // Ordered by year then serial — «0002/2026» comes before «0001/2027».
+    cellLtr(cardSerial(row.serial, row.serialYear) ?? dash, row.serialYear * 100_000 + row.serial),
+    ...stampCells(new Date(row.at)),
+    billCell(row.bill, onBill),
+    cellText(String(row.containers), row.containers),
+    cellText(row.user),
+  ]);
+  const footer =
+    rows.length === 0 ? null : [cellText(AR.totalRow), cellText(AR.permitsCount(rows.length))];
+  return { head, body, footer, counted: true };
+}
 
 export function ReportsScreen(props: {
   /** Land straight on one bill's sheet — the search's doorway. */
   initialBill?: string | undefined;
   /** Reprint a gate card straight from the row it is on. */
   onCard: (kind: 'in' | 'out', containerId: number) => void;
+  /** Open a permit's paper from its register row. */
+  onPermit: (permitId: number) => void;
+  /** Open the issue form for this bill's standing containers. */
+  onCreatePermit: (bill: string, containers: readonly ContainerDto[]) => void;
+  /** May this person issue a permit? It is exit paperwork — GATE_OUT. */
+  canPermit: boolean;
+  /** Voiding a numbered permit is the owner's alone. */
+  isOwner: boolean;
   onBack: () => void;
 }): ReactElement {
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>(props.initialBill === undefined ? 'in' : 'bill');
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(ammanToday());
@@ -301,6 +347,19 @@ export function ReportsScreen(props: {
   /** The carrier whose whole fleet the truck register is showing; 0 = by plate. */
   const [carrier, setCarrier] = useState(0);
   const [bill, setBill] = useState(props.initialBill ?? '');
+  const [removingPermit, setRemovingPermit] = useState<PermitReportRow | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 3500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [toast]);
 
   const { fromIso, toIso } = useMemo(
     // The registry has no records before the system existed, so an early
@@ -336,12 +395,21 @@ export function ReportsScreen(props: {
     refetchInterval: LIVE,
   });
   const truckReport = useQuery({
-    queryKey: ['report-truck', activeCarrier === null ? truck.trim() : `c${String(carrier)}`, fromIso, toIso],
+    queryKey: [
+      'report-truck',
+      activeCarrier !== null ? `c${String(carrier)}` : truckReady ? truck.trim() : 'all',
+      fromIso,
+      toIso,
+    ],
+    // Opened plain, the register holds every movement of the period — «عند
+    // دخول كشف السيارات يظهر جميع المعلومات» — and narrows as one types.
     queryFn: () =>
-      activeCarrier === null
-        ? api.reportTruck(truck.trim(), fromIso, toIso)
-        : api.reportCarrier(activeCarrier.id, fromIso, toIso),
-    enabled: valid && tab === 'truck' && (truckReady || activeCarrier !== null),
+      activeCarrier !== null
+        ? api.reportCarrier(activeCarrier.id, fromIso, toIso)
+        : truckReady
+          ? api.reportTruck(truck.trim(), fromIso, toIso)
+          : api.reportTruckAll(fromIso, toIso),
+    enabled: valid && tab === 'truck',
     refetchInterval: LIVE,
   });
   const standing = useQuery({
@@ -351,9 +419,15 @@ export function ReportsScreen(props: {
     refetchInterval: LIVE,
   });
   const billReport = useQuery({
-    queryKey: ['report-bill', bill.trim()],
-    queryFn: () => api.reportBill(bill.trim()),
-    enabled: tab === 'bill' && billReady,
+    queryKey: ['report-bill', billReady ? bill.trim() : 'all'],
+    queryFn: () => (billReady ? api.reportBill(bill.trim()) : api.reportBillAll()),
+    enabled: tab === 'bill',
+    refetchInterval: LIVE,
+  });
+  const permits = useQuery({
+    queryKey: ['report-permits', fromIso, toIso],
+    queryFn: () => api.reportPermits(fromIso, toIso),
+    enabled: valid && tab === 'permits',
     refetchInterval: LIVE,
   });
 
@@ -368,9 +442,13 @@ export function ReportsScreen(props: {
       ? AR.reportCarrier(activeCarrier.name)
       : tab === 'truck' && truckReady
         ? `${baseTitle} ${truck.trim()}${plateCarrier === null ? '' : ` — ${AR.carrierChip(plateCarrier.name)}`}`
-        : tab === 'bill' && billReady
-          ? `${baseTitle} ${bill.trim()}`
-          : baseTitle;
+        : tab === 'truck'
+          ? AR.truckAllTitle
+          : tab === 'bill' && billReady
+            ? `${baseTitle} ${bill.trim()}`
+            : tab === 'bill'
+              ? AR.billAllTitle
+              : baseTitle;
 
   const model = useMemo<TableModel>(() => {
     const openTruck = (plate: string): void => {
@@ -393,8 +471,9 @@ export function ReportsScreen(props: {
         return truckModel(
           truckReport.data?.rows ?? [],
           openBill,
-          // Carrier mode: the plate column drills into that one truck.
-          activeCarrier === null
+          // Reading many plates at once — a carrier's fleet or the whole
+          // register — the plate column drills into that one truck's sheet.
+          activeCarrier === null && truckReady
             ? null
             : (plate) => {
                 setCarrier(0);
@@ -402,14 +481,50 @@ export function ReportsScreen(props: {
               },
         );
       case 'bill':
-        return billModel(billReport.data?.rows ?? []);
+        return billModel(billReport.data?.rows ?? [], billReady ? null : openBill);
+      case 'permits':
+        return permitsModel(permits.data?.rows ?? [], openBill);
     }
-  }, [tab, gate.data, standing.data, daily.data, truckReport.data, billReport.data, activeCarrier]);
+  }, [tab, gate.data, standing.data, daily.data, truckReport.data, billReport.data, permits.data, activeCarrier, truckReady, billReady]);
 
   // A register row carries its own card: no hunting the exact number down in
-  // the search box to reprint the paper the driver already lost.
+  // the search box to reprint the paper the driver already lost. The permits
+  // register carries its paper the same way — and, for the owner, the void.
   const cardActions =
-    tab === 'in' || tab === 'out' || tab === 'standing' || tab === 'bill'
+    tab === 'permits'
+      ? {
+          header: AR.actionColumn,
+          render: (rowIndex: number): ReactNode => {
+            const row = permits.data?.rows[rowIndex];
+            if (row === undefined) return null;
+            return (
+              <span className="flex justify-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onPermit(row.id);
+                  }}
+                  className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200"
+                >
+                  {AR.permitAction}
+                </button>
+                {props.isOwner && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setRemovingPermit(row);
+                    }}
+                    className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-100 disabled:opacity-40 dark:bg-red-950 dark:text-red-300"
+                  >
+                    {AR.permitDelete}
+                  </button>
+                )}
+              </span>
+            );
+          },
+        }
+      : tab === 'in' || tab === 'out' || tab === 'standing' || tab === 'bill'
       ? {
           header: AR.actionColumn,
           render: (rowIndex: number): ReactNode => {
@@ -436,6 +551,7 @@ export function ReportsScreen(props: {
       : undefined;
 
   return (
+    <>
     <SheetScreen
       screenTitle={AR.reports}
       sheetTitle={title}
@@ -447,13 +563,12 @@ export function ReportsScreen(props: {
       onBack={props.onBack}
       actions={cardActions}
       rangeless={
-        tab === 'standing' ? AR.standingNow : tab === 'bill' ? AR.billNow : undefined
-      }
-      emptyText={
-        tab === 'truck' && !truckReady && activeCarrier === null
-          ? AR.truckPrompt
-          : tab === 'bill' && !billReady
-            ? AR.billPrompt
+        tab === 'standing'
+          ? AR.standingNow
+          : tab === 'bill'
+            ? billReady
+              ? AR.billNow
+              : AR.billAllNow
             : undefined
       }
       allRange={{
@@ -516,17 +631,64 @@ export function ReportsScreen(props: {
             />
           </>
         ) : tab === 'bill' ? (
-          <input
-            dir="ltr"
-            placeholder={AR.colBill}
-            className="w-36 rounded-lg border border-line-strong px-2.5 py-1.5 text-start text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-            value={bill}
-            onChange={(event) => {
-              setBill(event.target.value);
-            }}
-          />
+          <>
+            <input
+              dir="ltr"
+              placeholder={AR.colBill}
+              className="w-36 rounded-lg border border-line-strong px-2.5 py-1.5 text-start text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              value={bill}
+              onChange={(event) => {
+                setBill(event.target.value);
+              }}
+            />
+            {/* The bill sheet is where the permit is born: the whole group is
+                on the screen, and the paper takes the standing part of it. */}
+            {billReady && props.canPermit && (
+              <Button
+                kind="quiet"
+                disabled={(billReport.data?.rows ?? []).length === 0}
+                onClick={() => {
+                  props.onCreatePermit(bill.trim(), billReport.data?.rows ?? []);
+                }}
+              >
+                {AR.permitCreate}
+              </Button>
+            )}
+          </>
         ) : undefined
       }
     />
+    {removingPermit !== null && (
+      <Confirm
+        title={AR.confirmPermitDeleteTitle}
+        body={AR.confirmPermitDeleteBody(
+          cardSerial(removingPermit.serial, removingPermit.serialYear) ??
+            String(removingPermit.serial),
+        )}
+        confirmLabel={AR.permitDelete}
+        busy={busy}
+        onConfirm={() => {
+          setBusy(true);
+          api
+            .removePermit(removingPermit.id)
+            .then(() => {
+              void queryClient.invalidateQueries({ queryKey: ['report-permits'] });
+              setToast(AR.permitDeleted);
+              setBusy(false);
+              setRemovingPermit(null);
+            })
+            .catch((failure: unknown) => {
+              setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+              setBusy(false);
+              setRemovingPermit(null);
+            });
+        }}
+        onCancel={() => {
+          setRemovingPermit(null);
+        }}
+      />
+    )}
+    {toast !== null && <Toast message={toast} />}
+    </>
   );
 }

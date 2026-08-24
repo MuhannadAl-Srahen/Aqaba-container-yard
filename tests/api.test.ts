@@ -1588,6 +1588,30 @@ describe('رقم البوليصة', () => {
     );
   });
 
+  it('the search box reads Arabic digits as the Western ones the yard writes', async () => {
+    await withBill('BILL0009', 9, 1, '6543');
+    const found = await call({
+      method: 'GET',
+      url: `/api/containers?q=${encodeURIComponent('٦٥٤٣')}`,
+    });
+    expect((found.body as { results: Array<{ number: string }> }).results[0]?.number).toBe(
+      'BILL0009',
+    );
+  });
+
+  it('opened with no bill, the register reads across all bills at once', async () => {
+    // «عند دخول كشف البوليصة يظهر جميع المعلومات»: every container record,
+    // the standing ones first, and the reader narrows by typing or searching.
+    await withBill('BILL0011', 11, 1, '4444');
+    await withBill('BILL0012', 13, 1, '5555');
+    const sheet = await call({ method: 'GET', url: '/api/reports/bill' });
+    expect(sheet.status).toBe(200);
+    const rows = (sheet.body as { rows: Array<{ number: string; bill: string }> }).rows;
+    expect(rows.length).toBeGreaterThanOrEqual(2);
+    expect(rows.find((row) => row.number === 'BILL0011')?.bill).toBe('4444');
+    expect(rows.find((row) => row.number === 'BILL0012')?.bill).toBe('5555');
+  });
+
   it('the bill can be fixed later from the edit form', async () => {
     const entered = await gateIn('BILL0008', 20, slot('B', 9, 1, 'A'));
     const edited = await call({

@@ -102,12 +102,18 @@ export function registerOwnerTools(
     const cleared = transaction(db, () => {
       const containers = count('containers');
       const movements = count('movements');
+      // The permits list containers, so the practice permits go with the
+      // practice containers — a permit book naming vanished boxes is noise.
+      db.exec('DELETE FROM permit_items');
+      db.exec('DELETE FROM permits');
       db.exec('DELETE FROM movements');
       db.exec('DELETE FROM containers');
       // One counter per year now, so the wipe clears the whole family.
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
-      db.exec("DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements')");
+      db.exec(
+        "DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements', 'permits', 'permit_items')",
+      );
       // Counted back AFTER the delete, from the table itself. The screen says
       // what actually went, so «it did not delete anything» is a claim either
       // the number confirms or contradicts, rather than an impression.
@@ -181,6 +187,7 @@ interface RestoreCounts {
   users: number;
   carriers: number;
   trucks: number;
+  permits: number;
 }
 
 /**
@@ -234,8 +241,11 @@ function copyAcross(db: DatabaseSync, source: DatabaseSync): RestoreCounts {
 
       // A snapshot may have been taken by an older version, whose deletions
       // left holes in the year's card numbers. What comes back is held to the
-      // same rule as everything else: 1, 2, 3 … N, nothing missing.
+      // same rule as everything else: 1, 2, 3 … N, nothing missing — the
+      // permit book included, because the open-time repair only runs on the
+      // next restart and the yard does not wait for one.
       store.renumberCards(db);
+      store.renumberPermits(db);
 
       // AUTOINCREMENT reads its next id from here, not from the table, so
       // without this the first new row would collide with a restored one —
@@ -260,6 +270,7 @@ function copyAcross(db: DatabaseSync, source: DatabaseSync): RestoreCounts {
     users: copied.get('users') ?? 0,
     carriers: copied.get('carriers') ?? 0,
     trucks: copied.get('trucks') ?? 0,
+    permits: copied.get('permits') ?? 0,
   };
 }
 

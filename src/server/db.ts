@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { ammanYear } from '../shared/dates';
-import { applyCardFixes, renumberPlan } from './store';
+import { applyCardFixes, renumberPermits, renumberPlan } from './store';
 
 /**
  * SQLite through Node's own driver: one file, no native build step, and a
@@ -324,8 +324,60 @@ export function migrate(db: DatabaseSync, file: string): void {
 
     CREATE INDEX IF NOT EXISTS idx_trucks_carrier ON trucks (carrier_id);
 
-    PRAGMA user_version = 18;
+    -- v19: تصريح تحميل وخروج داخلي — a numbered permit for one bill's
+    -- containers, going out to موقع المقص. A ledger of its own, counted per
+    -- year like the gate cards; its items pin the containers it listed and
+    -- the truck assigned to each. Issuing one moves nothing on the ground.
+    CREATE TABLE IF NOT EXISTS permits (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      serial      INTEGER NOT NULL,
+      serial_year INTEGER NOT NULL,
+      bill        TEXT    NOT NULL,
+      at          TEXT    NOT NULL,
+      user_id     INTEGER REFERENCES users (id),
+      deleted_at  TEXT
+    );
+
+    -- v20: each line keeps the container's facts AS THE PAPER WAS ISSUED —
+    -- number, entry-card serial, entry date. The stamped original in the
+    -- drawer never changes, so its reprint must not either: a later renumber
+    -- or correction of the container record leaves issued permits alone.
+    CREATE TABLE IF NOT EXISTS permit_items (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      permit_id    INTEGER NOT NULL REFERENCES permits (id),
+      container_id INTEGER NOT NULL REFERENCES containers (id),
+      truck        TEXT    NOT NULL DEFAULT '',
+      number       TEXT    NOT NULL DEFAULT '',
+      card_in      INTEGER,
+      card_in_year INTEGER,
+      entered_at   TEXT    NOT NULL DEFAULT ''
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_permit_items_permit ON permit_items (permit_id);
+
+    PRAGMA user_version = 20;
   `);
+
+  // v20 upgrade: a permit_items table born under v19 lacks the snapshot
+  // columns. Sniffing the table beats trusting the version stamp — and the
+  // backfill reads the containers as they stand now, the closest thing to
+  // «as issued» an old line still has.
+  const permitItemColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('permit_items') as unknown as Array<{ name: string }>;
+  if (!permitItemColumns.some((column) => column.name === 'number')) {
+    db.exec(`
+      ALTER TABLE permit_items ADD COLUMN number TEXT NOT NULL DEFAULT '';
+      ALTER TABLE permit_items ADD COLUMN card_in INTEGER;
+      ALTER TABLE permit_items ADD COLUMN card_in_year INTEGER;
+      ALTER TABLE permit_items ADD COLUMN entered_at TEXT NOT NULL DEFAULT '';
+      UPDATE permit_items SET
+        number       = COALESCE((SELECT k.number FROM containers k WHERE k.id = container_id), ''),
+        card_in      = (SELECT k.card_in FROM containers k WHERE k.id = container_id),
+        card_in_year = (SELECT k.card_in_year FROM containers k WHERE k.id = container_id),
+        entered_at   = COALESCE((SELECT k.entered_at FROM containers k WHERE k.id = container_id), '');
+    `);
+  }
 
   // v18: the fleet the owner dictated, planted exactly once — into a carriers
   // table that has never held a row. Counting rows rather than asking whether
@@ -355,6 +407,14 @@ export function migrate(db: DatabaseSync, file: string): void {
     }
     applyCardFixes(db, repair);
     console.log(`[db] card serials rebuilt: ${String(repair.length)} corrected`);
+  }
+
+  // The permit ledger is held to the same rule as the card ledgers — live
+  // permits of one year read 1 … N with no hole — and held to it on every
+  // open, so a file arriving from anywhere is straightened the moment it is.
+  const permitFixes = renumberPermits(db);
+  if (permitFixes > 0) {
+    console.log(`[db] permit serials rebuilt: ${String(permitFixes)} corrected`);
   }
 }
 

@@ -280,6 +280,46 @@ export interface DailyReportRow {
   readonly standing: number;
 }
 
+/**
+ * تصريح تحميل وخروج داخلي: the paper مؤسسة الحق issues for one bill of
+ * lading — permission to load the containers listed on it out of the yard
+ * and into موقع المقص only. A numbered ledger of its own, counted per year
+ * like the gate cards, and the paper itself carries the storage-directorate
+ * signature block. Issuing one changes nothing on the ground: the actual
+ * departures are still recorded at the gate, container by container.
+ */
+export interface PermitItemDto {
+  readonly containerId: number;
+  readonly number: string;
+  /** سند بطاقة الإدخال — the entry card's serial and its year. */
+  readonly cardIn: number | null;
+  readonly cardInYear: number | null;
+  readonly enteredAt: string;
+  /** The truck that will carry this container out; blank = written by hand. */
+  readonly truck: string;
+}
+
+export interface PermitDto {
+  readonly id: number;
+  readonly serial: number;
+  readonly serialYear: number;
+  readonly bill: string;
+  readonly at: string;
+  readonly user: string;
+  readonly items: readonly PermitItemDto[];
+}
+
+/** One row of كشف خروج وتحميل داخلي. */
+export interface PermitReportRow {
+  readonly id: number;
+  readonly serial: number;
+  readonly serialYear: number;
+  readonly at: string;
+  readonly bill: string;
+  readonly containers: number;
+  readonly user: string;
+}
+
 /** One row of سجل العمليات — every operation on every container, ever. */
 export interface LogReportRow {
   readonly containerId: number;

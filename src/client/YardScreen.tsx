@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ContainerDto, Permission, Position, Zone } from '../shared/types';
+import type { ContainerDto, Permission, PermitDto, Position, Zone } from '../shared/types';
 import { ASEZA } from '../shared/asezaLayout';
 import { bayLabel, positionLabel } from '../shared/address';
 import { freeNow, zoneOf } from '../shared/rules';
@@ -10,6 +10,8 @@ import { YardMap, computeLayout } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard, type CardJob } from './PrintCard';
+import { PrintPermit } from './PrintPermit';
+import { PermitSheet } from './PermitSheet';
 import { FillSheet } from './FillSheet';
 import {
   addressMatch,
@@ -62,6 +64,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * moved many times.
    */
   const [printCard, setPrintCard] = useState<CardJob | null>(null);
+  /** تصريح تحميل وخروج داخلي: the paper on screen, and the issue form. */
+  const [permitPrint, setPermitPrint] = useState<PermitDto | null>(null);
+  const [permitCreate, setPermitCreate] = useState<{
+    bill: string;
+    containers: readonly ContainerDto[];
+  } | null>(null);
   /** «كم باقٍ حتى تمتلئ الساحة» — opened from the room chip in the header. */
   const [fillView, setFillView] = useState(false);
   const [usersView, setUsersView] = useState(false);
@@ -199,7 +207,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     void queryClient.invalidateQueries({ queryKey: ['search'] });
     // A register open on this same device must not go stale behind the
     // operation that just happened in front of it.
-    for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-truck', 'report-bill', 'report-log']) {
+    for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-truck', 'report-bill', 'report-log', 'report-permits']) {
       void queryClient.invalidateQueries({ queryKey: [key] });
     }
     setToast(message);
@@ -307,6 +315,18 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             setPrintCard({ kind, container });
           });
         }}
+        onPermit={(permitId) => {
+          // The row may be stale — the owner can void a permit from another
+          // device — so a refusal is told in a sentence, not swallowed.
+          api.permit(permitId).then(setPermitPrint).catch((failure: unknown) => {
+            setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+          });
+        }}
+        onCreatePermit={(bill, billContainers) => {
+          setPermitCreate({ bill, containers: billContainers });
+        }}
+        canPermit={may('GATE_OUT')}
+        isOwner={isOwner}
         onBack={() => {
           setReporting(false);
         }}
@@ -765,6 +785,35 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           containers={containers}
           onClose={() => {
             setFillView(false);
+          }}
+        />
+      )}
+      {permitCreate !== null && (
+        <PermitSheet
+          // Keyed by bill: pressing «إصدار تصريح» for another bill while the
+          // sheet is open must start a fresh sheet, not reuse this one's
+          // checkboxes against the other bill's containers.
+          key={permitCreate.bill}
+          bill={permitCreate.bill}
+          containers={permitCreate.containers}
+          onDone={(permit, message) => {
+            // The paper is the point: it opens by itself, and the register
+            // behind refreshes to show the new serial.
+            setPermitCreate(null);
+            setToast(message);
+            void queryClient.invalidateQueries({ queryKey: ['report-permits'] });
+            setPermitPrint(permit);
+          }}
+          onClose={() => {
+            setPermitCreate(null);
+          }}
+        />
+      )}
+      {permitPrint !== null && (
+        <PrintPermit
+          permit={permitPrint}
+          onClose={() => {
+            setPermitPrint(null);
           }}
         />
       )}

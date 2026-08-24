@@ -112,13 +112,53 @@ describe('schema v9 — the cutover to the official yard', () => {
       'carriers',
       'containers',
       'movements',
+      'permit_items',
+      'permits',
       'settings',
       'trucks',
       'users',
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(18);
+    ).toBe(20);
+    db.close();
+  });
+
+  it('v20: a permit_items table born under v19 gains its snapshot columns, backfilled', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'yard.db');
+    // A yard that issued a permit under v19: the line held only the container
+    // id and the truck, and the paper's facts lived in the containers table.
+    const first = openDatabase(file);
+    first.exec(`
+      INSERT INTO containers (number, number_valid, size, bill, entered_at, zone, bay, stack, tier,
+                              truck_in, driver_in, seal_in, card_in, card_in_year)
+      VALUES ('MIGR0015', 1, 20, '3210', '2026-08-20T09:00:00.000Z', 'B', 1, 1, 'A',
+              '60-84785', 'سائق', 'JO1', 7, 2026);
+      INSERT INTO permits (serial, serial_year, bill, at) VALUES (1, 2026, '3210', '2026-08-21T09:00:00.000Z');
+      INSERT INTO permit_items (permit_id, container_id, truck) VALUES (1, 1, '411');
+      ALTER TABLE permit_items DROP COLUMN number;
+      ALTER TABLE permit_items DROP COLUMN card_in;
+      ALTER TABLE permit_items DROP COLUMN card_in_year;
+      ALTER TABLE permit_items DROP COLUMN entered_at;
+    `);
+    first.close();
+
+    const db = openDatabase(file);
+    const line = db
+      .prepare('SELECT number, card_in, card_in_year, entered_at, truck FROM permit_items')
+      .get() as {
+      number: string;
+      card_in: number | null;
+      card_in_year: number | null;
+      entered_at: string;
+      truck: string;
+    };
+    expect(line.number).toBe('MIGR0015');
+    expect(line.card_in).toBe(7);
+    expect(line.card_in_year).toBe(2026);
+    expect(line.entered_at).toBe('2026-08-20T09:00:00.000Z');
+    expect(line.truck).toBe('411');
     db.close();
   });
 
@@ -172,6 +212,8 @@ describe('schema v9 — the cutover to the official yard', () => {
       'carriers',
       'containers',
       'movements',
+      'permit_items',
+      'permits',
       'settings',
       'trucks',
       'users',

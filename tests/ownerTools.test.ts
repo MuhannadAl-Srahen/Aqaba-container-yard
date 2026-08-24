@@ -265,6 +265,61 @@ describe('حذف البيانات', () => {
   });
 });
 
+describe('التصاريح عبر المسح والاسترجاع', () => {
+  /** A permit for whatever demo container is standing first. */
+  const issuePermit = async (): Promise<number> => {
+    const state = await call({ method: 'GET', url: '/api/state' });
+    const first = (state.body as { containers: Array<{ id: number; bill: string }> })
+      .containers[0];
+    if (first === undefined) throw new Error('no demo container to permit');
+    const permit = await call({
+      method: 'POST',
+      url: '/api/permits',
+      payload: { bill: first.bill, items: [{ containerId: first.id, truck: '411' }] },
+    });
+    if (permit.status !== 201) throw new Error(`permit refused: ${String(permit.status)}`);
+    return (permit.body as { id: number }).id;
+  };
+
+  const permitCount = async (): Promise<number> => {
+    const from = '2000-01-01T00:00:00.000Z';
+    const to = new Date(Date.now() + 86_400_000).toISOString();
+    const listed = await call({
+      method: 'GET',
+      url: `/api/permits?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    });
+    return (listed.body as { rows: unknown[] }).rows.length;
+  };
+
+  it('the wipe takes the practice permits with the practice containers', async () => {
+    await call({ method: 'POST', url: '/api/owner/seed' });
+    await issuePermit();
+    expect(await permitCount()).toBe(1);
+    const word = 'مسح-التدريب';
+    await call({ method: 'POST', url: '/api/owner/wipe-password', payload: { password: word } });
+    await call({ method: 'POST', url: '/api/owner/wipe', payload: { password: word } });
+    expect(await permitCount()).toBe(0);
+  });
+
+  it('a restore brings the permit book back, serial and items alike', async () => {
+    await call({ method: 'POST', url: '/api/owner/seed' });
+    const id = await issuePermit();
+    const backup = await call({ method: 'POST', url: '/api/backup' });
+    // Void it after the snapshot; the restore must stand it back up.
+    await call({ method: 'DELETE', url: `/api/permits/${String(id)}` });
+    expect(await permitCount()).toBe(0);
+    const restored = await call({ method: 'POST', url: '/api/owner/restore', raw: backup.bytes });
+    expect(restored.status).toBe(200);
+    // The confirmation the owner reads accounts for the permit book too.
+    expect((restored.body as { permits: number }).permits).toBe(1);
+    expect(await permitCount()).toBe(1);
+    const paper = await call({ method: 'GET', url: `/api/permits/${String(id)}` });
+    expect(paper.status).toBe(200);
+    expect((paper.body as { serial: number }).serial).toBe(1);
+    expect((paper.body as { items: Array<{ truck: string }> }).items[0]?.truck).toBe('411');
+  });
+});
+
 describe('استرجاع النسخة الاحتياطية', () => {
   it('puts the whole snapshot back: containers, movements and staff', async () => {
     await call({ method: 'POST', url: '/api/owner/seed' });

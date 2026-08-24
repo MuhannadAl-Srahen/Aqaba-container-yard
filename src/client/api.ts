@@ -11,6 +11,8 @@ import type {
   MeDto,
   MovementDto,
   Permission,
+  PermitDto,
+  PermitReportRow,
   Position,
   StandingReportRow,
   TruckDto,
@@ -231,6 +233,15 @@ export const api = {
       `/api/reports/truck?truck=${encodeURIComponent(truck)}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
     ),
 
+  /** الكشف مفتوحاً على كل السيارات: حركات الفترة كلها، دخولاً وخروجاً. */
+  reportTruckAll: (
+    fromIso: string,
+    toIso: string,
+  ): Promise<{ rows: Array<GateReportRow & { statement: 'IN' | 'OUT' }> }> =>
+    request(
+      `/api/reports/truck?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
   /** كشف سيارات ناقل واحد: كل ما حملته سياراته المسجَّلة، دخولاً وخروجاً. */
   reportCarrier: (
     carrierId: number,
@@ -278,6 +289,33 @@ export const api = {
   /** كشف البوليصة: every container under one bill, standing first. */
   reportBill: (bill: string): Promise<{ rows: ContainerDto[] }> =>
     request(`/api/reports/bill?number=${encodeURIComponent(bill)}`),
+
+  /** الكشف مفتوحاً على كل البوالص: كل سجل حاوية، القائم أولاً. */
+  reportBillAll: (): Promise<{ rows: ContainerDto[] }> => request('/api/reports/bill'),
+
+  /**
+   * تصريح تحميل وخروج داخلي: issue the paper for one bill's containers. The
+   * server mints the yearly serial and hands the whole permit back, so the
+   * paper can go straight to the printer.
+   */
+  createPermit: (input: {
+    bill: string;
+    items: ReadonlyArray<{ containerId: number; truck: string }>;
+  }): Promise<PermitDto> =>
+    request('/api/permits', { method: 'POST', body: JSON.stringify(input) }),
+
+  /** كشف خروج وتحميل داخلي: the permits issued in a period. */
+  reportPermits: (fromIso: string, toIso: string): Promise<{ rows: PermitReportRow[] }> =>
+    request(
+      `/api/permits?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  /** One permit exactly as issued — the register row's reprint. */
+  permit: (id: number): Promise<PermitDto> => request(`/api/permits/${String(id)}`),
+
+  /** Void a wrongly-issued permit; the year's book closes over its serial. */
+  removePermit: (id: number): Promise<{ ok: boolean }> =>
+    request(`/api/permits/${String(id)}`, { method: 'DELETE' }),
 
   /**
    * One tap, two copies: the server writes a dated snapshot beside the live
@@ -331,6 +369,7 @@ export const api = {
     users: number;
     carriers: number;
     trucks: number;
+    permits: number;
     backup: string;
   }> => {
     let response: Response;
@@ -355,6 +394,7 @@ export const api = {
       users: number;
       carriers: number;
       trucks: number;
+      permits: number;
       backup: string;
     };
   },

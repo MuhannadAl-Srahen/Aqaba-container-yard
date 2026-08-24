@@ -241,6 +241,34 @@ body {
     height: 34mm;
   }
 
+  /* The permit overlay steps out of the viewport on paper: anchored to the
+     top of the document instead of pinned to the screen, stripped of its
+     scroller and its clipping, so a table of many lines breaks onto page 2
+     and onward the way a register does. Pinned, it printed exactly one page
+     and swallowed the rest. */
+  .permit-print {
+    position: absolute !important;
+    inset: 0 auto auto 0;
+    display: block;
+    width: 100%;
+    padding: 0;
+    background: none;
+  }
+  .permit-print > div {
+    max-width: none;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  .permit-print .print-area {
+    overflow: visible !important;
+  }
+  .permit-print thead {
+    break-inside: avoid;
+  }
+  .permit-print tbody tr {
+    break-inside: avoid;
+  }
+
   /* Report sheets: compact type that fits the page, headers repeating on
      every page, rows never sawn in half. */
   .report-sheet {

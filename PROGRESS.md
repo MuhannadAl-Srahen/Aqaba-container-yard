@@ -1271,3 +1271,95 @@ distinctive fleet (a truck handed to عادل, one struck out, one registered
 fresh) round-trips exactly, soft-deleted row included, and new ids continue
 past the restored ones; and a pre-v18 file (fleet tables dropped whole)
 comes back seeded. 255 tests.
+
+## المرحلة 21 — تصريح التحميل والخروج الداخلي — 2026-08-24
+
+The owner's order, marked «احرص اولا»: a new paper and its register — «كشف
+جديد اسمه كشف خروج وتحميل داخلي». The paper is مؤسسة الحق's permission
+sheet for one bill: «يسمح بتحميل واخراج الحاويات المبينة ادناه من ساحة رقم
+( ) الى داخل موقع المقص فقط», closed by «توقيع وختم موظف مديرية التخزين».
+
+- **Schema v19**: `permits` (serial, serial_year, bill, at, user) and
+  `permit_items` (container, truck), soft-deleted, with `renumberPermits`
+  holding the book to the ledger rule — live permits of one year read
+  1 … N — on every open, after every void, and after a restore (copyAcross
+  renumbers the permit book alongside the card ledgers; the training wipe
+  clears the practice permits with the practice containers, and the
+  table-enumerating restore carries them back without naming them).
+- **Issuing**: from the bill's own sheet — «إصدار تصريح تحميل وخروج» opens
+  the bill's containers, each with a checkbox and the plate of the truck
+  that will carry it out; the fleet watches the field and names a
+  registered plate's carrier; a blank plate stays blank on paper, to be
+  written by hand at loading. GATE_OUT issues (it is exit paperwork); the
+  server refuses a stray container of another bill and a doubled line —
+  and issuing MOVES NOTHING on the ground.
+- **The paper**: organisation over title with the yard's number read off
+  the layout, the serial/bill/date strip, the permission sentence, the
+  items table (entry-card voucher serial, container number, entry date,
+  truck), the storage directorate's signature block. A4 portrait, no ink
+  band, printed through the same .print-area isolation as the cards.
+- **The register**: كشف خروج وتحميل داخلي in the reports — serial, day,
+  date, time, bill (a doorway), container count, employee — with search,
+  column ordering and «عرض الكل» like every register; each row reprints its
+  paper; voiding is the owner's alone and closes the year's book.
+
+Verified: **263 tests** (7 new: the numbered book, the entry-card facts on
+the paper, the four refusals, the permission split, the reprint, the void
+closing the gap, the wipe and restore carrying the book), typecheck and
+lint clean, and **20 browser checks** on the real build from a first-run
+database — the issue button on the bill sheet, the form excluding the
+stranger's container, the carrier named off a typed plate, every block of
+the paper read on screen, the register row reprinting it, serial 0002 then
+the void leaving 0001 with no hole, and a clerk without GATE_OUT seeing no
+button and being refused by the server anyway. An adversarial multi-agent
+review ran over the whole diff before commit.
+
+## المرحلة 22 — التصريح على مذهب المكتب، والكشوف تفتح كاملة — 2026-08-24
+
+The owner tried the permit on the dev machine the hour it landed and sent
+three corrections, and the adversarial review (18 agents over 5 lenses,
+12 findings confirmed) came back the same hour. One batch answers both.
+
+- **The permit takes departed containers** — the owner's own flow: «ادخلت
+  رقم البوليصة لحاويات التي خرجت». The gate records the exit first and the
+  paper prints after, so the issue form now lists the WHOLE bill, the
+  departed boxes wearing a «خرجت» chip with their exit truck already in
+  the plate field, and the server no longer refuses ALREADY_OUT.
+- **Schema v20 — the lines are a snapshot**: permit_items carries number,
+  entry-card serial/year and entry date AS ISSUED (backfilled by a sniffing
+  upgrade for tables born under v19). A reprint now always matches the
+  stamped original in the drawer, even after the container is corrected,
+  renumbered, or struck out — the review's sharpest finding, proven with a
+  live probe before the fix and pinned by a test after it.
+- **The paper prints whole**: the review's one HIGH — an overlay pinned to
+  the screen prints exactly one page, so a 32-line permit lost everything
+  past line ~20. On paper the overlay now leaves the viewport (.permit-print
+  turns the fixed shell absolute at the document top, scroller and clipping
+  off), and the harness prints a 32-line permit onto 2 pages. The serial
+  prints the card way — number big, year on its own small line — instead of
+  overflowing its box at the card's 20pt.
+- **Review fixes around it**: reprint failure now speaks (a voided permit's
+  stale row answers with the refusal sentence, not silence); the issue
+  sheet is keyed by bill so a second «إصدار تصريح» starts fresh; Escape
+  closes only the TOP overlay (a registration stack in useEscape); and the
+  restore confirmation counts the permit book too. The one finding settled
+  by documentation: reaching the register needs REPORTS, so issuing from
+  the screen takes REPORTS + GATE_OUT — SPEC says so now.
+- **كشف السيارات وكشف البوليصة يفتحان على كل شيء** — «عند دخول كشف السيارات
+  او كشف البوليصة يظهر جميع المعلومات»: no plate and no carrier shows every
+  gate movement of the period both ways; no bill shows every container
+  record with a bill column, each cell a doorway. Typing narrows exactly as
+  before.
+- **البحث الذكي**: a digits-only term reads through separators per column —
+  «6084785» finds 60-84785, «00052026» finds card 0005/2026 — and the map's
+  own search box folds Arabic-Indic digits (٣٢١٠ finds 3210).
+- **«التراجع عن طريق السجل»**: an OUT line in سجل العمليات now carries
+  «إلغاء الخروج» for the owner — the same walk-back the container card
+  offers, reachable from the register being read.
+
+Verified: **270 tests** (departed-container issue, snapshot reprint after a
+renumber, the v19→v20 backfill, the all-plates and all-bills registers, the
+digit-run search, the permit count in the restore reply), typecheck and
+lint clean, and **17 browser checks** on the real build — among them the
+issue sheet's three «خرجت» chips with 505 prefilled, the two-page PDF, and
+the log-line exit cancel answering «تم إلغاء خروج الحاوية…».

@@ -34,6 +34,41 @@ export const AR = {
   themeDark: 'غامق',
   themeSystem: 'حسب الجهاز',
 
+  // ---- تصريح تحميل وخروج داخلي ----
+  /** The company line the permit paper opens with — the owner's own words. */
+  permitOrg: 'مؤسسة الحق',
+  permitTitle: (yard: number): string =>
+    `تصريح تحميل وخروج داخلي من الساحة (${String(yard)})`,
+  permitSentence: (yard: number): string =>
+    `يسمح بتحميل وإخراج الحاويات المبينة أدناه من ساحة رقم (${String(yard)}) ` +
+    'إلى داخل موقع المقص فقط.',
+  permitSerial: 'الرقم التسلسلي',
+  permitDate: 'التاريخ',
+  permitBill: 'رقم البوليصة',
+  colEntryCard: 'رقم سند بطاقة الإدخال',
+  colPermitTruck: 'رقم السيارة',
+  permitSignature: 'توقيع وختم موظف مديرية التخزين',
+  reportPermits: 'كشف خروج وتحميل داخلي',
+  colPermitCount: 'عدد الحاويات',
+  permitAction: 'التصريح',
+  permitCreate: 'إصدار تصريح تحميل وخروج',
+  permitCreateHint:
+    'اختر الحاويات التي سيشملها التصريح، واكتب رقم السيارة التي ستُخرج كل واحدة — ' +
+    'أو اترك الرقم فارغاً ليُكتب على الورقة يدوياً. الحاوية التي خرجت من البوابة ' +
+    'تظهر هنا أيضاً ومعها سيارة خروجها.',
+  permitNoContainers: 'لا توجد حاويات على هذه البوليصة.',
+  /** Chip on a permit line whose container already left through the gate. */
+  permitExited: 'خرجت',
+  permitIssue: 'إصدار التصريح',
+  permitDone: (serial: string): string => `تم إصدار التصريح رقم ${serial}.`,
+  printPermit: 'طباعة التصريح',
+  permitDelete: 'حذف التصريح',
+  confirmPermitDeleteTitle: 'حذف تصريح',
+  confirmPermitDeleteBody: (serial: string): string =>
+    `هل تريد حذف التصريح رقم ${serial}؟ يُغلق دفتر السنة على أرقامه فلا تبقى فجوة.`,
+  permitDeleted: 'تم حذف التصريح.',
+  permitsCount: (count: number): string => `عدد التصاريح: ${String(count)}`,
+
   // ---- carriers & trucks ----
   carriersTitle: 'الناقلون والسيارات',
   carriersButton: 'الناقلون',
@@ -466,7 +501,8 @@ export const AR = {
   reportLog: 'سجل العمليات',
   logButton: 'السجل',
   reportTruck: 'كشف سيارة',
-  truckPrompt: 'أدخل رقم السيارة أو اختر ناقلاً لعرض جميع الحاويات المنقولة.',
+  /** The truck register opened plain: every gate movement of the period. */
+  truckAllTitle: 'كشف السيارات — جميع الحركات',
   /** The truck tab's carrier filter: null option = by single plate. */
   carrierFilterAll: 'كل الناقلين — بحسب رقم السيارة',
   reportCarrier: (name: string): string => `كشف سيارات الناقل ${name}`,
@@ -476,7 +512,9 @@ export const AR = {
   showAll: 'عرض الكل',
   rangeAll: 'كامل السجل حتى تاريخه',
   reportBill: 'كشف بوليصة',
-  billPrompt: 'أدخل رقم البوليصة لعرض جميع حاوياتها، القائم منها والذي خرج.',
+  /** The bill register opened plain: every container record there is. */
+  billAllTitle: 'كشف البوالص — جميع الحاويات',
+  billAllNow: 'جميع الحاويات على كل البوالص — غير مقيّد بفترة',
   billOf: (bill: string): string => `بوليصة ${bill}`,
   billNow: 'جميع حاويات البوليصة — غير مقيّد بفترة',
   billTotals: (n: number, t20: number, t40: number): string =>
@@ -555,10 +593,12 @@ export const AR = {
     users: number;
     carriers: number;
     trucks: number;
+    permits: number;
   }): string =>
     `تم الاسترجاع كاملاً: ${String(counts.containers)} حاوية، ` +
     `${String(counts.movements)} حركة في السجل، ${String(counts.users)} موظف، ` +
-    `${String(counts.carriers)} ناقل و${String(counts.trucks)} سيارة.`,
+    `${String(counts.carriers)} ناقل و${String(counts.trucks)} سيارة ` +
+    `و${String(counts.permits)} تصريح تحميل وخروج.`,
   toolsWipeTitle: 'حذف كل البيانات',
   toolsWipeBody:
     'حذف جميع الحاويات والحركات وإعادة أرقام البطاقات إلى 1. يبقى الموظفون ' +

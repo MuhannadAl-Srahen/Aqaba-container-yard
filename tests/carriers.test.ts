@@ -323,4 +323,23 @@ describe('كشف سيارات الناقل', () => {
     expect(status).toBe(200);
     expect(body.rows).toHaveLength(1);
   });
+
+  it('opened plain it holds every movement of the period, both directions', async () => {
+    // «عند دخول كشف السيارات يظهر جميع المعلومات»: no plate typed, no
+    // carrier picked — the register opens on everything and the search
+    // narrows it from there.
+    const first = await gateIn('CARR0062', slot(9, 1), '60-84785');
+    await gateIn('CARR0073', slot(9, 2), '99-11111');
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(first.body.id)}/exit`,
+      payload: { truck: '500', driver: '' },
+    });
+    const { status, body } = await call({ method: 'GET', url: `/api/reports/truck?${range()}` });
+    expect(status).toBe(200);
+    const rows = body.rows as Array<GateReportRow & { statement: 'IN' | 'OUT' }>;
+    expect(rows).toHaveLength(3);
+    expect(rows.filter((row) => row.statement === 'OUT')).toHaveLength(1);
+    expect(rows.filter((row) => row.statement === 'OUT')[0]?.truck).toBe('500');
+  });
 });

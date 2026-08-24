@@ -1,17 +1,34 @@
-import { useEffect, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactElement, type ReactNode } from 'react';
 import { AR } from './ar';
 
-/** Escape closes whatever is open — the keyboard's back button. */
+/**
+ * Overlays stack — a permit paper can open over the issue form behind it —
+ * and one press of Escape must close only the top one. Each open overlay
+ * registers here in mount order; the keydown acts on the last entry alone.
+ */
+const escapeStack: Array<() => void> = [];
+
+/** Escape closes whatever is on top — the keyboard's back button. */
 export function useEscape(onClose: () => void): void {
+  const closeRef = useRef(onClose);
   useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const entry = (): void => {
+      closeRef.current();
+    };
+    escapeStack.push(entry);
     const handler = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && escapeStack[escapeStack.length - 1] === entry) entry();
     };
     window.addEventListener('keydown', handler);
     return () => {
+      const at = escapeStack.indexOf(entry);
+      if (at !== -1) escapeStack.splice(at, 1);
       window.removeEventListener('keydown', handler);
     };
-  }, [onClose]);
+  }, []);
 }
 
 /**

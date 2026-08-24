@@ -39,9 +39,18 @@ export function searchTerms(query: string): readonly string[] {
 /**
  * Does this row answer the query? The cells are joined with a space, so a
  * term is never matched across the seam between two columns.
+ *
+ * A term that is all digits also reads each cell with its separators taken
+ * out, because the yard writes one number many ways: the plate 60-84785 is
+ * found by «6084785» just as it is by «84785», and a serial by «00012026».
  */
 export function rowMatches(cells: readonly string[], terms: readonly string[]): boolean {
   if (terms.length === 0) return true;
   const hay = fold(cells.join(' '));
-  return terms.every((term) => hay.includes(term));
+  const digitRuns = cells.map((cell) => fold(cell).replace(/[^0-9]/g, ''));
+  return terms.every(
+    (term) =>
+      hay.includes(term) ||
+      (/^[0-9]+$/.test(term) && digitRuns.some((run) => run.includes(term))),
+  );
 }

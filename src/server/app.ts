@@ -17,6 +17,8 @@ import type {
   LogReportRow,
   MeDto,
   Permission,
+  PermitDto,
+  PermitReportRow,
   Position,
   StandingReportRow,
   UnassignedPlateRow,
@@ -162,6 +164,20 @@ const userPatchSchema = z.object({
 
 const carrierSchema = z.object({
   name: z.string().trim().min(1).max(60),
+});
+
+/** تصريح تحميل وخروج داخلي: one bill, its containers, a truck for each. */
+const permitSchema = z.object({
+  bill: z.string().trim().min(1).max(40),
+  items: z
+    .array(
+      z.object({
+        containerId: z.number().int().positive(),
+        truck: z.string().trim().max(30),
+      }),
+    )
+    .min(1)
+    .max(200),
 });
 
 /** A registered truck: its carrier, the plate's ترميز, its number, its usual driver. */
@@ -549,6 +565,90 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return transaction(db, () => {
       if (store.getTruck(db, id) === null) refuse(404, 'NOT_FOUND');
       store.softDeleteTruck(db, id, now());
+      return { ok: true };
+    });
+  });
+
+  /**
+   * تصريح تحميل وخروج داخلي — the permission paper مؤسسة الحق issues for one
+   * bill: load the containers listed and take them to موقع المقص only. The
+   * paper authorizes; it moves nothing — the actual departures still happen
+   * at the gate one by one. Issued under GATE_OUT: it is exit paperwork.
+   */
+  app.post('/api/permits', (request, reply) => {
+    const actor = requirePerm(request, 'GATE_OUT');
+    const body = parseOrRefuse(permitSchema, request.body);
+    return transaction(db, () => {
+      // One line per container: the same box twice would double-count the
+      // paper the storage directorate stamps.
+      const distinct = new Set(body.items.map((item) => item.containerId));
+      if (distinct.size !== body.items.length) refuse(400, 'VALIDATION');
+      // Standing or departed alike: the office records the gate exit first
+      // and prints this paper after — «ادخلت رقم البوليصة لحاويات التي
+      // خرجت», the owner's own flow — so departure is no ground to refuse.
+      const lines = body.items.map((item) => {
+        const container = store.getContainer(db, item.containerId);
+        if (container === null) refuse(404, 'NOT_FOUND');
+        if (container === null) throw new Error('unreachable');
+        // The paper is for THIS bill; a stray container of another would
+        // make the stamped sheet claim what the registry denies.
+        if (container.bill !== body.bill) refuse(400, 'VALIDATION');
+        // The line pins the container's facts as the paper is issued, so a
+        // reprint always matches the stamped original in the drawer.
+        return {
+          containerId: container.id,
+          truck: item.truck,
+          number: container.number,
+          cardIn: container.cardIn,
+          cardInYear: container.cardInYear,
+          enteredAt: container.enteredAt,
+        };
+      });
+      const at = now();
+      const year = ammanYear(at);
+      const id = store.insertPermit(db, {
+        serial: store.nextPermitNumber(db, year),
+        serialYear: year,
+        bill: body.bill,
+        at,
+        userId: actorId(actor),
+        items: lines,
+      });
+      void reply.status(201);
+      return store.getPermit(db, id);
+    });
+  });
+
+  /** كشف خروج وتحميل داخلي: the permits issued in a period. */
+  app.get('/api/permits', (request): { rows: PermitReportRow[] } => {
+    requirePerm(request, 'REPORTS');
+    const query = request.query as { from?: string; to?: string };
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+    return { rows: store.listPermits(db, range.from, range.to) };
+  });
+
+  /** One permit, exactly as issued — for reprinting from its register row. */
+  app.get('/api/permits/:id', (request): PermitDto => {
+    requirePerm(request, 'REPORTS');
+    const id = idParam(request);
+    const permit = store.getPermit(db, id);
+    if (permit === null) refuse(404, 'NOT_FOUND');
+    if (permit === null) throw new Error('unreachable');
+    return permit;
+  });
+
+  /**
+   * Void a wrongly-issued permit. The owner's alone, like every walk-back of
+   * a numbered paper — and the year's book closes over the freed serial, so
+   * the live permits still read 1 … N with no hole.
+   */
+  app.delete('/api/permits/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    return transaction(db, () => {
+      if (store.getPermit(db, id) === null) refuse(404, 'NOT_FOUND');
+      store.softDeletePermit(db, id, now());
+      store.renumberPermits(db);
       return { ok: true };
     });
   });
@@ -1059,8 +1159,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           .filter((row) => fleet.some((truck) => plateMatches(truck, row.truck)));
       } else {
         const truck = (query.truck ?? '').trim();
-        if (truck === '' || truck.length > 30) refuse(400, 'VALIDATION');
-        source = store.listTruckMovements(db, truck, range.from, range.to);
+        if (truck.length > 30) refuse(400, 'VALIDATION');
+        // No plate and no carrier picked: the register opens on EVERYTHING —
+        // every gate movement of the period, both directions — and the reader
+        // narrows it with the search box or the filters above.
+        source =
+          truck === ''
+            ? store.listGateMovementsBoth(db, range.from, range.to)
+            : store.listTruckMovements(db, truck, range.from, range.to);
       }
 
       const rows = source.map((row) => ({
@@ -1094,8 +1200,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     requirePerm(request, 'REPORTS');
     const query = request.query as { number?: string };
     const bill = (query.number ?? '').trim();
-    if (bill === '' || bill.length > 40) refuse(400, 'VALIDATION');
-    return { rows: store.listByBill(db, bill) };
+    if (bill.length > 40) refuse(400, 'VALIDATION');
+    // No bill typed: the register opens on every container record there is,
+    // and the reader narrows it by typing a bill or searching the sheet.
+    return { rows: bill === '' ? store.listBillRegister(db) : store.listByBill(db, bill) };
   });
 
   /**

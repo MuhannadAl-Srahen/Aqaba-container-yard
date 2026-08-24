@@ -298,6 +298,7 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
                 users: number;
                 carriers: number;
                 trucks: number;
+                permits: number;
               };
               setFile(null);
               return AR.toolsRestoreDone(counts);

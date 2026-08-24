@@ -23,7 +23,8 @@ import {
  * سجل العمليات — its own place, not a report tab: the complete audit of
  * everything that ever happened, deletions and deleted records included —
  * and the place where a mistake walks back: restore a deleted record,
- * revert an edit to the values it overwrote.
+ * revert an edit to the values it overwrote, cancel an exit that was
+ * recorded by mistake — «التراجع عن طريق السجل».
  */
 
 interface EditNote {
@@ -204,6 +205,27 @@ export function LogScreen(props: {
       .catch(fail);
   };
 
+  /**
+   * An exit recorded by mistake, walked back from its own log line: the
+   * same undoing the container card offers, reachable from the register the
+   * owner is already reading. The server is the one authority on whether
+   * the slot is still free — a refusal comes back as its Arabic sentence.
+   */
+  const unexit = (row: LogReportRow, index: number): void => {
+    setBusyRow(index);
+    api
+      .unexit(row.containerId)
+      .then((container) => {
+        finish(
+          AR.unexitDone(
+            container.number,
+            container.position === null ? dash : positionLabel(container.position),
+          ),
+        );
+      })
+      .catch(fail);
+  };
+
   const actionButton = 'rounded-lg px-2.5 py-1 text-xs font-bold transition-colors';
 
   return (
@@ -255,6 +277,20 @@ export function LogScreen(props: {
                   className={`${actionButton} bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40`}
                 >
                   {AR.revertAction}
+                </button>
+              );
+            }
+            if (row.type === 'OUT' && !row.deleted) {
+              return (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    unexit(row, rowIndex);
+                  }}
+                  className={`${actionButton} bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40`}
+                >
+                  {AR.actionUnexit}
                 </button>
               );
             }

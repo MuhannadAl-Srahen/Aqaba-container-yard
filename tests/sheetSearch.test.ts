@@ -71,4 +71,15 @@ describe('searching a register', () => {
     // read as one number that no column actually holds.
     expect(rowMatches(row, searchTerms('9110005'))).toBe(false);
   });
+
+  it('a digits-only search reads through the separators a number is written with', () => {
+    // The plate 60-84785 is found by «6084785» just as by «84785» …
+    expect(rowMatches(['60-84785'], searchTerms('6084785'))).toBe(true);
+    // … a card serial 0005/2026 by «00052026» …
+    expect(rowMatches(row, searchTerms('00052026'))).toBe(true);
+    // … and an Arabic-Indic spelling folds first, then reads the same way.
+    expect(rowMatches(['60-84785'], searchTerms('٦٠٨٤٧٨٥'))).toBe(true);
+    // Words keep their exact shape — only digit runs read through separators.
+    expect(rowMatches(['ABC-123'], searchTerms('abc123'))).toBe(false);
+  });
 });
