@@ -13,7 +13,7 @@ import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly 
 import type { CardJob } from './PrintCard';
 import { shrinkPhoto } from './photos';
 import { PrintPhotos } from './PrintPhotos';
-import { Button, Confirm, ErrorLine, Field, Sheet, inputClass, useEscape } from './ui';
+import { Button, Confirm, DriverHint, ErrorLine, Field, Sheet, inputClass, useEscape } from './ui';
 
 /**
  * Everything about one container, and everything that can be done to it —
@@ -495,7 +495,7 @@ export function ContainerCard(props: {
                   autoFocus
                 />
               </Field>
-              <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
+              <Field label={AR.driver} hint={<DriverHint value={driverOut} />}>
                 <input
                   className={inputClass}
                   value={driverOut}
@@ -734,7 +734,7 @@ function EditForm(props: {
             }}
           />
         </Field>
-        <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
+        <Field label={AR.driver} hint={<DriverHint value={driverIn} />}>
           <input
             className={inputClass}
             value={driverIn}
@@ -780,7 +780,7 @@ function EditForm(props: {
                 }}
               />
             </Field>
-            <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
+            <Field label={AR.driver} hint={<DriverHint value={driverOut} />}>
               <input
                 className={inputClass}
                 value={driverOut}

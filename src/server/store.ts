@@ -1557,9 +1557,17 @@ export function softDeletePhoto(db: DatabaseSync, id: number, at: string): boole
 // ----------------------------------------------------------------- wages ----
 
 /**
- * Every haul of the period that has a driver to pay: the container's IN and
- * its OUT are two separate hauls, because «قد يكون حملت هذه السيارة اكثر من
- * مره» — the figure and the receipt belong to the haul, never to the truck.
+ * Every haul of the period: the container's IN and its OUT are two separate
+ * hauls, because «قد يكون حملت هذه السيارة اكثر من مره» — the figure and the
+ * receipt belong to the haul, never to the truck.
+ *
+ * A blank driver name does NOT drop the haul. The name is optional at the
+ * gate, and filtering on it once hid eight real hauls from the wage book
+ * with nothing to say they existed — «بعطي 77 وهاد الشي غير صحيح». A haul
+ * with no name is carried by its PLATE instead («ضعها تحت نفس رقم
+ * السيارة»), which is why the sheet's total now equals كشف السيارات for the
+ * same period. The nameless sort FIRST — '' precedes every name — so the
+ * hauls still waiting for a name open the sheet instead of hiding at its end.
  */
 export function listHauls(db: DatabaseSync, fromIso: string, toIso: string): DriverHaulRow[] {
   const names = listUserNames(db);
@@ -1573,7 +1581,7 @@ export function listHauls(db: DatabaseSync, fromIso: string, toIso: string): Dri
        FROM containers c
        LEFT JOIN wages w
          ON w.container_id = c.id AND w.direction = 'IN' AND w.deleted_at IS NULL
-       WHERE c.deleted_at IS NULL AND c.driver_in <> ''
+       WHERE c.deleted_at IS NULL
          AND c.entered_at >= ? AND c.entered_at < ?
        UNION ALL
        SELECT c.id, 'OUT', c.number, c.size, c.bill, c.truck_out,
@@ -1582,7 +1590,7 @@ export function listHauls(db: DatabaseSync, fromIso: string, toIso: string): Dri
        FROM containers c
        LEFT JOIN wages w
          ON w.container_id = c.id AND w.direction = 'OUT' AND w.deleted_at IS NULL
-       WHERE c.deleted_at IS NULL AND c.driver_out <> '' AND c.exited_at IS NOT NULL
+       WHERE c.deleted_at IS NULL AND c.exited_at IS NOT NULL
          AND c.exited_at >= ? AND c.exited_at < ?
        ORDER BY driver, at, containerId`,
     )
@@ -1637,6 +1645,27 @@ export function setWage(
        VALUES (?, ?, ?, ?, ?)`,
     ).run(wage.containerId, wage.direction, wage.amount, wage.at, wage.userId);
   }
+}
+
+/**
+ * The figure ERASED, not zeroed: clearing the box on the screen used to leave
+ * the old amount standing in the book — «ومسحه … تبقى القيمة موجودة». Soft
+ * delete, like every other record here, so the struck figure stays auditable.
+ */
+export function clearWage(
+  db: DatabaseSync,
+  containerId: number,
+  direction: HaulDirection,
+  at: string,
+): boolean {
+  return (
+    db
+      .prepare(
+        `UPDATE wages SET deleted_at = ?
+          WHERE container_id = ? AND direction = ? AND deleted_at IS NULL`,
+      )
+      .run(at, containerId, direction).changes > 0
+  );
 }
 
 /** Stamp — or lift — the receipt: the driver took this haul's wage. */

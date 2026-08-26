@@ -6,11 +6,13 @@ import { buildApp } from '../src/server/app';
 import type { DriverHaulRow, Position } from '../src/shared/types';
 
 /**
- * محاسبة السائقين: every gate movement with a named driver is one payable
- * haul — the container's IN and its OUT are two hauls even for the same
- * truck. The figure is written by hand per haul, the receipt is stamped per
- * haul, a settled figure locks, and the whole ledger sits behind its own
- * permission.
+ * محاسبة السائقين: every gate movement is one payable haul — the container's
+ * IN and its OUT are two hauls even for the same truck. The driver's name is
+ * optional at the gate, so a haul without one is carried by its PLATE rather
+ * than dropped; dropping it once hid eight real hauls and made the sheet
+ * disagree with كشف السيارات. The figure is written by hand per haul, the
+ * receipt is stamped per haul, a settled figure locks, and the whole ledger
+ * sits behind its own permission.
  */
 
 let db: DatabaseSync;
@@ -50,6 +52,7 @@ const gateIn = async (
   number: string,
   position: Position,
   driver: string,
+  truck = '60-11111',
 ): Promise<number> => {
   const reply = await call({
     method: 'POST',
@@ -60,7 +63,7 @@ const gateIn = async (
       bill: '7100',
       notes: '',
       position,
-      truck: '60-11111',
+      truck,
       seal: 'JO500',
       driver,
       weight: '',
@@ -145,15 +148,127 @@ describe('كشف حساب السائقين', () => {
     expect((await listHauls())[0]?.amount).toBe(20);
   });
 
-  it('a haul with no named driver takes no wage, and the OUT needs its own', async () => {
+  it('a haul with no driver name is carried by its plate, never dropped', async () => {
     const id = await gateIn('WAGE0032', { zone: 'B', bay: 3, stack: 1, tier: 'A' }, '');
-    expect(await listHauls()).toHaveLength(0);
-    const refused = await call({
-      method: 'PUT',
-      url: '/api/wages',
-      payload: { containerId: id, direction: 'IN', amount: 10 },
+    const rows = await listHauls();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.driver).toBe('');
+    expect(rows[0]?.truck).toBe('60-11111');
+    // And it takes a figure like any other: somebody drove that truck.
+    expect(
+      (
+        await call({
+          method: 'PUT',
+          url: '/api/wages',
+          payload: { containerId: id, direction: 'IN', amount: 10 },
+        })
+      ).status,
+    ).toBe(200);
+    expect((await listHauls())[0]?.amount).toBe(10);
+  });
+
+  /**
+   * Why the wage book can always name a payee: the gate demands a plate in
+   * both directions, and a record that has left cannot be corrected into
+   * having none. So «بلا اسم» is a real state and «بلا اسم ولا رقم» is not —
+   * which is what lets a nameless haul be carried by its truck.
+   */
+  it('an exited record cannot be stripped of its plate, so a payee always exists', async () => {
+    const id = await gateIn('WAGE0044', { zone: 'B', bay: 3, stack: 1, tier: 'A' }, 'أبو زيد');
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(id)}/exit`,
+      payload: { truck: '60-11111', driver: 'أبو زيد' },
     });
-    expect(refused.status).toBe(400);
+    const record = (
+      (await call({ method: 'GET', url: `/api/containers/${String(id)}` })).body as unknown as {
+        container: Record<string, unknown>;
+      }
+    ).container;
+    const stripped = await call({
+      method: 'PATCH',
+      url: `/api/containers/${String(id)}`,
+      payload: { ...record, truckOut: '', driverOut: '' },
+    });
+    expect(stripped.status).toBe(409);
+    // The name alone may go, and the haul keeps its truck to answer for it.
+    expect(
+      (
+        await call({
+          method: 'PATCH',
+          url: `/api/containers/${String(id)}`,
+          payload: { ...record, driverOut: '' },
+        })
+      ).status,
+    ).toBe(200);
+    const out = (await listHauls()).find((row) => row.direction === 'OUT');
+    expect(out?.driver).toBe('');
+    expect(out?.truck).toBe('60-11111');
+  });
+
+  /**
+   * The owner's own count: «يوم اروح عندك على كشف السيارات ... بعطي انو 79
+   * سيارة، بس ب حساب السائقين بعطي 77». The two registers read the same
+   * period from different tables, so this pins them to the same number.
+   */
+  it('the wage sheet counts exactly what كشف السيارات counts', async () => {
+    const named = await gateIn('WAGE0055', { zone: 'B', bay: 3, stack: 1, tier: 'A' }, 'أبو علي');
+    await gateIn('WAGE0069', { zone: 'B', bay: 5, stack: 1, tier: 'A' }, '');
+    await gateIn('WAGE0073', { zone: 'B', bay: 7, stack: 1, tier: 'A' }, '', '60-99999');
+    // One of them leaves with no name on the way out either.
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(named)}/exit`,
+      payload: { truck: '60-11111', driver: '' },
+    });
+    const register = (
+      await call({
+        method: 'GET',
+        url: `/api/reports/truck?from=${WIDE.from}&to=${WIDE.to}`,
+      })
+    ).body['rows'] as unknown[];
+    expect(register).toHaveLength(4);
+    expect(await listHauls()).toHaveLength(register.length);
+  });
+
+  /**
+   * «وفي حال ادخال المبلغ ومسحه … تبقى القيمة موجودة»: an emptied box must
+   * empty the book, not silently keep the old figure — and a settled figure
+   * resists erasing exactly as it resists editing.
+   */
+  it('erasing the box erases the figure, unless the receipt is stamped', async () => {
+    const id = await gateIn('WAGE0088', { zone: 'B', bay: 3, stack: 1, tier: 'A' }, 'أبو سامر');
+    const wage = { containerId: id, direction: 'IN' };
+    await call({ method: 'PUT', url: '/api/wages', payload: { ...wage, amount: 15 } });
+    expect((await listHauls())[0]?.amount).toBe(15);
+
+    expect(
+      (await call({ method: 'POST', url: '/api/wages/clear', payload: wage })).status,
+    ).toBe(200);
+    expect((await listHauls())[0]?.amount).toBeNull();
+
+    // Nothing left to erase.
+    expect(
+      (await call({ method: 'POST', url: '/api/wages/clear', payload: wage })).status,
+    ).toBe(404);
+
+    // Written again, then settled — and now it is locked.
+    await call({ method: 'PUT', url: '/api/wages', payload: { ...wage, amount: 15 } });
+    await call({ method: 'POST', url: '/api/wages/pay', payload: { ...wage, paid: true } });
+    const locked = await call({ method: 'POST', url: '/api/wages/clear', payload: wage });
+    expect(locked.status).toBe(409);
+    expect(locked.body['code']).toBe('WAGE_PAID');
+    expect((await listHauls())[0]?.amount).toBe(15);
+
+    // The receipt lifted, the figure erases again — and the haul stays.
+    await call({ method: 'POST', url: '/api/wages/pay', payload: { ...wage, paid: false } });
+    expect(
+      (await call({ method: 'POST', url: '/api/wages/clear', payload: wage })).status,
+    ).toBe(200);
+    const after = await listHauls();
+    expect(after).toHaveLength(1);
+    expect(after[0]?.amount).toBeNull();
+    expect(after[0]?.paidAt).toBeNull();
   });
 
   it('the ledger sits behind its own permission, granted like any other', async () => {

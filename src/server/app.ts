@@ -1468,14 +1468,35 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const container = store.getContainer(db, body.containerId);
       if (container === null) refuse(404, 'NOT_FOUND');
       if (container === null) throw new Error('unreachable');
-      // A wage belongs to a haul that happened: that direction must carry a
-      // named driver, or there is nobody to pay.
+      // A wage belongs to a haul that happened, and a haul is identified by
+      // its driver OR by its plate: the gate may leave the name blank, and
+      // that haul is still owed to whoever drove that truck. Only a haul
+      // with neither name nor plate has nobody to pay.
       const driver = body.direction === 'IN' ? container.driverIn : container.driverOut;
-      if (driver === '') refuse(400, 'VALIDATION');
+      const truck = body.direction === 'IN' ? container.truckIn : container.truckOut;
+      if (driver === '' && truck === '') refuse(400, 'VALIDATION');
       const wage = store.getWage(db, body.containerId, body.direction);
       // A settled haul's figure is locked; lift the receipt first.
       if (wage !== null && wage.paidAt !== null) refuse(409, 'WAGE_PAID');
       store.setWage(db, { ...body, at: now(), userId: actorId(actor) });
+      return { ok: true };
+    });
+  });
+
+  /**
+   * Erasing the box erases the figure. Without this the screen cleared and
+   * the book did not, so the amount came back on the next read — «تبقى
+   * القيمة موجودة». A settled figure is locked, exactly as it is for editing.
+   */
+  app.post('/api/wages/clear', (request) => {
+    requirePerm(request, 'ACCOUNTING');
+    const body = parseOrRefuse(wageKeySchema, request.body);
+    return transaction(db, () => {
+      const wage = store.getWage(db, body.containerId, body.direction);
+      if (wage === null) refuse(404, 'NOT_FOUND');
+      if (wage === null) throw new Error('unreachable');
+      if (wage.paidAt !== null) refuse(409, 'WAGE_PAID');
+      store.clearWage(db, body.containerId, body.direction, now());
       return { ok: true };
     });
   });

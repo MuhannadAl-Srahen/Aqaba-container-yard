@@ -1799,3 +1799,48 @@ What leaked was a form, never a write.
 Offered and not yet built: a notice inside the app that tells an
 employee a new version has shipped and asks him to reload, so a deploy
 does not depend on telling people by phone.
+
+## المرحلة 28 — النقلة التي لا اسم لها — 2026-08-26
+
+The owner counted: كشف السيارات gave 79 for 01–15/08, حساب السائقين gave
+77. He was right, and the two missing hauls were found by running both
+queries against the real book rather than reasoning about them.
+
+The wage sheet read `containers` and filtered on `driver_in <> ''`. The
+driver's name is OPTIONAL at the gate. So a haul recorded without one
+vanished from the wage book with nothing anywhere to say it had. Two in
+his fortnight — TIIU6303396 on truck 60-75540 and MRKU6632180 on
+60-61475, both entered late on 11/08 — and eight across the whole book,
+five entries and three exits. Every one of them a truck that came and
+did work and appeared in nobody's account.
+
+His call on the remedy, and it is the better one: the haul is carried by
+its PLATE. «ضعها تحت نفس رقم السيارة … لازم تبين حطها ب الكشف». So the
+filter is gone, the sheet groups by name when there is one and by plate
+when there is not, the plate groups lead the sheet in amber because they
+are what is waiting for a name, and the paper prints «كشف حساب سيارة
+60-75540». Verified on his own data: 79 and 79.
+
+The name stays optional — he chose that too — but the field now says in
+amber what a blank costs, at the gate in, at the gate out, and in the
+correction form.
+
+Two things fell out of the same screen while it was open. Erasing the
+amount box did nothing at all: the screen cleared, the book kept the old
+figure and handed it back on the next read. `POST /api/wages/clear` now
+strikes the figure out — soft, like everything here — and refuses on a
+settled haul exactly as editing does. And typing a figure re-read the
+whole month to learn one number, which is what made it feel slow; the
+saved figure is written into the rows already on screen instead.
+
+One guard is worth naming because it is what makes plate-carrying safe:
+the gate demands a plate in both directions, and a departed record
+cannot be corrected into having none. «بلا اسم» is a reachable state;
+«بلا اسم ولا رقم» is not. There is a test that says so.
+
+Also answered, from the same session and not a bug: a wrongly-exited
+record CAN be struck out — the card's حذف works on a departed record as
+on a standing one. Its «إلغاء الخروج» would have refused, the slot
+B-32-01-B having been taken by GLDU9368397 in the meantime.
+
+299 tests, gates green.

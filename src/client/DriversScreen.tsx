@@ -20,6 +20,20 @@ import { Button, Confirm, Field, Toast, inputClass, useEscape } from './ui';
 
 const key = (row: DriverHaulRow): string => `${String(row.containerId)}|${row.direction}`;
 
+/**
+ * Whose account a haul belongs in. The driver's name when the gate wrote
+ * one; otherwise the PLATE — «ضعها تحت نفس رقم السيارة» — because the name
+ * is optional at the gate and a nameless haul is still work somebody did.
+ * Filtering it out once hid eight real hauls and made the sheet's total
+ * disagree with كشف السيارات.
+ */
+const groupOf = (row: DriverHaulRow): string =>
+  row.driver !== '' ? `D:${row.driver}` : row.truck !== '' ? `T:${row.truck}` : 'X:';
+
+/** The payee inside a sentence, where a group heading would not read. */
+const payee = (row: DriverHaulRow): string =>
+  row.driver !== '' ? row.driver : AR.driverOfTruck(row.truck);
+
 // Digits fold to one alphabet so «٦٠» finds the plate typed 60.
 const fold = (text: string): string =>
   text
@@ -58,7 +72,14 @@ function Seg<T extends string>(props: {
 }
 
 interface DriverGroup {
+  /** `D:name` or `T:plate` — a name and a plate never collide. */
+  readonly key: string;
   readonly driver: string;
+  readonly truck: string;
+  /** True when the gate wrote a name; false when the plate carries the group. */
+  readonly named: boolean;
+  /** The heading as it is read. */
+  readonly label: string;
   readonly rows: DriverHaulRow[];
   readonly total: number;
   readonly paid: number;
@@ -126,16 +147,26 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
   const groups = useMemo((): DriverGroup[] => {
     const map = new Map<string, DriverHaulRow[]>();
     for (const row of shownRows) {
-      const list = map.get(row.driver);
-      if (list === undefined) map.set(row.driver, [row]);
+      const id = groupOf(row);
+      const list = map.get(id);
+      if (list === undefined) map.set(id, [row]);
       else list.push(row);
     }
-    return [...map.entries()].map(([driver, list]) => ({
-      driver,
-      rows: list,
-      total: list.reduce((sum, row) => sum + (row.amount ?? 0), 0),
-      paid: list.reduce((sum, row) => sum + (row.paidAt !== null ? (row.amount ?? 0) : 0), 0),
-    }));
+    return [...map.entries()].map(([id, list]) => {
+      const driver = list[0]?.driver ?? '';
+      const truck = list[0]?.truck ?? '';
+      const named = driver !== '';
+      return {
+        key: id,
+        driver,
+        truck,
+        named,
+        label: named ? driver : truck !== '' ? AR.driverByTruck(truck) : AR.driverUnknown,
+        rows: list,
+        total: list.reduce((sum, row) => sum + (row.amount ?? 0), 0),
+        paid: list.reduce((sum, row) => sum + (row.paidAt !== null ? (row.amount ?? 0) : 0), 0),
+      };
+    });
   }, [shownRows]);
 
   const refetch = (): void => {
@@ -148,22 +179,70 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
   };
 
   /**
+   * The saved figure written straight into the rows already on screen, rather
+   * than re-reading the whole period: a refetch of every haul in the month to
+   * learn one number is what made typing feel slow — «واظن انها توخذ بعض
+   * الوقت». The server has spoken by the time this runs; the totals above
+   * recompute from the same rows.
+   */
+  const patchRow = (row: DriverHaulRow, change: Partial<DriverHaulRow>): void => {
+    queryClient.setQueryData<{ rows: DriverHaulRow[] }>(['drivers', fromIso, toIso], (prev) =>
+      prev === undefined
+        ? prev
+        : {
+            rows: prev.rows.map((candidate) =>
+              key(candidate) === key(row) ? { ...candidate, ...change } : candidate,
+            ),
+          },
+    );
+  };
+
+  const forgetDraft = (row: DriverHaulRow): void => {
+    setDrafts((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key(row))));
+  };
+
+  /**
    * Save one haul's figure the moment the clerk leaves the field — WITHOUT
    * freezing the screen: «تأكد من عدم وجود تأخير عند ادخال رقم». Nothing is
    * disabled while the save flies; the toast lands when it lands.
+   *
+   * And an EMPTIED box erases the figure. It used to do nothing at all, so
+   * the screen went blank while the book kept the old amount and handed it
+   * back on the next read — «ومسحه … تبقى القيمة موجودة».
    */
   const saveWage = (row: DriverHaulRow): void => {
     const draft = drafts[key(row)];
     if (draft === undefined) return;
+
+    if (draft.trim() === '') {
+      if (row.amount === null) {
+        forgetDraft(row);
+        return;
+      }
+      setError(null);
+      api
+        .clearWage({ containerId: row.containerId, direction: row.direction })
+        .then(() => {
+          forgetDraft(row);
+          patchRow(row, { amount: null });
+          setToast(AR.wageCleared);
+        })
+        .catch(fail);
+      return;
+    }
+
     const amount = Number(draft);
-    if (draft.trim() === '' || !Number.isFinite(amount) || amount < 0) return;
-    if (row.amount !== null && amount === row.amount) return;
+    if (!Number.isFinite(amount) || amount < 0) return;
+    if (row.amount !== null && amount === row.amount) {
+      forgetDraft(row);
+      return;
+    }
     setError(null);
     api
       .setWage({ containerId: row.containerId, direction: row.direction, amount })
       .then(() => {
-        setDrafts((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key(row))));
-        refetch();
+        forgetDraft(row);
+        patchRow(row, { amount });
         setToast(AR.wageSaved);
       })
       .catch(fail);
@@ -188,7 +267,7 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
       });
   };
 
-  const printGroup = groups.find((group) => group.driver === printing) ?? null;
+  const printGroup = groups.find((group) => group.key === printing) ?? null;
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 p-4">
@@ -277,9 +356,17 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
       )}
 
       {groups.map((group) => (
-        <section key={group.driver} className="rounded-2xl border border-line bg-surface p-4">
+        <section key={group.key} className="rounded-2xl border border-line bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3 className="text-base font-bold text-ink">{group.driver}</h3>
+            <h3
+              className={
+                'text-base font-bold ' +
+                (group.named ? 'text-ink' : 'text-amber-700 dark:text-amber-400')
+              }
+              dir={group.named ? undefined : 'rtl'}
+            >
+              {group.label}
+            </h3>
             <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-muted">
               <span>{AR.haulsCount(group.rows.length)}</span>
               <span>
@@ -294,7 +381,7 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
               <Button
                 kind="quiet"
                 onClick={() => {
-                  setPrinting(group.driver);
+                  setPrinting(group.key);
                 }}
               >
                 {AR.print}
@@ -392,8 +479,8 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
           title={paying.paidAt === null ? AR.confirmPayTitle : AR.confirmPayUndoTitle}
           body={
             paying.paidAt === null
-              ? AR.confirmPayBody(paying.driver, paying.number)
-              : AR.confirmPayUndoBody(paying.driver, paying.number)
+              ? AR.confirmPayBody(payee(paying), paying.number)
+              : AR.confirmPayUndoBody(payee(paying), paying.number)
           }
           confirmLabel={paying.paidAt === null ? AR.payAction : AR.payUndo}
           busy={busy}
@@ -445,7 +532,11 @@ function PrintDriver(props: {
         <div className="print-area gate-card paper-light overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
           <div className="border-b-2 border-rule-strong px-3 py-3 text-center">
             <p className="text-sm font-semibold text-muted">{AR.appName}</p>
-            <p className="mt-1 text-base font-bold text-ink">{AR.driversPrintTitle(group.driver)}</p>
+            <p className="mt-1 text-base font-bold text-ink">
+              {group.named
+                ? AR.driversPrintTitle(group.driver)
+                : AR.driversPrintTitleTruck(group.truck)}
+            </p>
             <p className="mt-1 text-xs text-muted" dir="ltr">
               {props.from} — {props.to}
             </p>

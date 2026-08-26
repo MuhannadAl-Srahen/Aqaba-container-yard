@@ -9,7 +9,7 @@ import { findTruck } from '../shared/fleet';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { shrinkPhoto } from './photos';
-import { Button, ErrorLine, Field, Sheet, inputClass } from './ui';
+import { Button, DriverHint, ErrorLine, Field, Sheet, inputClass } from './ui';
 
 /**
  * The gate-in card. The clerk picked the exact slot on the bay sheet first,
@@ -281,7 +281,7 @@ export function GateInSheet(props: {
           </div>
         </Field>
 
-        <Field label={AR.driver} hint={<span className="text-faint">{AR.optional}</span>}>
+        <Field label={AR.driver} hint={<DriverHint value={driver} />}>
           <input
             className={inputClass}
             value={driver}

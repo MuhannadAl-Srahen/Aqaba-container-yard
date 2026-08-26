@@ -79,6 +79,21 @@ export function Field(props: {
   );
 }
 
+/**
+ * اسم السائق: الحقل يبقى اختيارياً — «يبقى اختيارياً مع تحذير أصفر» — لكن
+ * تركه فارغاً له ثمن يعرفه المحاسب لا موظف البوابة: النقلة تُدرج في حساب
+ * السائقين تحت رقم السيارة بلا اسم صاحبها. فيقولها الحقل قبل أن يُترك.
+ */
+export function DriverHint(props: { value: string }): ReactElement {
+  return props.value.trim() === '' ? (
+    <span className="font-semibold text-amber-600 dark:text-amber-400">
+      {AR.driverBlankWarning}
+    </span>
+  ) : (
+    <span className="text-faint">{AR.optional}</span>
+  );
+}
+
 export const inputClass =
   'w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-sm text-ink outline-none ' +
   'placeholder:text-faint focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:focus:ring-blue-900';

@@ -333,6 +333,11 @@ export const api = {
     amount: number;
   }): Promise<{ ok: boolean }> =>
     request('/api/wages', { method: 'PUT', body: JSON.stringify(input) }),
+  clearWage: (input: {
+    containerId: number;
+    direction: HaulDirection;
+  }): Promise<{ ok: boolean }> =>
+    request('/api/wages/clear', { method: 'POST', body: JSON.stringify(input) }),
   payWage: (input: {
     containerId: number;
     direction: HaulDirection;
