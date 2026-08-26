@@ -1,0 +1,4 @@
+
+# Linux deploy files must keep LF endings — CRLF breaks bash and systemd.
+deploy/cloud/** text eol=lf
+*.sh text eol=lf
