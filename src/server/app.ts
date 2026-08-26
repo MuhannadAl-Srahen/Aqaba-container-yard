@@ -648,8 +648,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return transaction(db, () => {
       // One letter, one zone, across every yard: the zone alone decides the
       // address's leading digit, so a twin letter would fork the ground. A
-      // STRUCK zone keeps its letter too — history prints it with the old
-      // yard digit, and a new zone under it would re-home every old paper.
+      // STRUCK zone keeps its letter only while history needs it — papers
+      // print the old yard digit, and a new zone under the letter would
+      // re-home them all. A zone deleted before any box stood in it left
+      // no paper: listRetiredZones drops it, and the letter is free again.
       const taken =
         (ZONES as readonly string[]).includes(body.name) ||
         store.listCustomZones(db).some((zone) => zone.zone === body.name) ||

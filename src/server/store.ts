@@ -1428,12 +1428,34 @@ export function listCustomZones(db: DatabaseSync): CustomZoneDto[] {
 }
 
 /**
- * The letters of struck zones, each with the yard it named. History keeps
- * printing 1-F-… after zone F is gone, and no new zone may take the letter.
+ * The letters of struck zones that history still needs: a zone that ever
+ * held a container keeps naming its yard — old papers print 1-F-… after
+ * zone F is gone, so no new zone may take the letter. But a zone deleted
+ * before any box ever stood in it left no paper behind: its letter comes
+ * back free («حذفته واريد ادخال نفس الرمز») and the struck row stays in
+ * the table as archaeology only. One row per letter — the newest — and
+ * none where a living zone owns the letter, so the registry never forks.
+ *
+ * Asked inside every yard-write transaction (the effective layout is
+ * composed per request), so each arm probes its own index: one EXISTS per
+ * movement column, never an OR across two — SQLite cannot use an index for
+ * either side of an OR, and the scan it falls back to costs a third of a
+ * second on a full history.
  */
 export function listRetiredZones(db: DatabaseSync): RetiredZoneDto[] {
   const rows = db
-    .prepare('SELECT name, yard FROM custom_zones WHERE deleted_at IS NOT NULL ORDER BY id')
+    .prepare(
+      `SELECT name, yard FROM custom_zones z
+        WHERE z.deleted_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM custom_zones l
+                           WHERE l.name = z.name AND l.deleted_at IS NULL)
+          AND z.id = (SELECT MAX(w.id) FROM custom_zones w
+                       WHERE w.name = z.name AND w.deleted_at IS NOT NULL)
+          AND (EXISTS (SELECT 1 FROM movements m WHERE m.from_zone = z.name)
+            OR EXISTS (SELECT 1 FROM movements m WHERE m.to_zone = z.name)
+            OR EXISTS (SELECT 1 FROM containers k WHERE k.zone = z.name))
+        ORDER BY z.id`,
+    )
     .all() as unknown as Array<{ name: string; yard: number }>;
   return rows.map((row) => ({ zone: row.name, yard: row.yard }));
 }

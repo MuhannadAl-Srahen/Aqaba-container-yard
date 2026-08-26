@@ -667,8 +667,12 @@ export const AR = {
   restoredDone: 'تم استرجاع السجل.',
   revertedDone: 'تم التراجع عن التعديل.',
   perPage: 'في كل صفحة',
-  /** The page-size list's last entry: the whole register on one screen. */
-  perPageAll: 'عرض الكل',
+  /**
+   * The page-size list's last entry: the whole register on one screen. NOT
+   * «عرض الكل» — that is the period button standing beside it in the same
+   * toolbar, and two controls answering to one name in one row is a trap.
+   */
+  perPageAll: 'الكشف كامل',
   /**
    * «ما في سكرول يمين وشمال بس دون ما انقص البيانات»: shrink the whole
    * sheet until every column fits the screen's width, like the printed

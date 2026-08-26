@@ -25,6 +25,8 @@ interface ReplyBody {
   code: string;
   yard: number;
   zones: CustomZoneDto[];
+  retired: RetiredZoneDto[];
+  users: Array<{ id: number }>;
   serial: number;
 }
 
@@ -107,9 +109,7 @@ describe('تعريف الزون', () => {
       url: '/api/users',
       payload: { name: 'موظف', pin: '4321', permissions: ['GATE_IN', 'REPORTS'] },
     });
-    const staff = (await call({ method: 'GET', url: '/api/users' })).body as unknown as {
-      users: Array<{ id: number }>;
-    };
+    const staff = (await call({ method: 'GET', url: '/api/users' })).body;
     await call({ method: 'POST', url: '/api/logout' });
     cookie = '';
     expect((await call({ method: 'GET', url: '/api/zones' })).status).toBe(401);
@@ -184,25 +184,70 @@ describe('الأرض المعرّفة أرض حقيقية', () => {
     expect((await call({ method: 'GET', url: '/api/zones' })).body.zones).toHaveLength(0);
   });
 
-  it('a struck zone keeps its letter and its yard: no re-creation, history intact', async () => {
-    const zone = await addZone({ yard: 1, name: 'F', bays: 4, stacks: 4 });
-    await call({ method: 'DELETE', url: `/api/zones/${String(zone.body.id)}` });
-    // The freed letter is NOT free: a new F anywhere would re-home every
-    // old paper that reads 1-F-… onto ground that did not exist then.
-    const again = await addZone({ yard: 3, name: 'F', bays: 2, stacks: 2 });
+  it('asking whether a letter has history never scans the movement book', () => {
+    // The question is asked while composing the effective layout, which
+    // happens inside EVERY yard-write transaction — so a SCAN here is a
+    // third of a second added to every gate press once the history grows.
+    // Both columns are indexed and the query probes each on its own, because
+    // SQLite cannot use an index for either side of an OR.
+    const indexes = (
+      db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'movements'")
+        .all() as Array<{ name: string }>
+    ).map((row) => row.name);
+    expect(indexes).toContain('idx_movements_from_zone');
+    expect(indexes).toContain('idx_movements_to_zone');
+
+    const plan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT 1 FROM custom_zones z
+          WHERE EXISTS (SELECT 1 FROM movements m WHERE m.from_zone = z.name)
+             OR EXISTS (SELECT 1 FROM movements m WHERE m.to_zone = z.name)`,
+      )
+      .all() as Array<{ detail: string }>;
+    const steps = plan.map((row) => row.detail).filter((step) => step.includes('movements'));
+    expect(steps.length).toBeGreaterThan(0);
+    for (const step of steps) expect(step).toContain('INDEX');
+  });
+
+  it('an unused letter comes back free; a letter with history stays reserved', async () => {
+    // Added and deleted before any box stood in it: no paper anywhere
+    // reads 1-F-…, so refusing the letter would only punish a slip of the
+    // hand — «حذفته واريد ادخال نفس الرمز».
+    const scrapped = await addZone({ yard: 1, name: 'F', bays: 4, stacks: 4 });
+    await call({ method: 'DELETE', url: `/api/zones/${String(scrapped.body.id)}` });
+    const reused = await addZone({ yard: 3, name: 'F', bays: 2, stacks: 2 });
+    expect(reused.status).toBe(201);
+    // The scrapped row does not ride the wire, so the registry follows the
+    // living zone alone: F is yard 3 now.
+    const fresh = await call({ method: 'GET', url: '/api/zones' });
+    const freshBody = fresh.body;
+    expect(freshBody.zones).toHaveLength(1);
+    expect(freshBody.retired).toEqual([]);
+    composeLayout(freshBody.zones, freshBody.retired);
+    expect(yardOf('F')).toBe(3);
+
+    // A box stands in F and leaves; the zone is struck. History now reads
+    // 3-F-…, so the letter is spoken for — a new F would re-home old paper.
+    const entered = await gateIn('ZONE0080', { zone: 'F', bay: 1, stack: 1, tier: 'A' }, '9944');
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/exit`,
+      payload: { truck: '500', driver: '' },
+    });
+    await call({ method: 'DELETE', url: `/api/zones/${String(reused.body.id)}` });
+    const again = await addZone({ yard: 1, name: 'F', bays: 4, stacks: 4 });
     expect(again.status).toBe(409);
     expect(again.body.code).toBe('NAME_TAKEN');
-    // The wire carries the retired letters, and composing teaches the
-    // registry, so a fresh process still labels history 1-F-….
+    // The wire carries the reserved letter, and composing teaches the
+    // registry, so a fresh process still labels history 3-F-….
     const listed = await call({ method: 'GET', url: '/api/zones' });
-    const body = listed.body as unknown as {
-      zones: CustomZoneDto[];
-      retired: RetiredZoneDto[];
-    };
+    const body = listed.body;
     expect(body.zones).toHaveLength(0);
-    expect(body.retired).toEqual([{ zone: 'F', yard: 1 }]);
+    expect(body.retired).toEqual([{ zone: 'F', yard: 3 }]);
     composeLayout(body.zones, body.retired);
-    expect(yardOf('F')).toBe(1);
+    expect(yardOf('F')).toBe(3);
   });
 
   it('a permit issued after every box left still names the yard they stood in', async () => {

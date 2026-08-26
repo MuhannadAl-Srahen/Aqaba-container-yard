@@ -1604,3 +1604,76 @@ the permit sheet's facts row WRAPS instead of overflowing the 380px
 panel by 65px (measured in headless Chrome by the verifier); and an
 unrecorded weight prints the row's own «—», not an invitingly blank box.
 295 tests.
+
+## المرحلة 24 — شرائح الصفحة، وحرف الزون يعود، ودليل السيرفر — 2026-08-26
+
+Three asks in one message. First, the register toolbar: «حسن الترتيب
+الخاص ب الفلاتر و البحث بالأضافة على اصلاح ال dropdown menu» — the
+native per-page select drew its popup on the OS's light sheet with the
+site's pale dark-theme ink, unreadable. With «الغي العشرين وخلي عندك
+50 او 80 او عرض الكل» the choices fell to three, so the dropdown is
+GONE: a segmented trio of visible buttons (50 · 80 · الكشف كامل), no
+native popup to break, one press instead of two. The header split into
+two deliberate lines — period+filters, then search+page-size+actions —
+and a global CSS rule paints every remaining native select's options
+with theme tokens so the carrier picker reads in both themes. Verified
+by a headless-Edge probe: dark, light, and a 900px viewport with zero
+horizontal overflow.
+
+Second, «اضافة زون ولم احفظ الشكل وحذفته واريد ادخال نفس الرمز يخبرني
+انه موجود» — the retired-letters-forever rule was punishing a slip of
+the hand. The rule's REASON is history: a letter is reserved so old
+papers keep their yard digit. A zone deleted before any container ever
+stood in it has no history to protect, so `listRetiredZones` now
+returns only struck letters that movements/containers actually
+reference (newest row per letter, none owned by a living zone), and
+the create route's taken-check frees the rest automatically. Soft
+delete untouched — the scrapped row stays in the table, it just stops
+riding the wire. A letter that ever held a box stays reserved forever,
+exactly as before (test proves both halves).
+
+Third, «اريد روابط وخطوات واضحة ومفصلة اكثر لانه لا علم كيف وهذه اول
+مره» — اقرأني-السيرفر.md rewritten as a true first-timer walkthrough:
+seven numbered stages with the exact links (hetzner.com/cloud, console
+project → Add Server → CX22/Ubuntu 24.04, namecheap Advanced DNS A
+record, winscp.net, dnschecker.org), what every form field takes, what
+each step should show when it worked, and a «إن علّق شيء» section. The
+same guide published as a Claude artifact page for his phone/any
+device. 295 tests; adversarial review workflow on the diff before
+commit.
+
+The adversarial review (18 agents) confirmed twelve findings, four of them
+worth fixing. The heavy one was speed, and it landed the same hour the
+owner wrote «لا اريد اية مشاكل في البطئ»: the new retired-letter query
+asked `... WHERE m.from_zone = ? OR m.to_zone = ?` over an unindexed
+movements table, and it is asked while composing the effective layout —
+i.e. inside EVERY yard-write transaction (gate-in, move ×2, exit, unexit,
+restore, correction, permit). A verifier measured 229 ms per call at 200k
+movements, so a third of a second on every gate press, growing forever.
+Fixed with two partial indexes and one EXISTS per column (SQLite cannot
+use an index for either side of an OR), locked by an EXPLAIN QUERY PLAN
+test. Second: the toolbar now had TWO controls reading «عرض الكل» — the
+period button and the page-size choice — so the page-size one became
+«الكشف كامل», proven unique by the browser probe. Third: the new test's
+`as unknown as` casts (a hard-rule violation) were removed by widening
+the test's own ReplyBody instead. Declined: merging the toolbar's segment
+into DriversScreen's private `Seg` — the two differ deliberately in size
+and tone to match their own rows, and one component with two style axes
+would be worse than two honest ones.
+
+Then the owner ruled on hosting: **DigitalOcean, not Hetzner**, and asked
+about Heroku. Heroku is disqualified on a fact, not a preference — its
+filesystem is ephemeral and dynos cycle daily, which would delete the
+yard's database every day; the whole data layer would have to be
+rewritten. Writing that up exposed a REAL hole in the cloud kit before he
+paid for anything: `POST /api/reports/pdf` launches a system browser
+(`launchSystemBrowser`, playwright-core with no bundled browser), and
+cloud-setup.sh installed no browser at all — تصدير PDF would have failed
+on the cloud while the system looked healthy. The script now installs
+Google Chrome, adds 2 GB of swap (droplets ship with none, and the
+restore path buffers the whole backup in memory), runs the app as a
+dedicated non-root user (Chrome's sandbox refuses to run as root, and a
+public server should not run its app at top privilege), and ends with a
+self-check. The guide recommends the $18 two-vCPU droplet for one
+concrete reason: PDF export burns a whole core, and on a single-core
+server it freezes the yard for everyone for a second or two.

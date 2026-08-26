@@ -53,8 +53,9 @@ export function composeLayout(
   retired: ReadonlyArray<{ readonly zone: string; readonly yard: number }> = [],
 ): YardLayout {
   // Struck zones first, the living last: a retired letter still names its
-  // old yard so history's papers reprint as stamped — and letters are never
-  // reused, so the two sets cannot disagree.
+  // old yard so history's papers reprint as stamped. The server sends only
+  // retired letters that history needs and that no living zone owns, so
+  // the two sets cannot disagree.
   registerYards(retired);
   registerYards(customs);
   const asezaBottom = Math.max(

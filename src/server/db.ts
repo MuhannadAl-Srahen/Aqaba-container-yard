@@ -309,6 +309,19 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
     CREATE INDEX IF NOT EXISTS idx_movements_at ON movements (at);
 
+    -- «هل لحرف هذا الزون تاريخ؟» — a question asked while composing the
+    -- effective layout, which happens inside EVERY yard-write transaction
+    -- (دخول، نقل، خروج، إلغاء خروج، تصريح). Unindexed it SCANS the whole
+    -- movement history each time and a struck letter with no history never
+    -- short-circuits: 200k movements measured 229ms per call — a third of a
+    -- second added to every gate press. Partial (the columns are NULL on
+    -- gate rows) and one per column, because an OR over two columns cannot
+    -- use either index.
+    CREATE INDEX IF NOT EXISTS idx_movements_from_zone
+      ON movements (from_zone) WHERE from_zone IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_movements_to_zone
+      ON movements (to_zone) WHERE to_zone IS NOT NULL;
+
     -- الناقلون: the trucking companies whose fleets serve the yard. The gate
     -- keeps typing the plate as free text — these tables sit BESIDE the gate
     -- records, matched by normalized plate, so nothing already written moves.

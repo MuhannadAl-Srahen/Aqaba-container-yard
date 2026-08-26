@@ -234,8 +234,9 @@ const cellBase = 'border border-rule px-2 py-1.5 text-[13px] align-middle';
  * through the middle of a word.
  */
 const cellFree = ' break-words leading-6';
-/** Rows per screen page; 0 is «عرض الكل» — the whole register at once. */
-const PAGE_SIZES = [20, 50, 80, 0] as const;
+/** Rows per screen page; 0 is «عرض الكل» — the whole register at once.
+    50 is the floor — «الغي العشرين»: twenty rows was a page nobody wanted. */
+const PAGE_SIZES = [50, 80, 0] as const;
 
 /** Inline custom properties: the sheet hands its measurements to the CSS. */
 type StyleVars = CSSProperties & Record<`--${string}`, string>;
@@ -492,10 +493,16 @@ export function SheetScreen(props: {
             {AR.fitWidth}
           </button>
           {props.extraFilters}
+        </div>
+
+        {/* The second line is always its own: the search box gets real room,
+            and the page-size and print actions keep their end of the row
+            instead of wrapping into whatever the filters above left over. */}
+        <div className="flex flex-wrap items-center gap-2.5">
           {/* Every register, one box, every column. It reads what the sheet
               itself says — so a date, a plate, a bill, a slot, a note or the
               employee's own name all answer, without a filter per column. */}
-          <div className="flex min-w-56 flex-1 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2 py-1 sm:flex-none">
+          <div className="flex min-w-56 max-w-md flex-1 items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2 py-1">
             <input
               type="search"
               className="min-w-0 flex-1 bg-transparent py-0.5 text-sm text-ink outline-none placeholder:text-faint"
@@ -523,23 +530,33 @@ export function SheetScreen(props: {
               </>
             )}
           </div>
-          <label className="flex items-center gap-1.5 text-sm">
+          {/* Three choices are buttons, not a dropdown: the list the browser
+              draws for a native select follows the OS sheet, not the theme —
+              it painted pale ink on white, «يوجد فيها مشاكل» — and a segment
+              shows every option at once with one press instead of two. */}
+          <div className="flex items-center gap-1.5 text-sm">
             <span className="font-semibold text-muted">{AR.perPage}</span>
-            <select
-              className="rounded-lg border border-line-strong px-2 py-1.5 text-sm"
-              value={pageSize}
-              onChange={(event) => {
-                setPageSize(Number(event.target.value));
-              }}
-            >
+            <div className="flex overflow-hidden rounded-lg border border-line-strong">
               {PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => {
+                    setPageSize(size);
+                  }}
+                  className={
+                    'px-2.5 py-1.5 text-sm font-semibold transition-colors ' +
+                    (pageSize === size
+                      ? 'bg-blue-700 text-white'
+                      : 'bg-surface text-muted hover:bg-sunken')
+                  }
+                >
                   {size === 0 ? AR.perPageAll : size}
-                </option>
+                </button>
               ))}
-            </select>
-          </label>
-          <div className="ms-auto flex items-center gap-1.5">
+            </div>
+          </div>
+          <div className="ms-auto flex flex-wrap items-center gap-1.5">
             {/* Every row is in the DOM, so the printer can have the whole
                 register regardless of the page shown — but nothing on screen
                 said so. Now it is a choice, and the whole register is the

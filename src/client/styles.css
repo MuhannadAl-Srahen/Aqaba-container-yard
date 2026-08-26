@@ -126,6 +126,18 @@ body {
   color: var(--color-ink);
 }
 
+/*
+ * Native dropdown lists (employee pickers, carrier filters) are drawn by
+ * the browser from the OS sheet, which may stay light under a dark site —
+ * the options then inherit the site's pale ink and vanish into the white.
+ * Paint them explicitly so every popup reads in either theme.
+ */
+select,
+select option {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
+
 /* The map's cells brighten under the pointer so "clickable" needs no manual. */
 .map-cell {
   cursor: pointer;
