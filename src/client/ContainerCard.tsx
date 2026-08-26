@@ -138,7 +138,13 @@ export function ContainerCard(props: {
 }): ReactElement {
   const { container } = props;
   const [confirming, setConfirming] = useState<'exit' | 'unexit' | 'delete' | null>(null);
-  const [editing, setEditing] = useState(props.startEditing ?? false);
+  /**
+   * A caller may ask the card to open already editing (the register row's
+   * pencil does). It may not thereby hand the form to someone who has no
+   * business in it: the permission decides, not the caller. The gated
+   * button below is then the ONLY door into this state.
+   */
+  const [editing, setEditing] = useState((props.startEditing ?? false) && props.may('EDIT'));
   const [truckOut, setTruckOut] = useState('');
   const [driverOut, setDriverOut] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -416,7 +422,7 @@ export function ContainerCard(props: {
           </div>
         )}
 
-        {editing && (
+        {editing && props.may('EDIT') && (
           <EditForm
             container={container}
             standing={inYard}

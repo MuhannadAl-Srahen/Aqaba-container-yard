@@ -1741,3 +1741,32 @@ owner had already set his password by the time it was checked: firstRun
 is false, the door is shut.
 
 What remains is his: restore the office backup into it.
+
+## المرحلة 26 — القلم يعرف صاحبه — 2026-08-26
+
+The owner caught it: «طريقة التعديل الجديد الي ضفتها عند الكشوفات بتتعدل
+من الكل». The pencil added to register rows in stage 24 was drawn for
+everyone.
+
+What was actually exposed, exactly: nothing was ever changed. The server
+has always guarded the edit — `PATCH /api/containers/:id` opens with
+`requirePerm(request, 'EDIT')` and answers 403 — and the audit found
+every other door sound too: drivers under ACCOUNTING, zones under owner,
+the card's own pencil under `may('EDIT')`. What leaked was the FORM: the
+button appeared for anyone who could read a register, and pressing it
+opened the editing card, which then refused on save. A clerk could type
+into a form he had no right to, and only learn so at the end.
+
+The hole was `startEditing`. The card's own edit button was properly
+gated, but the prop let a caller walk around the guard and set the
+editing state directly. So the fix is three deep, and the middle one is
+the one that matters: the register no longer draws the pencil without
+`canEdit`; the CARD now refuses to open editing for anyone without the
+permission no matter who asks it to, so no future caller can reopen this
+by accident; and the server still refuses, as it always did.
+
+Proved with a real employee rather than an assertion about one: a clerk
+with GATE_IN, GATE_OUT and REPORTS but no EDIT logs in, opens the entry
+register, and the إجراء column holds «بطاقة» alone — zero «تعديل» — while
+the owner on the same register sees both. His forged PATCH comes back
+403 FORBIDDEN. 296 tests, gates green.

@@ -452,6 +452,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           setPermitCreate({ bill, containers: billContainers });
         }}
         canPermit={may('GATE_OUT')}
+        canEdit={may('EDIT')}
         isOwner={isOwner}
         onBack={() => {
           setReporting(false);

@@ -335,6 +335,12 @@ export function ReportsScreen(props: {
   onCreatePermit: (bill: string, containers: readonly ContainerDto[]) => void;
   /** May this person issue a permit? It is exit paperwork — GATE_OUT. */
   canPermit: boolean;
+  /**
+   * May this person edit a container? The row's pencil opens the very same
+   * form the container's card opens, so it answers to the very same
+   * permission — «ما حدا عنده هاد الشي الا الي عنده الصلاحية».
+   */
+  canEdit: boolean;
   /** Voiding a numbered permit is the owner's alone. */
   isOwner: boolean;
   onBack: () => void;
@@ -565,16 +571,20 @@ export function ReportsScreen(props: {
                 >
                   {AR.cardAction}
                 </button>
-                {/* «دون الرجوع الى مكان وجود الحاوية»: the row edits itself. */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    props.onEdit(containerId);
-                  }}
-                  className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-200"
-                >
-                  {AR.actionEdit}
-                </button>
+                {/* «دون الرجوع الى مكان وجود الحاوية»: the row edits itself —
+                    for whoever may edit at all. Without EDIT the pencil is
+                    not drawn, exactly as it is not drawn on the card. */}
+                {props.canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      props.onEdit(containerId);
+                    }}
+                    className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-200"
+                  >
+                    {AR.actionEdit}
+                  </button>
+                )}
               </span>
             );
           },
