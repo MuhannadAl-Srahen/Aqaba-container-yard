@@ -34,6 +34,51 @@ function Ok($text) { Write-Host "   $text" -ForegroundColor Green }
 function Warn($text) { Write-Host "   $text" -ForegroundColor Yellow }
 function Die($text) { Write-Host "`nتوقف: $text" -ForegroundColor Red; exit 1 }
 
+<#
+  خوادم النطاق الرسمية — التي تملك الجواب لا التي تحفظ نسخة منه.
+#>
+function Get-AuthoritativeServers {
+  param([string]$Name)
+  foreach ($resolver in @('8.8.8.8', '1.1.1.1')) {
+    try {
+      $ns = Resolve-DnsName -Name $Name -Type NS -Server $resolver `
+        -DnsOnly -NoHostsFile -QuickTimeout -ErrorAction Stop |
+        Where-Object { $_.QueryType -eq 'NS' -and $_.NameHost } |
+        ForEach-Object { $_.NameHost }
+      if ($ns) { return @($ns) }
+    } catch { }
+  }
+  return @()
+}
+
+<#
+  يسأل خوادم النطاق الرسمية مباشرة، لا جهازك ولا الخوادم العامة.
+
+  الفرق ليس تفصيلاً: بعد أي تعديل يبقى الجواب القديم محفوظاً ساعات عند
+  جهازك وعند خوادم مثل 8.8.8.8 — بينما جهة إصدار الشهادة تسأل الخوادم
+  الرسمية نفسها. فالحكم يجب أن يكون على ما تقوله هي، وإلا رفض السكربت
+  إعداداً صحيحاً لمجرد أن ذاكرة وسيطة لم تُحدَّث بعد.
+
+  يعيد: @{ reached = هل أجاب خادم رسمي؛ records = العناوين؛ via = من أجاب }
+#>
+function Resolve-Authoritative {
+  param([string]$Name, [string]$Type)
+  foreach ($ns in (Get-AuthoritativeServers -Name $Name)) {
+    try {
+      $answer = Resolve-DnsName -Name $Name -Type $Type -Server $ns `
+        -DnsOnly -NoHostsFile -QuickTimeout -ErrorAction Stop |
+        Where-Object { $_.QueryType -eq $Type }
+      # لا سجل من هذا النوع = جواب صحيح لا عطل (يردّ الخادم عندها SOA).
+      return @{ reached = $true; records = @($answer | ForEach-Object { $_.IPAddress }); via = $ns }
+    } catch {
+      if ("$($_.Exception.Message)" -match 'does not exist|No such host|DNS_ERROR') {
+        return @{ reached = $true; records = @(); via = $ns }
+      }
+    }
+  }
+  return @{ reached = $false; records = @(); via = '' }
+}
+
 # ---------------------------------------------------------- مجلد التطبيق ----
 Say 'مجلد التطبيق'
 if ($AppPath -eq '') {
@@ -61,28 +106,29 @@ Ok 'ssh و scp جاهزان'
 
 # ----------------------------------------------------------------- النطاق ----
 if (-not $SkipDnsCheck -and $Domain -ne '') {
-  Say "فحص النطاق $Domain"
-  try {
-    $a = Resolve-DnsName -Name $Domain -Type A -DnsOnly -ErrorAction Stop |
-      Where-Object { $_.QueryType -eq 'A' }
-  } catch { $a = $null }
-  if ($null -eq $a) {
-    Die "النطاق $Domain لا يشير إلى أي عنوان بعد. أضف سجل A يشير إلى $Server وانتظر دقائق."
+  Say "فحص النطاق $Domain (من خوادمه الرسمية)"
+
+  # ذاكرة ويندوز المؤقتة تحتفظ بالجواب القديم ساعات. تُمسح هنا فيرى
+  # متصفحك أيضاً الحقيقة الجديدة.
+  try { Clear-DnsClientCache } catch { }
+
+  $a = Resolve-Authoritative -Name $Domain -Type 'A'
+  if (-not $a.reached) {
+    Die "تعذّر سؤال خوادم النطاق الرسمية. تأكد من اتصال الإنترنت، أو شغّل السكربت بـ -SkipDnsCheck إن كنت واثقاً من الإعداد."
   }
-  $addresses = @($a | ForEach-Object { $_.IPAddress })
-  if ($addresses -notcontains $Server) {
-    Die "سجل A للنطاق يشير إلى $($addresses -join ', ') لا إلى $Server. صحّحه أولاً."
+  if ($a.records.Count -eq 0) {
+    Die "النطاق $Domain لا يشير إلى أي عنوان. أضف سجل A يشير إلى $Server وانتظر دقائق."
   }
-  Ok "سجل A يشير إلى $Server"
+  if ($a.records -notcontains $Server) {
+    Die "سجل A للنطاق يشير إلى $($a.records -join ', ') لا إلى $Server. صحّحه أولاً."
+  }
+  Ok "سجل A يشير إلى $Server  (بحسب $($a.via))"
 
   # سجل AAAA يقتل الشهادة بصمت: التحقق من ليتس-إنكربت يفضّل IPv6، فيذهب إلى
   # ذلك العنوان لا إلى سيرفرك، فيفشل إصدار الشهادة ويبقى الموقع بلا https.
-  try {
-    $aaaa = Resolve-DnsName -Name $Domain -Type AAAA -DnsOnly -ErrorAction Stop |
-      Where-Object { $_.QueryType -eq 'AAAA' }
-  } catch { $aaaa = $null }
-  if ($null -ne $aaaa) {
-    $v6 = @($aaaa | ForEach-Object { $_.IPAddress }) -join ', '
+  $aaaa = Resolve-Authoritative -Name $Domain -Type 'AAAA'
+  if ($aaaa.reached -and $aaaa.records.Count -gt 0) {
+    $v6 = $aaaa.records -join ', '
     Die @"
 النطاق يحمل سجل AAAA يشير إلى $v6 — وهذا ليس سيرفرك.
 الشهادة الآمنة (https) ستفشل لأن التحقق يفضّل IPv6 فيصل إلى الجهاز الخطأ.
