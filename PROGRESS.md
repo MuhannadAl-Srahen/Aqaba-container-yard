@@ -1703,3 +1703,41 @@ his www CNAME had no certificate coverage, so the Caddyfile now
 redirects www to the apex. Tested end to end: the script ran, printed
 its Arabic cleanly, confirmed the A record, and stopped dead on the
 AAAA with the panel path to fix it.
+
+## المرحلة 25 — النظام على الإنترنت — 2026-08-26
+
+`https://aqaba-yard.systems` is live. Hostinger KVM 2, Ubuntu 24.04,
+Paris, two cores, at 88.223.95.144, provisioned by one PowerShell command
+from the owner's own machine.
+
+Two failures stood between the rented box and the running site, and
+neither was in the yard's code.
+
+The first was mine misreading the world: the AAAA check asked HIS machine
+whether the record was gone. He had deleted it, the panel showed it gone,
+and the script still refused — because his Windows resolver held the old
+answer with three and a half hours left on a four-hour TTL, and Google's
+anycast instances disagreed with each other at that moment. The
+authoritative nameservers had been right the whole time. The check now
+asks them, which is also who Let's Encrypt asks, so the question the
+script answers is finally the question that matters.
+
+The second was PowerShell 5.1: ssh printed «Permanently added
+'88.223.95.144' to the list of known hosts» — a normal first-connection
+notice, exit code zero — and the shell wrapped that sentence in an
+ErrorRecord which `$ErrorActionPreference = 'Stop'` made fatal. The
+script killed itself over a success message. Judged by exit codes now,
+which is what it always checked anyway.
+
+Verified after the run, from outside and inside: the page answers 200 and
+titles itself «ساحة العقبة», serving the same bundle that was built here;
+Let's Encrypt issued for the apex and www redirects into it; the service
+is active and enabled under the user `aqaba`, not root; two gigabytes of
+swap stand under the restore path; ufw is up with only 22/80/443 open;
+the database files belong to the service user; and headless Chrome runs
+as that user and exits clean — which was the point of installing it, and
+means «تصدير PDF» will work on the cloud as it does at the office. The
+owner had already set his password by the time it was checked: firstRun
+is false, the door is shut.
+
+What remains is his: restore the office backup into it.
