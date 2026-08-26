@@ -1770,3 +1770,32 @@ with GATE_IN, GATE_OUT and REPORTS but no EDIT logs in, opens the entry
 register, and the إجراء column holds «بطاقة» alone — zero «تعديل» — while
 the owner on the same register sees both. His forged PATCH comes back
 403 FORBIDDEN. 296 tests, gates green.
+
+## المرحلة 27 — المتصفح لا الشيفرة — 2026-08-26
+
+The owner reported the pencil still showing: «فتت على حساب test ما زالت
+ال التعديل موجود». It was not a second bug. It was his open tab.
+
+Established, not guessed: the account `test` (id 13) carries
+`REPORTS,ACCOUNTING` and no EDIT, so the button had no right to appear
+for him; the bundle the server hands out today hashes SHA256
+`F12E9AC2506284FF…`, byte-identical to the build the clerk probe passed
+against here; and the previous bundle `index-cmiHdK79.js` is still on
+disk and still answers 200, which is what a tab opened before the deploy
+keeps running. His own screenshot proved which one he had: its toolbar
+read «الكشف كامل | 80 | 50», a control that shipped in that earlier
+bundle.
+
+So the remedy is Ctrl+Shift+R, and it is not his tab alone — every
+employee who left the page open since morning is running the old code
+until they reload. `index.html` is served `no-cache`, so one reload is
+enough; the JS filename carries its own hash, so there is no stale-file
+trap after that.
+
+Nothing was at risk in the meantime. A `test` session pressing that
+button reaches a server that answers 403, as it has from the first day.
+What leaked was a form, never a write.
+
+Offered and not yet built: a notice inside the app that tells an
+employee a new version has shipped and asks him to reload, so a deploy
+does not depend on telling people by phone.
