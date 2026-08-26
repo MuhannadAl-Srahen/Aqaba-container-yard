@@ -1955,3 +1955,40 @@ Proved by rendering on the server itself as the service user, with the
 exact font stack the PDF uses, and looking at the picture: «كشف الحاويات
 الواقفة في الساحة» reads as it should. Twelve Arabic fonts where there
 were none.
+
+## المرحلة 32 — بقية الترميز المقلوب — 2026-08-27
+
+Stage 30 fixed the plate in the wage sheet, the one the owner pointed
+at. A fan-out audit over ar.ts, every screen, every printed surface, the
+PDF route and the global setup then found thirty more sites of the same
+defect, each re-read and confirmed by a second agent before it was
+believed.
+
+Deduplicated, they were seven sentences and three composed titles:
+
+- `moveDone`, `confirmMoveBody`, `correctMoveDone` — the destination
+  address in the dialog that asks him to approve a move, and in the toast
+  that reports it. The worst of the set: he reads the address at the
+  moment of deciding, and it named a slot that does not exist.
+- `toolsSeedDone` — the bay named after seeding.
+- `doubtTruck` — the amber hint under the plate field, whose own example
+  plate `60-12345` printed backwards while telling him what a plate
+  should look like.
+- The truck and bill register titles, built in ReportsScreen rather than
+  in ar.ts, which flow into the screen heading AND the printed header AND
+  the PDF footer.
+- The search echo under a sheet's title, since what he searches for is
+  usually a plate.
+
+The helper moved to `src/shared/bidi.ts`, because the server needs its
+other half. `plainCode` strips the isolates back out for a FILENAME —
+the register title reaches `downloadBlob` and the PDF's
+`content-disposition`, and a file called `كشف السيارة ⁦60-45165⁩.pdf`
+carries two characters nobody can see or type. That is the trap the audit
+was asked to look for and did.
+
+Deliberately left alone, having been measured correct: card serials
+(`0035/2026`), container numbers (`ASLU5008663`), bills and seals. A
+slash is absorbed into the number run; a hyphen is not.
+
+321 tests, gates green.

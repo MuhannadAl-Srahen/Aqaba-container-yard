@@ -9,6 +9,7 @@ import type {
 } from '../shared/types';
 import { cardSerial } from '../shared/types';
 import { carrierOfPlate } from '../shared/fleet';
+import { ltrCode } from '../shared/bidi';
 import { ApiFailure } from './api';
 import { Button, Confirm, Toast } from './ui';
 import { positionLabel } from '../shared/address';
@@ -461,11 +462,11 @@ export function ReportsScreen(props: {
     tab === 'truck' && activeCarrier !== null
       ? AR.reportCarrier(activeCarrier.name)
       : tab === 'truck' && truckReady
-        ? `${baseTitle} ${truck.trim()}${plateCarrier === null ? '' : ` — ${AR.carrierChip(plateCarrier.name)}`}`
+        ? `${baseTitle} ${ltrCode(truck.trim())}${plateCarrier === null ? '' : ` — ${AR.carrierChip(plateCarrier.name)}`}`
         : tab === 'truck'
           ? AR.truckAllTitle
           : tab === 'bill' && billReady
-            ? `${baseTitle} ${bill.trim()}`
+            ? `${baseTitle} ${ltrCode(bill.trim())}`
             : tab === 'bill'
               ? AR.billAllTitle
               : baseTitle;

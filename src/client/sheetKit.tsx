@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AR } from './ar';
+import { ltrCode, plainCode } from '../shared/bidi';
 import { ApiFailure, api } from './api';
 import { isTallRow, sheetMetrics } from './sheetGeometry';
 import { nextSort, type SortState } from './sheetSort';
@@ -366,7 +367,9 @@ export function SheetScreen(props: {
   // that is not its own — must never read as the plain thing.
   const periodText = [
     rangeText,
-    searching ? `${AR.sheetSearchLabel} ${query.trim()}` : null,
+    // The search term is whatever he typed — often a plate, which reads
+    // backwards in this Arabic line unless it is isolated.
+    searching ? `${AR.sheetSearchLabel} ${ltrCode(query.trim())}` : null,
     sort === null ? null : AR.sortedBy(sheet.head[sort.column] ?? '', sort.dir),
   ]
     .filter((part) => part !== null)
@@ -377,7 +380,9 @@ export function SheetScreen(props: {
     const blob = new Blob(['﻿', sheetHtml(props.sheetTitle, periodText, sheet)], {
       type: 'application/vnd.ms-excel',
     });
-    downloadBlob(blob, `${props.sheetTitle}.xls`);
+    // A file name is read by a machine and typed by a person: the isolates
+    // that make the title read correctly on screen have no business in it.
+    downloadBlob(blob, `${plainCode(props.sheetTitle)}.xls`);
   };
 
   /**
@@ -403,7 +408,7 @@ export function SheetScreen(props: {
     api
       .reportPdf(props.sheetTitle, sheetHtml(props.sheetTitle, periodText, sheet), true)
       .then((blob) => {
-        downloadBlob(blob, `${props.sheetTitle}.pdf`);
+        downloadBlob(blob, `${plainCode(props.sheetTitle)}.pdf`);
         setPdfBusy(false);
       })
       .catch((failure: unknown) => {

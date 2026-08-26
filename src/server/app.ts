@@ -27,6 +27,7 @@ import type {
 import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES } from '../shared/types';
 import type { DriverHaulRow } from '../shared/types';
 import { normalizePlate, plateMatches } from '../shared/fleet';
+import { plainCode } from '../shared/bidi';
 import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
 import { checkNumber } from '../shared/iso6346';
 import { baySpan, positionLabel, samePosition, yardOf } from '../shared/address';
@@ -1649,7 +1650,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         .type('application/pdf')
         .header(
           'content-disposition',
-          `attachment; filename*=UTF-8''${encodeURIComponent(body.title)}.pdf`,
+          // The title arrives carrying bidi isolates so its plate reads from
+          // the left in the footer; a FILE NAME must not carry them.
+          `attachment; filename*=UTF-8''${encodeURIComponent(plainCode(body.title))}.pdf`,
         );
       return pdf;
     } finally {

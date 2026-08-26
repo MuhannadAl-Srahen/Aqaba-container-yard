@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AR } from '../src/client/ar';
+import { ltrCode, plainCode } from '../src/shared/bidi';
 
 /**
  * اتجاه الترميز: a Latin code inside an Arabic sentence must still read from
@@ -24,6 +25,8 @@ const PDI = '⁩';
 /** The code, wrapped exactly as a correct sentence must wrap it. */
 const isolated = (code: string): string => `${LRI}${code}${PDI}`;
 
+const BAY = '2-B-32';
+
 const PLATE = '60-45165';
 const SLOT = '2-B-32-01-B';
 const BOX = 'ASLU5008663';
@@ -41,6 +44,13 @@ describe('اتجاه الترميز داخل الجملة العربية', () =>
     ['unexitDone', AR.unexitDone(BOX, SLOT), [BOX, SLOT]],
     ['confirmUnexitBody', AR.confirmUnexitBody(BOX, SLOT), [BOX, SLOT]],
     ['confirmDeleteBody', AR.confirmDeleteBody(BOX), [BOX]],
+    ['moveDone', AR.moveDone(BOX, SLOT), [BOX, SLOT]],
+    ['confirmMoveBody', AR.confirmMoveBody(BOX, SLOT), [BOX, SLOT]],
+    ['correctMoveDone', AR.correctMoveDone(BOX, SLOT), [BOX, SLOT]],
+    ['movingBanner', AR.movingBanner(BOX), [BOX]],
+    ['correctingBanner', AR.correctingBanner(BOX), [BOX]],
+    ['toolsSeedDone', AR.toolsSeedDone(5, 2, BAY), [BAY]],
+    ['doubtTruck', AR.doubtTruck, ['60-12345']],
   ];
 
   for (const [name, sentence, codes] of cases) {
@@ -69,5 +79,16 @@ describe('اتجاه الترميز داخل الجملة العربية', () =>
     expect(label.includes(PLATE)).toBe(true);
     expect(PLATE).not.toContain(LRI);
     expect(PLATE).not.toContain(PDI);
+  });
+
+  /** اسم الملف يقرؤه الحاسوب ويكتبه الإنسان، فلا حرف خفي فيه. */
+  it('اسم الملف يُنزع منه العزل', () => {
+    const title = `كشف حساب سيارة ${ltrCode(PLATE)}`;
+    expect(title).toContain(LRI);
+    expect(plainCode(title)).toBe(`كشف حساب سيارة ${PLATE}`);
+    expect(plainCode(title)).not.toContain(LRI);
+    expect(plainCode(title)).not.toContain(PDI);
+    // Text with nothing to strip comes back untouched.
+    expect(plainCode('كشف الحاويات')).toBe('كشف الحاويات');
   });
 });
