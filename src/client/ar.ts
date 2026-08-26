@@ -402,7 +402,7 @@ export const AR = {
   /** عنوان مجموعة السيارة حين يُعرف سائقها، أو حين تعدّد سائقوها في الفترة. */
   truckWithDriver: (truck: string, driver: string): string => `سيارة ${truck} — ${driver}`,
   truckManyDrivers: (truck: string, count: number): string =>
-    `سيارة ${truck} — ${String(count)} سائقين`,
+    count === 2 ? `سيارة ${truck} — سائقان` : `سيارة ${truck} — ${String(count)} سائقين`,
   groupByDriver: 'حسب السائق',
   groupByTruck: 'حسب السيارة',
   driverUnknown: 'بلا اسم سائق ولا رقم سيارة',
@@ -432,6 +432,15 @@ export const AR = {
   payDone: 'تم تأكيد الاستلام.',
   payUndone: 'تم إلغاء تأكيد الاستلام.',
   haulsCount: (n: number): string => `عدد النقلات: ${String(n)}`,
+  unpricedCount: (n: number): string => `${String(n)} بلا أجر`,
+  groupSettled: 'تمت المحاسبة',
+  screenTotals: 'إجمالي المعروض',
+  paySettleAll: 'تسديد الكل',
+  confirmPayAllTitle: 'تسديد الحساب كاملاً',
+  confirmPayAllBody: (who: string, count: number, sum: number): string =>
+    `يُسجَّل استلام ${who} أجر ${String(count)} نقلة بمجموع ${String(sum)}. ` +
+    'يُختم كل بند باسمك ووقته، ويمكن إلغاء أي بند وحده بعدها.',
+  payAllDone: (count: number): string => `تم تسجيل استلام ${String(count)} نقلة.`,
   totalWages: 'مجموع الأجور',
   paidWages: 'المدفوع',
   dueWages: 'المتبقي',

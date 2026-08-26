@@ -1501,6 +1501,33 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   });
 
+  /**
+   * A whole account settled in one stroke — «وقت يجي يحاسب يكون سهل
+   * محاسبته». ONE transaction, so a driver is never half-stamped: every haul
+   * named must already carry a figure, and any already settled is left
+   * exactly as it stands rather than re-stamped with today's date.
+   */
+  app.post('/api/wages/pay-many', (request) => {
+    const actor = requirePerm(request, 'ACCOUNTING');
+    const body = parseOrRefuse(
+      z.object({ hauls: z.array(wageKeySchema).min(1).max(500) }),
+      request.body,
+    );
+    return transaction(db, () => {
+      const at = now();
+      let stamped = 0;
+      for (const haul of body.hauls) {
+        const wage = store.getWage(db, haul.containerId, haul.direction);
+        if (wage === null) refuse(409, 'WAGE_MISSING');
+        if (wage === null) throw new Error('unreachable');
+        if (wage.paidAt !== null) continue;
+        store.setWagePaid(db, { ...haul, paid: true, at, userId: actorId(actor) });
+        stamped += 1;
+      }
+      return { ok: true, stamped };
+    });
+  });
+
   app.post('/api/wages/pay', (request) => {
     const actor = requirePerm(request, 'ACCOUNTING');
     const body = parseOrRefuse(wageKeySchema.extend({ paid: z.boolean() }), request.body);

@@ -1844,3 +1844,38 @@ on a standing one. Its «إلغاء الخروج» would have refused, the slot
 B-32-01-B having been taken by GLDU9368397 in the meantime.
 
 299 tests, gates green.
+
+## المرحلة 29 — كشف يُحاسَب منه — 2026-08-26
+
+«تاكد يكون صفحة محاسبة السائقين مرتبة مشان وقت يجي يحاسب يكون سهل
+محاسبته». So the sheet was rebuilt around the act of paying somebody.
+
+What it now opens with: one line of totals for everything on screen —
+hauls, wages, paid, and المتبقي set large in amber, because that is the
+figure a man is about to be handed. Then the accounts, ordered by what
+is owed, largest first, with the closed ones at the bottom wearing «تمت
+المحاسبة». Each heading carries its own three figures the same way and,
+where anything is owed, a **«تسديد الكل»** that stamps every priced haul
+under it in ONE transaction — an unpriced haul stops the whole stroke
+rather than settling half an account, and an already-settled haul is
+left on its own date instead of being re-stamped with today's.
+
+The rows became columns: fixed widths, so the eye runs down the numbers
+instead of hunting across a ragged line; a settled row tinted green; an
+unpriced box ringed amber; and, under a plate that carried more than one
+man, a column saying which of them drove that load.
+
+And the heading is the PLATE now, by his instruction — «بهمني رقم
+السيارة اكثر من اسمه» — with the driver's name after it. «حسب السائق» is
+still one press away.
+
+Two things the drawing itself caught, after the screen was rendered and
+looked at rather than reasoned about: «عدد النقلات: 6 · 1 بلا أجر» read
+as a single number ١٠٦ on an RTL line, so the second count became its
+own amber badge; and «2 سائقين» is not Arabic — it is «سائقان».
+
+Verified in a real browser against the built bundle on a seeded book:
+totals 122/55/67 correct to the ledger, the plate 60-33333 gathering
+«حماد عودة» and «حماد عوده» into one account that the name-grouping
+splits in two, الاستلام cutting headings and not rows, and تسديد الكل
+stamping and the account dropping out of «لم يستلموا».

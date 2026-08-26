@@ -49,6 +49,35 @@ const fold = (text: string): string =>
     .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
     .trim();
 
+/**
+ * One figure with its name over it. The settling eye hunts for a number,
+ * not for a label buried in a sentence — «يكون سهل التعامل معه وتكون واضحة».
+ */
+function Stat(props: {
+  label: string;
+  value: number;
+  tone?: 'emerald' | 'amber';
+  big?: boolean;
+}): ReactElement {
+  const tone =
+    props.tone === 'emerald'
+      ? 'text-emerald-700 dark:text-emerald-400'
+      : props.tone === 'amber'
+        ? 'text-amber-700 dark:text-amber-400'
+        : 'text-ink';
+  return (
+    <div className="text-center">
+      <span className="block text-[10px] font-semibold text-faint">{props.label}</span>
+      <bdi
+        dir="ltr"
+        className={`block font-bold tabular-nums ${props.big === true ? 'text-xl' : 'text-sm'} ${tone}`}
+      >
+        {String(props.value)}
+      </bdi>
+    </div>
+  );
+}
+
 /** A small segmented filter: one lit button per choice. */
 function Seg<T extends string>(props: {
   value: T;
@@ -103,11 +132,18 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
   /** «بدي القدرة البحث عن اسم السايق او رقم سيارته». */
   const [term, setTerm] = useState('');
   const [direction, setDirection] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
-  const [by, setBy] = useState<GroupBy>('DRIVER');
+  /**
+   * The PLATE opens the sheet, not the name — «بدل ما تحط اسم السايق هون
+   * بهمني رقم السيارة اكثر من اسمه». The heading still names the driver after
+   * its plate when the gate wrote one; «حسب السائق» reads the same hauls the
+   * other way round for whoever wants a man's whole account across trucks.
+   */
+  const [by, setBy] = useState<GroupBy>('TRUCK');
   const [paidFilter, setPaidFilter] = useState<'ALL' | 'PAID' | 'DUE'>('ALL');
   const [carrier, setCarrier] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [paying, setPaying] = useState<DriverHaulRow | null>(null);
+  const [payingAll, setPayingAll] = useState<DriverGroup | null>(null);
   const [printing, setPrinting] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -203,11 +239,41 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
    */
   const shownGroups = useMemo(
     () =>
-      groups.filter((group) =>
-        paidFilter === 'ALL' ? true : paidFilter === 'PAID' ? group.settled : !group.settled,
-      ),
+      groups
+        .filter((group) =>
+          paidFilter === 'ALL' ? true : paidFilter === 'PAID' ? group.settled : !group.settled,
+        )
+        // What is owed comes first, largest first, and the settled accounts
+        // fall to the bottom — the sheet is opened in order to pay people.
+        .sort((a, b) => {
+          if (a.settled !== b.settled) return a.settled ? 1 : -1;
+          const due = b.total - b.paid - (a.total - a.paid);
+          return due !== 0 ? due : a.label.localeCompare(b.label, 'ar');
+        }),
     [groups, paidFilter],
   );
+
+  /** The one line he reads before paying anybody: what all of this comes to. */
+  const totals = useMemo(() => {
+    const shown = shownGroups.flatMap((group) => group.rows);
+    const total = shown.reduce((sum, row) => sum + (row.amount ?? 0), 0);
+    const paid = shown.reduce(
+      (sum, row) => sum + (row.paidAt !== null ? (row.amount ?? 0) : 0),
+      0,
+    );
+    return {
+      groups: shownGroups.length,
+      hauls: shown.length,
+      unpriced: shown.filter((row) => row.amount === null).length,
+      total,
+      paid,
+      due: total - paid,
+    };
+  }, [shownGroups]);
+
+  /** The hauls of one heading that are priced and not yet stamped. */
+  const payableOf = (group: DriverGroup): DriverHaulRow[] =>
+    group.rows.filter((row) => row.amount !== null && row.paidAt === null);
 
   const refetch = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['drivers'] });
@@ -303,6 +369,36 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
       })
       .catch((failure: unknown) => {
         setPaying(null);
+        fail(failure);
+      });
+  };
+
+  /**
+   * A whole heading stamped at once — «وقت يجي يحاسب يكون سهل محاسبته». The
+   * server does it in one transaction, so the account is never half settled.
+   */
+  const confirmPayAll = (): void => {
+    if (payingAll === null) return;
+    const hauls = payableOf(payingAll).map((row) => ({
+      containerId: row.containerId,
+      direction: row.direction,
+    }));
+    if (hauls.length === 0) {
+      setPayingAll(null);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    api
+      .payMany({ hauls })
+      .then((reply) => {
+        setPayingAll(null);
+        refetch();
+        setToast(AR.payAllDone(reply.stamped));
+        setBusy(false);
+      })
+      .catch((failure: unknown) => {
+        setPayingAll(null);
         fail(failure);
       });
   };
@@ -403,69 +499,132 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
         <p className="py-6 text-center text-sm text-faint">{AR.driversNoMatch}</p>
       )}
 
-      {shownGroups.map((group) => (
+      {/* الإجمالي قبل أي اسم: ما على الشاشة كله في سطر واحد. */}
+      {shownGroups.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-line bg-sunken px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-bold text-ink">{AR.screenTotals}</span>
+            <span className="text-xs font-semibold text-muted">{AR.haulsCount(totals.hauls)}</span>
+            {/* Its own badge, not a clause after a dot: two numbers on one RTL
+                line read as one number. */}
+            {totals.unpriced > 0 && (
+              <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                {AR.unpricedCount(totals.unpriced)}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-5">
+            <Stat label={AR.totalWages} value={totals.total} />
+            <Stat label={AR.paidWages} value={totals.paid} tone="emerald" />
+            <Stat label={AR.dueWages} value={totals.due} tone="amber" big />
+          </div>
+        </div>
+      )}
+
+      {shownGroups.map((group) => {
+        const payable = payableOf(group);
+        const unpriced = group.rows.filter((row) => row.amount === null).length;
+        return (
         <section key={group.key} className="rounded-2xl border border-line bg-surface p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h3
-              className={
-                'text-base font-bold ' +
-                (group.nameless ? 'text-amber-700 dark:text-amber-400' : 'text-ink')
-              }
-              dir={group.byTruck ? 'rtl' : undefined}
-            >
-              {group.label}
-            </h3>
-            <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-muted">
-              <span>{AR.haulsCount(group.rows.length)}</span>
-              <span>
-                {AR.totalWages}: <bdi dir="ltr">{String(group.total)}</bdi>
-              </span>
-              <span>
-                {AR.paidWages}: <bdi dir="ltr">{String(group.paid)}</bdi>
-              </span>
-              <span className="text-amber-600">
-                {AR.dueWages}: <bdi dir="ltr">{String(group.total - group.paid)}</bdi>
-              </span>
-              <Button
-                kind="quiet"
-                onClick={() => {
-                  setPrinting(group.key);
-                }}
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-line pb-3">
+            <div className="min-w-0">
+              <h3
+                className={
+                  'text-base font-bold ' +
+                  (group.nameless ? 'text-amber-700 dark:text-amber-400' : 'text-ink')
+                }
+                dir={group.byTruck ? 'rtl' : undefined}
               >
-                {AR.print}
-              </Button>
+                {group.label}
+                {group.settled && (
+                  <span className="ms-2 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                    {AR.groupSettled}
+                  </span>
+                )}
+              </h3>
+              <p className="mt-1 flex flex-wrap items-center gap-2 text-xs font-semibold text-muted">
+                <span>{AR.haulsCount(group.rows.length)}</span>
+                {unpriced > 0 && (
+                  <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                    {AR.unpricedCount(unpriced)}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-4">
+              <Stat label={AR.totalWages} value={group.total} />
+              <Stat label={AR.paidWages} value={group.paid} tone="emerald" />
+              <Stat label={AR.dueWages} value={group.total - group.paid} tone="amber" big />
+              <div className="flex flex-col gap-1">
+                {payable.length > 0 && (
+                  <Button
+                    disabled={busy}
+                    onClick={() => {
+                      setPayingAll(group);
+                    }}
+                  >
+                    {AR.paySettleAll}
+                  </Button>
+                )}
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setPrinting(group.key);
+                  }}
+                >
+                  {AR.print}
+                </Button>
+              </div>
             </div>
           </div>
           <ul className="mt-3 space-y-2">
             {group.rows.map((row) => (
               <li
                 key={key(row)}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-line px-3 py-2 text-sm"
+                className={
+                  'flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-3 py-2 text-sm ' +
+                  (row.paidAt !== null
+                    ? 'border-emerald-200 bg-emerald-50/40 dark:border-emerald-900 dark:bg-emerald-950/20'
+                    : 'border-line')
+                }
               >
-                <span className="w-20 text-xs text-faint" dir="ltr">
+                {/* Fixed widths, so the eye runs down a column instead of
+                    hunting across a ragged line. */}
+                <span className="w-20 shrink-0 text-xs text-faint" dir="ltr">
                   {formatDateOnly(row.at)}
                 </span>
                 <span
                   className={
-                    row.direction === 'IN'
-                      ? 'rounded-md bg-emerald-100 px-1.5 py-0.5 text-[11px] font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                      : 'rounded-md bg-sky-100 px-1.5 py-0.5 text-[11px] font-bold text-sky-800 dark:bg-sky-950 dark:text-sky-300'
+                    'w-12 shrink-0 rounded-md px-1.5 py-0.5 text-center text-[11px] font-bold ' +
+                    (row.direction === 'IN'
+                      ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300')
                   }
                 >
                   {AR.operationName[row.direction] ?? row.direction}
                 </span>
-                <span className="font-mono text-xs text-muted" dir="ltr">
+                <span className="w-14 shrink-0 font-mono text-xs text-muted" dir="ltr">
                   {cardSerial(row.card, row.cardYear) ?? '—'}
                 </span>
-                <span className="font-mono tracking-wide text-ink" dir="ltr">
+                <span className="w-32 shrink-0 font-mono tracking-wide text-ink" dir="ltr">
                   {row.number}
                 </span>
-                <span className="text-xs text-muted" dir="ltr">
+                <span className="w-24 shrink-0 font-mono text-xs text-muted" dir="ltr">
                   {row.truck}
                 </span>
+                {/* Whose haul it is, when the heading is a plate that carried
+                    more than one man. */}
+                {group.byTruck && !group.nameless && (
+                  <span className="w-28 shrink-0 truncate text-xs text-muted">
+                    {row.driver === '' ? '—' : row.driver}
+                  </span>
+                )}
                 <div className="ms-auto flex items-center gap-2">
                   <input
-                    className={`${inputClass} w-24 text-center`}
+                    className={
+                      `${inputClass} w-24 text-center tabular-nums ` +
+                      (row.amount === null ? 'border-amber-400 dark:border-amber-600' : '')
+                    }
                     inputMode="decimal"
                     dir="ltr"
                     placeholder={AR.colWage}
@@ -517,7 +676,8 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
             ))}
           </ul>
         </section>
-      ))}
+        );
+      })}
 
       {error !== null && <p className="text-xs font-semibold text-red-600">{error}</p>}
       {toast !== null && <Toast message={toast} />}
@@ -535,6 +695,23 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
           onConfirm={confirmPay}
           onCancel={() => {
             setPaying(null);
+          }}
+        />
+      )}
+
+      {payingAll !== null && (
+        <Confirm
+          title={AR.confirmPayAllTitle}
+          body={AR.confirmPayAllBody(
+            payingAll.label,
+            payableOf(payingAll).length,
+            payableOf(payingAll).reduce((sum, row) => sum + (row.amount ?? 0), 0),
+          )}
+          confirmLabel={AR.paySettleAll}
+          busy={busy}
+          onConfirm={confirmPayAll}
+          onCancel={() => {
+            setPayingAll(null);
           }}
         />
       )}

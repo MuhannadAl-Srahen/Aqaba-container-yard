@@ -344,6 +344,10 @@ export const api = {
     paid: boolean;
   }): Promise<{ ok: boolean }> =>
     request('/api/wages/pay', { method: 'POST', body: JSON.stringify(input) }),
+  payMany: (input: {
+    hauls: ReadonlyArray<{ containerId: number; direction: HaulDirection }>;
+  }): Promise<{ ok: boolean; stamped: number }> =>
+    request('/api/wages/pay-many', { method: 'POST', body: JSON.stringify(input) }),
 
   // ---- correcting a move ----
   correctMove: (

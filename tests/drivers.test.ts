@@ -271,6 +271,48 @@ describe('كشف حساب السائقين', () => {
     expect(after[0]?.paidAt).toBeNull();
   });
 
+  /**
+   * «وقت يجي يحاسب يكون سهل محاسبته»: one press settles a whole account. One
+   * transaction, already-settled hauls left alone rather than re-dated, and
+   * an unpriced haul stops the WHOLE stroke — a half-stamped account is worse
+   * than an unstamped one.
+   */
+  it('a whole account settles in one stroke, and one unpriced haul stops it', async () => {
+    const first = await gateIn('WAGE0101', { zone: 'B', bay: 3, stack: 1, tier: 'A' }, 'أبو ليث');
+    const second = await gateIn('WAGE0115', { zone: 'B', bay: 5, stack: 1, tier: 'A' }, 'أبو ليث');
+    const third = await gateIn('WAGE0129', { zone: 'B', bay: 7, stack: 1, tier: 'A' }, 'أبو ليث');
+    const haul = (id: number): { containerId: number; direction: string } => ({
+      containerId: id,
+      direction: 'IN',
+    });
+    await call({ method: 'PUT', url: '/api/wages', payload: { ...haul(first), amount: 10 } });
+    await call({ method: 'PUT', url: '/api/wages', payload: { ...haul(second), amount: 20 } });
+
+    // The third carries no figure, so the stroke is refused whole.
+    const refused = await call({
+      method: 'POST',
+      url: '/api/wages/pay-many',
+      payload: { hauls: [haul(first), haul(second), haul(third)] },
+    });
+    expect(refused.status).toBe(409);
+    expect(refused.body['code']).toBe('WAGE_MISSING');
+    expect((await listHauls()).every((row) => row.paidAt === null)).toBe(true);
+
+    // The first settled alone, then the pair: only the outstanding one moves.
+    await call({ method: 'POST', url: '/api/wages/pay', payload: { ...haul(first), paid: true } });
+    const before = (await listHauls()).find((row) => row.containerId === first)?.paidAt;
+    const many = await call({
+      method: 'POST',
+      url: '/api/wages/pay-many',
+      payload: { hauls: [haul(first), haul(second)] },
+    });
+    expect(many.status).toBe(200);
+    expect(many.body['stamped']).toBe(1);
+    const after = await listHauls();
+    expect(after.find((row) => row.containerId === first)?.paidAt).toBe(before);
+    expect(after.find((row) => row.containerId === second)?.paidAt).not.toBeNull();
+  });
+
   it('the ledger sits behind its own permission, granted like any other', async () => {
     await call({
       method: 'POST',
