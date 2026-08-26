@@ -1677,3 +1677,29 @@ public server should not run its app at top privilege), and ends with a
 self-check. The guide recommends the $18 two-vCPU droplet for one
 concrete reason: PDF export burns a whole core, and on a single-core
 server it freezes the yard for everyone for a second or two.
+
+The owner then bought it: Hostinger KVM 2, Ubuntu 24.04, Paris, two
+cores, and the free domain aqaba-yard.systems that came with the plan.
+He sent the panel screenshots and asked what was left, «وكمان اذا في
+طريقة عن طريق ال powershell بكون مننونك».
+
+Reading his DNS table caught the thing that would have wasted his
+evening: alongside the correct A record his domain carried an **AAAA
+record pointing at Hostinger's shared hosting** (2a02:4780:28:1cb1::1).
+Let's Encrypt prefers IPv6, so validation would have gone to a machine
+that is not his, the certificate would never have issued, and the site
+would have sat there with no https and no explanation. Verified with
+nslookup against 8.8.8.8 before saying a word.
+
+So deploy.ps1: one PowerShell command from his own machine that checks
+the DNS and REFUSES before touching the server if that record is still
+there, installs an SSH key (root password typed once, ever), uploads the
+four things, runs the provisioning script, and verifies the service and
+the site. Re-running it is the update path. Two things surfaced while
+building it: PowerShell 5.1 reads a script in the system codepage unless
+it has a UTF-8 BOM — every Arabic string turned to noise and the parser
+died, so the file is BOM'd and .gitattributes pins .ps1 to CRLF — and
+his www CNAME had no certificate coverage, so the Caddyfile now
+redirects www to the apex. Tested end to end: the script ran, printed
+its Arabic cleanly, confirmed the A record, and stopped dead on the
+AAAA with the panel path to fix it.
