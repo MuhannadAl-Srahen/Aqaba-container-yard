@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { DriverHaulRow } from '../shared/types';
 import { cardSerial } from '../shared/types';
+import { findTruck } from '../shared/fleet';
 import { ApiFailure, api, formatDateOnly } from './api';
 import { ammanToday, monthStart, rangeInstants } from './sheetKit';
 import { AR } from './ar';
@@ -19,6 +20,43 @@ import { Button, Confirm, Field, Toast, inputClass, useEscape } from './ui';
 
 const key = (row: DriverHaulRow): string => `${String(row.containerId)}|${row.direction}`;
 
+// Digits fold to one alphabet so «٦٠» finds the plate typed 60.
+const fold = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .trim();
+
+/** A small segmented filter: one lit button per choice. */
+function Seg<T extends string>(props: {
+  value: T;
+  onPick: (value: T) => void;
+  options: ReadonlyArray<readonly [T, string]>;
+}): ReactElement {
+  return (
+    <div className="flex gap-1 rounded-xl border border-line bg-sunken p-1">
+      {props.options.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => {
+            props.onPick(value);
+          }}
+          className={
+            'rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ' +
+            (props.value === value
+              ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+              : 'text-muted hover:bg-line')
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 interface DriverGroup {
   readonly driver: string;
   readonly rows: DriverHaulRow[];
@@ -32,6 +70,9 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
   const [to, setTo] = useState(ammanToday());
   /** «بدي القدرة البحث عن اسم السايق او رقم سيارته». */
   const [term, setTerm] = useState('');
+  const [direction, setDirection] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+  const [paidFilter, setPaidFilter] = useState<'ALL' | 'PAID' | 'DUE'>('ALL');
+  const [carrier, setCarrier] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [paying, setPaying] = useState<DriverHaulRow | null>(null);
   const [printing, setPrinting] = useState<string | null>(null);
@@ -57,10 +98,34 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
     enabled: valid,
   });
   const rows = useMemo(() => hauls.data?.rows ?? [], [hauls.data]);
+  const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, staleTime: 60_000 });
+  const needle = fold(term);
+
+  /**
+   * The filters cut ROWS, not drivers: a plate search shows that truck's own
+   * hauls alone — «اريد فقط ظهور السيارة التي تم البحث عليها» — and the
+   * paid, direction and carrier filters slice the same way, so every total
+   * under a name sums exactly what stands on the screen.
+   */
+  const shownRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        if (direction !== 'ALL' && row.direction !== direction) return false;
+        if (paidFilter === 'PAID' && row.paidAt === null) return false;
+        if (paidFilter === 'DUE' && row.paidAt !== null) return false;
+        if (carrier !== 0) {
+          const registered = findTruck(fleet.data?.trucks ?? [], row.truck);
+          if (registered === null || registered.carrierId !== carrier) return false;
+        }
+        if (needle === '') return true;
+        return fold(row.driver).includes(needle) || fold(row.truck).includes(needle);
+      }),
+    [rows, direction, paidFilter, carrier, fleet.data, needle],
+  );
 
   const groups = useMemo((): DriverGroup[] => {
     const map = new Map<string, DriverHaulRow[]>();
-    for (const row of rows) {
+    for (const row of shownRows) {
       const list = map.get(row.driver);
       if (list === undefined) map.set(row.driver, [row]);
       else list.push(row);
@@ -71,26 +136,7 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
       total: list.reduce((sum, row) => sum + (row.amount ?? 0), 0),
       paid: list.reduce((sum, row) => sum + (row.paidAt !== null ? (row.amount ?? 0) : 0), 0),
     }));
-  }, [rows]);
-
-  // Digits fold to one alphabet so «٦٠» finds the plate typed 60.
-  const fold = (text: string): string =>
-    text
-      .toLowerCase()
-      .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
-      .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
-      .trim();
-  const needle = fold(term);
-  // The driver keeps his WHOLE statement when found through one of his
-  // trucks — the point of the search is settling with him, not one row.
-  const shown =
-    needle === ''
-      ? groups
-      : groups.filter(
-          (group) =>
-            fold(group.driver).includes(needle) ||
-            group.rows.some((row) => fold(row.truck).includes(needle)),
-        );
+  }, [shownRows]);
 
   const refetch = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['drivers'] });
@@ -101,14 +147,17 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
     setBusy(false);
   };
 
-  /** Save one haul's figure the moment the clerk leaves the field. */
+  /**
+   * Save one haul's figure the moment the clerk leaves the field — WITHOUT
+   * freezing the screen: «تأكد من عدم وجود تأخير عند ادخال رقم». Nothing is
+   * disabled while the save flies; the toast lands when it lands.
+   */
   const saveWage = (row: DriverHaulRow): void => {
     const draft = drafts[key(row)];
     if (draft === undefined) return;
     const amount = Number(draft);
     if (draft.trim() === '' || !Number.isFinite(amount) || amount < 0) return;
     if (row.amount !== null && amount === row.amount) return;
-    setBusy(true);
     setError(null);
     api
       .setWage({ containerId: row.containerId, direction: row.direction, amount })
@@ -116,7 +165,6 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
         setDrafts((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key(row))));
         refetch();
         setToast(AR.wageSaved);
-        setBusy(false);
       })
       .catch(fail);
   };
@@ -185,14 +233,50 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
         </div>
       </div>
 
-      {groups.length === 0 && (
+      {/* «فلاتر عند حساب السائقين»: الاتجاه، الاستلام، والناقل. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Seg
+          value={direction}
+          onPick={setDirection}
+          options={[
+            ['ALL', AR.filterAll],
+            ['IN', AR.operationName['IN'] ?? 'IN'],
+            ['OUT', AR.operationName['OUT'] ?? 'OUT'],
+          ]}
+        />
+        <Seg
+          value={paidFilter}
+          onPick={setPaidFilter}
+          options={[
+            ['ALL', AR.filterAll],
+            ['PAID', AR.paidFilterYes],
+            ['DUE', AR.paidFilterNo],
+          ]}
+        />
+        <select
+          className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-sm text-ink"
+          value={carrier}
+          onChange={(event) => {
+            setCarrier(Number(event.target.value));
+          }}
+        >
+          <option value={0}>{AR.carrierFilterAll}</option>
+          {(fleet.data?.carriers ?? []).map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {rows.length === 0 && (
         <p className="py-6 text-center text-sm text-faint">{AR.driversEmpty}</p>
       )}
-      {groups.length > 0 && shown.length === 0 && (
+      {rows.length > 0 && groups.length === 0 && (
         <p className="py-6 text-center text-sm text-faint">{AR.driversNoMatch}</p>
       )}
 
-      {shown.map((group) => (
+      {groups.map((group) => (
         <section key={group.driver} className="rounded-2xl border border-line bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-bold text-ink">{group.driver}</h3>
@@ -250,7 +334,7 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
                     inputMode="decimal"
                     dir="ltr"
                     placeholder={AR.colWage}
-                    disabled={busy || row.paidAt !== null}
+                    disabled={row.paidAt !== null}
                     value={drafts[key(row)] ?? (row.amount === null ? '' : String(row.amount))}
                     onChange={(event) => {
                       const next = event.target.value;
@@ -266,7 +350,7 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
                   {row.paidAt === null ? (
                     <Button
                       kind="quiet"
-                      disabled={busy || row.amount === null}
+                      disabled={row.amount === null}
                       onClick={() => {
                         setPaying(row);
                       }}

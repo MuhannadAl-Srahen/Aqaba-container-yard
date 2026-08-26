@@ -340,7 +340,12 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
           {kind === 'in' && photos.length > 0 && (
             <div
               className={
-                attaching ? 'hidden space-y-4 border-t-2 border-rule-strong p-4 print:block' : 'hidden'
+                attaching
+                  ? // break-before-page: the photos open a page of their own,
+                    // heading and first photo together — no orphan title over
+                    // a blank tail of the card's page.
+                    'hidden break-before-page space-y-4 p-4 print:block'
+                  : 'hidden'
               }
             >
               <p className="text-center text-sm font-bold text-ink">

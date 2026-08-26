@@ -54,6 +54,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [moving, setMoving] = useState<ContainerDto | null>(null);
   /** When set, the placing flow CORRECTS this movement instead of moving. */
   const [correcting, setCorrecting] = useState<number | null>(null);
+  /** The container whose card should open on its edit form — the register's
+   * pencil sets it, the card's close clears it. */
+  const [editContainer, setEditContainer] = useState<number | null>(null);
   const [confirmMove, setConfirmMove] = useState<{ container: ContainerDto; to: Position } | null>(
     null,
   );
@@ -424,6 +427,19 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           void api.detail(containerId).then(({ container }) => {
             setPrintCard({ kind, container });
           });
+        }}
+        onEdit={(containerId) => {
+          // «تعديل بيانات الصف … دون الرجوع الى مكان وجود الحاوية»: the
+          // card opens over the register with its edit form already out.
+          api
+            .detail(containerId)
+            .then(({ container }) => {
+              setEditContainer(container.id);
+              setSelected(container);
+            })
+            .catch((failure: unknown) => {
+              setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+            });
         }}
         onPermit={(permitId) => {
           // The row may be stale — the owner can void a permit from another
@@ -917,31 +933,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         />
       )}
 
-      {selected !== null && (
-        <ContainerCard
-          container={selected}
-          may={may}
-          onStartMove={(container) => {
-            setSelected(null);
-            setMoving(container);
-          }}
-          onStartCorrect={(container, movementId) => {
-            setSelected(null);
-            setMoving(container);
-            setCorrecting(movementId);
-          }}
-          onPrint={setPrintCard}
-          onExited={(departed, message) => {
-            refresh(message);
-            setPrintCard({ kind: 'out', container: departed });
-          }}
-          onChanged={refresh}
-          onClose={() => {
-            setSelected(null);
-          }}
-        />
-      )}
-
       {confirmMove !== null && (
         <Confirm
           title={AR.confirmMoveTitle}
@@ -998,6 +989,40 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           permit={permitPrint}
           onClose={() => {
             setPermitPrint(null);
+          }}
+        />
+      )}
+      {/* The container's card lives HERE, above every screen: a register's
+          pencil opens it over the register itself — «دون الرجوع الى مكان
+          وجود الحاوية». */}
+      {selected !== null && (
+        <ContainerCard
+          container={selected}
+          startEditing={editContainer === selected.id}
+          may={may}
+          onStartMove={(container) => {
+            setSelected(null);
+            // The move is picked on the map — a register in front steps aside.
+            setReporting(false);
+            setLogView(false);
+            setMoving(container);
+          }}
+          onStartCorrect={(container, movementId) => {
+            setSelected(null);
+            setReporting(false);
+            setLogView(false);
+            setMoving(container);
+            setCorrecting(movementId);
+          }}
+          onPrint={setPrintCard}
+          onExited={(departed, message) => {
+            refresh(message);
+            setPrintCard({ kind: 'out', container: departed });
+          }}
+          onChanged={refresh}
+          onClose={() => {
+            setSelected(null);
+            setEditContainer(null);
           }}
         />
       )}

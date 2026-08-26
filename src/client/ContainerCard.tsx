@@ -6,10 +6,12 @@ import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
 import { findTruck } from '../shared/fleet';
 import { fromLocalStamp, toLocalStamp } from '../shared/dates';
+import { truckLooksOdd, weightLooksOdd } from '../shared/doubts';
 import { AR } from './ar';
 import type { ContainerEditInput } from './api';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import type { CardJob } from './PrintCard';
+import { shrinkPhoto } from './photos';
 import { PrintPhotos } from './PrintPhotos';
 import { Button, Confirm, ErrorLine, Field, Sheet, inputClass, useEscape } from './ui';
 
@@ -117,6 +119,8 @@ function MovementRow(props: { movement: MovementDto }): ReactElement {
 
 export function ContainerCard(props: {
   container: ContainerDto;
+  /** Open with the edit form already unfolded — the register row's pencil. */
+  startEditing?: boolean;
   /** What the signed-in employee is allowed to do. */
   may: (permission: Permission) => boolean;
   onStartMove: (container: ContainerDto) => void;
@@ -134,7 +138,7 @@ export function ContainerCard(props: {
 }): ReactElement {
   const { container } = props;
   const [confirming, setConfirming] = useState<'exit' | 'unexit' | 'delete' | null>(null);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(props.startEditing ?? false);
   const [truckOut, setTruckOut] = useState('');
   const [driverOut, setDriverOut] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -394,7 +398,11 @@ export function ContainerCard(props: {
                 {AR.actionEdit}
               </Button>
             )}
-            {inYard && props.may('DELETE') && (
+            {/* Standing OR departed — «عند خروج الحاوية قد احتاج الى حذف
+                الحاوية من السجل»: a record written wholly by mistake is
+                struck out either way, and the ledgers close over its
+                numbers. */}
+            {props.may('DELETE') && (
               <Button
                 kind="danger"
                 onClick={() => {
@@ -450,11 +458,16 @@ export function ContainerCard(props: {
                     match === null
                       ? null
                       : (fleet.data?.carriers.find((c) => c.id === match.carrierId) ?? null);
-                  return home === null ? undefined : (
-                    <span className="font-semibold text-emerald-600">
-                      {AR.carrierChip(home.name)}
-                    </span>
-                  );
+                  if (home !== null)
+                    return (
+                      <span className="font-semibold text-emerald-600">
+                        {AR.carrierChip(home.name)}
+                      </span>
+                    );
+                  // «ممكن يكون في سيارات عراقية» — a doubt, never a refusal.
+                  return truckLooksOdd(truckOut) ? (
+                    <span className="font-semibold text-amber-600">{AR.doubtTruck}</span>
+                  ) : undefined;
                 })()}
               >
                 <input
@@ -647,7 +660,16 @@ function EditForm(props: {
           {AR.feet(props.container.size)}
         </p>
       </Field>
-      <Field label={AR.weight} hint={<span className="text-faint">{AR.optional}</span>}>
+      <Field
+        label={AR.weight}
+        hint={
+          weightLooksOdd(weight) ? (
+            <span className="font-semibold text-amber-600">{AR.doubtWeight}</span>
+          ) : (
+            <span className="text-faint">{AR.optional}</span>
+          )
+        }
+      >
         <input
           dir="ltr"
           inputMode="numeric"
@@ -735,7 +757,14 @@ function EditForm(props: {
         <>
           <p className="pt-1 text-xs font-bold text-muted">{AR.editExitSection}</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={AR.truck}>
+            <Field
+              label={AR.truck}
+              hint={
+                truckLooksOdd(truckOut) ? (
+                  <span className="font-semibold text-amber-600">{AR.doubtTruck}</span>
+                ) : undefined
+              }
+            >
               <input
                 dir="ltr"
                 className={`${inputClass} text-start`}
@@ -851,7 +880,7 @@ function Photos(props: {
     const usable = [...files].filter(
       (file) =>
         (file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp') &&
-        file.size <= 8 * 1024 * 1024,
+        file.size <= 40 * 1024 * 1024,
     );
     if (usable.length < files.length) setLine({ text: AR.photoBadFile, bad: true });
     if (usable.length === 0) return;
@@ -861,7 +890,9 @@ function Photos(props: {
       let failed: string | null = null;
       for (const file of usable) {
         try {
-          await api.addPhoto(props.container.id, file);
+          // Shrunk before the wire — «لو تم ادخال الكثير من الصور يصبح
+          // النظام يعلق»: the database never carries a camera original.
+          await api.addPhoto(props.container.id, await shrinkPhoto(file));
           added += 1;
         } catch (failure) {
           failed = failure instanceof ApiFailure ? failure.arabic : AR.networkError;
@@ -877,36 +908,37 @@ function Photos(props: {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-bold text-ink">{AR.photosTitle}</h3>
-        <div className="flex gap-2">
-          {photos.length > 0 && (
-            <Button
-              kind="quiet"
-              onClick={() => {
-                setPrinting(true);
+      {/* «خليه كويس»: the heading and its two small buttons sit together on
+          one line, the thumbnails right under them — nothing drifts away. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="me-1 text-sm font-bold text-ink">{AR.photosTitle}</h3>
+        {canAdd && (
+          <label className="cursor-pointer rounded-lg border border-line-strong bg-surface px-2.5 py-1 text-xs font-semibold text-ink hover:border-blue-500">
+            {AR.photoAdd}
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              disabled={busy}
+              onChange={(event) => {
+                upload(event.target.files);
+                event.target.value = '';
               }}
-            >
-              {AR.photosPrint}
-            </Button>
-          )}
-          {canAdd && (
-            <label className="cursor-pointer rounded-xl border border-line-strong bg-surface px-3 py-1.5 text-sm font-semibold text-ink hover:border-blue-500">
-              {AR.photoAdd}
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                className="hidden"
-                disabled={busy}
-                onChange={(event) => {
-                  upload(event.target.files);
-                  event.target.value = '';
-                }}
-              />
-            </label>
-          )}
-        </div>
+            />
+          </label>
+        )}
+        {photos.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setPrinting(true);
+            }}
+            className="rounded-lg border border-line-strong bg-surface px-2.5 py-1 text-xs font-semibold text-ink hover:border-blue-500"
+          >
+            {AR.photosPrint}
+          </button>
+        )}
       </div>
       {photos.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
@@ -922,6 +954,8 @@ function Photos(props: {
                 <img
                   src={`/api/photos/${String(photo.id)}`}
                   alt={AR.photoView}
+                  loading="lazy"
+                  decoding="async"
                   className="h-20 w-20 rounded-lg border border-line object-cover"
                 />
               </button>

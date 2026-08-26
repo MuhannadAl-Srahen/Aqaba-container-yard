@@ -1420,6 +1420,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     const photo = store.getPhoto(db, id);
     if (photo === null) refuse(404, 'NOT_FOUND');
     if (photo === null) throw new Error('unreachable');
+    // A photo's bytes never change under its id, so the browser may keep
+    // them for good — thumbnails stop re-fetching on every card open.
+    void reply.header('cache-control', 'private, max-age=31536000, immutable');
     void reply.type(photo.mime);
     return Buffer.from(photo.bytes);
   });

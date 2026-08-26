@@ -327,6 +327,8 @@ export function ReportsScreen(props: {
   initialBill?: string | undefined;
   /** Reprint a gate card straight from the row it is on. */
   onCard: (kind: 'in' | 'out', containerId: number) => void;
+  /** The register row's pencil: the container's card opens editing at once. */
+  onEdit: (containerId: number) => void;
   /** Open a permit's paper from its register row. */
   onPermit: (permitId: number) => void;
   /** Open the issue form for this bill's standing containers. */
@@ -346,6 +348,8 @@ export function ReportsScreen(props: {
   const [truck, setTruck] = useState('');
   /** The carrier whose whole fleet the truck register is showing; 0 = by plate. */
   const [carrier, setCarrier] = useState(0);
+  /** «فصل بين سيارات التي اخرجت وبين التي ادخلت» — the truck sheet splits. */
+  const [truckDir, setTruckDir] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [bill, setBill] = useState(props.initialBill ?? '');
   const [removingPermit, setRemovingPermit] = useState<PermitReportRow | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -431,6 +435,16 @@ export function ReportsScreen(props: {
     refetchInterval: LIVE,
   });
 
+  /** The truck rows the sheet actually shows — the actions column reads the
+   * SAME array, so a row's buttons always belong to the row they sit on. */
+  const truckRows = useMemo(
+    () =>
+      (truckReport.data?.rows ?? []).filter(
+        (row) => truckDir === 'ALL' || row.statement === truckDir,
+      ),
+    [truckReport.data, truckDir],
+  );
+
   const baseTitle = TABS.find(([key]) => key === tab)?.[1] ?? '';
   /** A typed plate that matches a registered truck names its carrier too. */
   const plateCarrier =
@@ -469,7 +483,7 @@ export function ReportsScreen(props: {
         return dailyModel(daily.data?.rows ?? []);
       case 'truck':
         return truckModel(
-          truckReport.data?.rows ?? [],
+          truckRows,
           openBill,
           // Reading many plates at once — a carrier's fleet or the whole
           // register — the plate column drills into that one truck's sheet.
@@ -485,7 +499,7 @@ export function ReportsScreen(props: {
       case 'permits':
         return permitsModel(permits.data?.rows ?? [], openBill);
     }
-  }, [tab, gate.data, standing.data, daily.data, truckReport.data, billReport.data, permits.data, activeCarrier, truckReady, billReady]);
+  }, [tab, gate.data, standing.data, daily.data, truckRows, billReport.data, permits.data, activeCarrier, truckReady, billReady]);
 
   // A register row carries its own card: no hunting the exact number down in
   // the search box to reprint the paper the driver already lost. The permits
@@ -524,27 +538,44 @@ export function ReportsScreen(props: {
             );
           },
         }
-      : tab === 'in' || tab === 'out' || tab === 'standing' || tab === 'bill'
+      : tab === 'in' || tab === 'out' || tab === 'standing' || tab === 'bill' || tab === 'truck'
       ? {
           header: AR.actionColumn,
           render: (rowIndex: number): ReactNode => {
+            const truckRow = tab === 'truck' ? truckRows[rowIndex] : undefined;
             const containerId =
               tab === 'standing'
                 ? standing.data?.rows[rowIndex]?.containerId
                 : tab === 'bill'
                   ? billReport.data?.rows[rowIndex]?.id
-                  : gate.data?.rows[rowIndex]?.containerId;
+                  : tab === 'truck'
+                    ? truckRow?.containerId
+                    : gate.data?.rows[rowIndex]?.containerId;
             if (containerId === undefined) return null;
+            const kind =
+              tab === 'out' || truckRow?.statement === 'OUT' ? ('out' as const) : ('in' as const);
             return (
-              <button
-                type="button"
-                onClick={() => {
-                  props.onCard(tab === 'out' ? 'out' : 'in', containerId);
-                }}
-                className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200"
-              >
-                {AR.cardAction}
-              </button>
+              <span className="flex justify-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onCard(kind, containerId);
+                  }}
+                  className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200"
+                >
+                  {AR.cardAction}
+                </button>
+                {/* «دون الرجوع الى مكان وجود الحاوية»: the row edits itself. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onEdit(containerId);
+                  }}
+                  className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-200"
+                >
+                  {AR.actionEdit}
+                </button>
+              </span>
             );
           },
         }
@@ -629,6 +660,31 @@ export function ReportsScreen(props: {
                 if (event.target.value.trim() !== '') setCarrier(0);
               }}
             />
+            <div className="flex gap-1 rounded-xl border border-line bg-sunken p-1">
+              {(
+                [
+                  ['ALL', AR.filterAll],
+                  ['IN', AR.operationName['IN'] ?? 'IN'],
+                  ['OUT', AR.operationName['OUT'] ?? 'OUT'],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => {
+                    setTruckDir(value);
+                  }}
+                  className={
+                    'rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ' +
+                    (truckDir === value
+                      ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                      : 'text-muted hover:bg-line')
+                  }
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </>
         ) : tab === 'bill' ? (
           <>

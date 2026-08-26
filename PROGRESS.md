@@ -1538,3 +1538,28 @@ Proven by a 14-check harness that counts REAL pdf pages at every print
 door: the register 3, the 40-item permit 2, the plain card 1, the card
 «بدون صور» 1 and «بصور» 4, the three-photo paper 3 (his 1/1 case), and
 the 43-haul driver statement 6 — nothing truncated anywhere.
+
+The next batch came as one long message and shipped as one evening.
+The drivers ledger: search now cuts ROWS («اريد فقط ظهور السيارة التي تم
+البحث عليها») so a plate shows its own hauls and the totals sum the
+screen; three filters joined it — direction, received/not-received, and
+carrier off the fleet registry — and the wage field stopped freezing
+anything while it saves. The truck register grew the same all/in/out
+switch («كي لا يتم التضارب»). Every container register's action column
+grew a «تعديل» pencil that opens the card OVER the register with the
+edit form out — which surfaced that the card lived inside the map's own
+JSX and could not mount over any other screen; it moved to the common
+overlay layer, and moving/correcting from it folds the register away to
+show the map. The delete button now also serves a departed record. The
+map search reaches the seal, server side included. Soft amber doubts —
+never refusals — flag a plate off the NN-NNNNN pattern (Iraqi trucks
+pass, warned) and a weight outside 1–45 tonnes, at the gate, the exit
+and the edit form; a fleet-registered plate is trusted silently. And the
+photo weight problem died at the source: every picked photo is shrunk in
+the browser (longest side 1600, JPEG) before upload, the photo route
+tells the browser to cache forever, thumbnails load lazily, the photos
+header and its two small buttons sit on one line, and the card's printed
+photo attachment opens its own clean page. 293 tests (delete-exited,
+seal search), and a 14-check browser harness — filters counted rows,
+the pencil opened the form over the register, the doubts glowed amber —
+screenshots read by eye.

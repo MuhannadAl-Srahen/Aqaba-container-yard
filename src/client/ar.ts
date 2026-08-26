@@ -201,7 +201,7 @@ export const AR = {
   setupWorking: 'جارٍ التجهيز…',
 
   // ---- the map screen ----
-  searchPlaceholder: 'ابحث برقم الحاوية أو رقم البوليصة أو الموقع…',
+  searchPlaceholder: 'ابحث برقم الحاوية أو البوليصة أو الرصاصة أو الموقع…',
   yardName: (yard: number): string => `ساحة ${String(yard)}`,
   /** How much room is left in a yard: legal landings for each size, right now. */
   freeOfYard: (yard: number, t20: number, t40: number): string =>
@@ -395,7 +395,12 @@ export const AR = {
     'تكررت السيارة. اكتب أجر النقلة، وعندما يقبض السائق أكّد الاستلام.',
   driversEmpty: 'لا نقلات بسائق مسمّى في هذه الفترة.',
   driversSearch: 'ابحث باسم السائق أو رقم السيارة…',
-  driversNoMatch: 'لا اسم سائق ولا رقم سيارة يطابق البحث في هذه الفترة.',
+  driversNoMatch: 'لا نقلة تطابق البحث أو المرشحات في هذه الفترة.',
+  filterAll: 'الكل',
+  paidFilterYes: 'استلموا حسابهم',
+  paidFilterNo: 'لم يستلموا',
+  doubtTruck: 'الرقم على غير النمط المعتاد (مثل 60-12345). تأكد منه قبل المتابعة.',
+  doubtWeight: 'الوزن خارج المعتاد لحاوية — تأكد من عدم وجود صفر زائد أو ناقص.',
   colDirection: 'الاتجاه',
   colWage: 'الأجر',
   colReceipt: 'الاستلام',
@@ -429,7 +434,7 @@ export const AR = {
   confirmPhotoDeleteBody: 'تُحذف هذه الصورة من سجل الحاوية. هل أنت متأكد؟',
   photoAdded: (n: number): string =>
     n === 1 ? 'تمت إضافة الصورة.' : `تمت إضافة ${String(n)} من الصور.`,
-  photoBadFile: 'يُقبل ملف صورة فقط (JPG أو PNG أو WebP) وبحجم لا يتجاوز 8MB.',
+  photoBadFile: 'يُقبل ملف صورة فقط (JPG أو PNG أو WebP). الصور الكبيرة تُصغَّر تلقائياً قبل الرفع.',
   photoView: 'عرض الصورة',
   photosOnPaper: (number: string): string => `صور الحاوية ${number}`,
   gatePhotosLabel: 'صور الحاوية (اختيارية)',

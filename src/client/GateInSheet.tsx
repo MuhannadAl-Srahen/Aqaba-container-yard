@@ -4,9 +4,11 @@ import type { ContainerDto, Handling, Position } from '../shared/types';
 import { HANDLING, sizeOfBay } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
+import { truckLooksOdd, weightLooksOdd } from '../shared/doubts';
 import { findTruck } from '../shared/fleet';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
+import { shrinkPhoto } from './photos';
 import { Button, ErrorLine, Field, Sheet, inputClass } from './ui';
 
 /**
@@ -50,7 +52,7 @@ export function GateInSheet(props: {
     const usable = [...files].filter(
       (file) =>
         (file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp') &&
-        file.size <= 8 * 1024 * 1024,
+        file.size <= 40 * 1024 * 1024,
     );
     setPhotoNote(usable.length < files.length ? AR.photoBadFile : null);
     if (usable.length === 0) return;
@@ -115,7 +117,7 @@ export function GateInSheet(props: {
         let failed = false;
         for (const photo of photos) {
           try {
-            await api.addPhoto(container.id, photo.file);
+            await api.addPhoto(container.id, await shrinkPhoto(photo.file));
           } catch {
             failed = true;
             break;
@@ -184,6 +186,9 @@ export function GateInSheet(props: {
                 <span className="font-semibold text-emerald-600">
                   {AR.carrierChip(knownCarrier.name)}
                 </span>
+              ) : truckLooksOdd(truck) ? (
+                // A doubt, never a refusal — «لحتى الي يدخل ينتبه».
+                <span className="font-semibold text-amber-600">{AR.doubtTruck}</span>
               ) : undefined
             }
           >
@@ -230,7 +235,16 @@ export function GateInSheet(props: {
               }}
             />
           </Field>
-          <Field label={AR.weight} hint={<span className="text-faint">{AR.optional}</span>}>
+          <Field
+            label={AR.weight}
+            hint={
+              weightLooksOdd(weight) ? (
+                <span className="font-semibold text-amber-600">{AR.doubtWeight}</span>
+              ) : (
+                <span className="text-faint">{AR.optional}</span>
+              )
+            }
+          >
             <input
               dir="ltr"
               inputMode="numeric"

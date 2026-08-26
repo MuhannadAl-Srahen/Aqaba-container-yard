@@ -281,11 +281,12 @@ export function searchContainers(db: DatabaseSync, rawQuery: string): ContainerD
     .prepare(
       `SELECT * FROM containers
        WHERE deleted_at IS NULL
-         AND (number LIKE ? ESCAPE '\\' OR bill LIKE ? ESCAPE '\\')
+         AND (number LIKE ? ESCAPE '\\' OR bill LIKE ? ESCAPE '\\'
+              OR seal_in LIKE ? ESCAPE '\\')
        ORDER BY (zone IS NULL), entered_at DESC
        LIMIT 50`,
     )
-    .all(like, like) as unknown as ContainerRow[];
+    .all(like, like, like) as unknown as ContainerRow[];
   return rows.map(toDto);
 }
 

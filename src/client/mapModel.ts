@@ -207,7 +207,7 @@ export function targetBays(
   return targets;
 }
 
-/** Container ids whose number, owner or bill of lading matches the query. */
+/** Container ids whose number, bill of lading or seal matches the query. */
 export function searchMatches(
   containers: readonly ContainerDto[],
   query: string,
@@ -223,7 +223,9 @@ export function searchMatches(
     if (
       (asNumber.length > 0 && container.number.includes(asNumber)) ||
       // Typing a bill number lights the WHOLE group on the map at once.
-      (container.bill !== '' && container.bill.toLowerCase().includes(lower))
+      (container.bill !== '' && container.bill.toLowerCase().includes(lower)) ||
+      // The seal too — «اريد ايضا القدرة على البحث على الرصاصة».
+      (container.sealIn !== '' && container.sealIn.toLowerCase().includes(lower))
     ) {
       matches.add(container.id);
     }

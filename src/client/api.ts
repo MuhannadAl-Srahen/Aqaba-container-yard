@@ -294,8 +294,9 @@ export const api = {
   // ---- photos ----
   photos: (id: number): Promise<{ photos: PhotoDto[] }> =>
     request(`/api/containers/${String(id)}/photos`),
-  /** The one non-JSON POST: the photo's own bytes, typed by the file itself. */
-  addPhoto: async (id: number, file: File): Promise<{ id: number }> => {
+  /** The one non-JSON POST: the photo's own bytes, typed by the blob itself
+   * — usually a shrunk copy, never the camera original. */
+  addPhoto: async (id: number, file: Blob): Promise<{ id: number }> => {
     let response: Response;
     try {
       response = await fetch(`/api/containers/${String(id)}/photos`, {
