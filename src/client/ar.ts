@@ -399,6 +399,12 @@ export const AR = {
   driverByTruck: (truck: string): string => `سيارة ${truck} — بلا اسم سائق`,
   /** الصيغة داخل الجملة، حيث لا يستقيم عنوان المجموعة. */
   driverOfTruck: (truck: string): string => `سائق السيارة ${truck}`,
+  /** عنوان مجموعة السيارة حين يُعرف سائقها، أو حين تعدّد سائقوها في الفترة. */
+  truckWithDriver: (truck: string, driver: string): string => `سيارة ${truck} — ${driver}`,
+  truckManyDrivers: (truck: string, count: number): string =>
+    `سيارة ${truck} — ${String(count)} سائقين`,
+  groupByDriver: 'حسب السائق',
+  groupByTruck: 'حسب السيارة',
   driverUnknown: 'بلا اسم سائق ولا رقم سيارة',
   driverBlankWarning: 'بلا اسم سائق تُدرج النقلة تحت رقم السيارة في حساب السائقين. اكتب الاسم إن عرفته.',
   wageCleared: 'تم مسح أجر النقلة.',

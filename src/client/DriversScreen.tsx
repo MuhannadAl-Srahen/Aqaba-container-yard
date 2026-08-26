@@ -20,15 +20,22 @@ import { Button, Confirm, Field, Toast, inputClass, useEscape } from './ui';
 
 const key = (row: DriverHaulRow): string => `${String(row.containerId)}|${row.direction}`;
 
+type GroupBy = 'DRIVER' | 'TRUCK';
+
 /**
- * Whose account a haul belongs in. The driver's name when the gate wrote
- * one; otherwise the PLATE — «ضعها تحت نفس رقم السيارة» — because the name
- * is optional at the gate and a nameless haul is still work somebody did.
- * Filtering it out once hid eight real hauls and made the sheet's total
+ * Whose account a haul belongs in. By the driver's name — or by the PLATE,
+ * which the owner asked for as a second reading of the same book: «بدي كمان
+ * يعطي بناءا على رقم السيارة مو على اساس اسم السائق». The plate is also the
+ * fallback in driver mode whenever the gate wrote no name, because the name
+ * is optional there and a nameless haul is still work somebody did —
+ * filtering it out once hid eight real hauls and made the sheet's total
  * disagree with كشف السيارات.
  */
-const groupOf = (row: DriverHaulRow): string =>
-  row.driver !== '' ? `D:${row.driver}` : row.truck !== '' ? `T:${row.truck}` : 'X:';
+const groupOf = (row: DriverHaulRow, by: GroupBy): string => {
+  if (by === 'DRIVER' && row.driver !== '') return `D:${row.driver}`;
+  if (row.truck !== '') return `T:${row.truck}`;
+  return row.driver !== '' ? `D:${row.driver}` : 'X:';
+};
 
 /** The payee inside a sentence, where a group heading would not read. */
 const payee = (row: DriverHaulRow): string =>
@@ -76,13 +83,17 @@ interface DriverGroup {
   readonly key: string;
   readonly driver: string;
   readonly truck: string;
-  /** True when the gate wrote a name; false when the plate carries the group. */
-  readonly named: boolean;
+  /** No driver name anywhere under this heading: what still wants one. */
+  readonly nameless: boolean;
+  /** The heading is a plate, so the printed paper is the truck's. */
+  readonly byTruck: boolean;
   /** The heading as it is read. */
   readonly label: string;
   readonly rows: DriverHaulRow[];
   readonly total: number;
   readonly paid: number;
+  /** Every haul under this heading stamped received — «حاسبت». */
+  readonly settled: boolean;
 }
 
 export function DriversScreen(props: { onBack: () => void }): ReactElement {
@@ -92,6 +103,7 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
   /** «بدي القدرة البحث عن اسم السايق او رقم سيارته». */
   const [term, setTerm] = useState('');
   const [direction, setDirection] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
+  const [by, setBy] = useState<GroupBy>('DRIVER');
   const [paidFilter, setPaidFilter] = useState<'ALL' | 'PAID' | 'DUE'>('ALL');
   const [carrier, setCarrier] = useState(0);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -123,17 +135,20 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
   const needle = fold(term);
 
   /**
-   * The filters cut ROWS, not drivers: a plate search shows that truck's own
-   * hauls alone — «اريد فقط ظهور السيارة التي تم البحث عليها» — and the
-   * paid, direction and carrier filters slice the same way, so every total
-   * under a name sums exactly what stands on the screen.
+   * Search, direction and carrier cut ROWS: a plate search shows that truck's
+   * own hauls alone — «اريد فقط ظهور السيارة التي تم البحث عليها» — so every
+   * total under a heading sums exactly what stands on the screen.
+   *
+   * الاستلام is NOT here, and that is the fix. It used to cut rows too, so a
+   * driver with one settled haul and one outstanding appeared under BOTH
+   * «استلموا حسابهم» and «لم يستلموا», each time with half his account —
+   * which is why it read as broken. The question is about PEOPLE — «الناس
+   * الي ما حاسبت والناس الي حاسبت» — so it cuts headings, below.
    */
   const shownRows = useMemo(
     () =>
       rows.filter((row) => {
         if (direction !== 'ALL' && row.direction !== direction) return false;
-        if (paidFilter === 'PAID' && row.paidAt === null) return false;
-        if (paidFilter === 'DUE' && row.paidAt !== null) return false;
         if (carrier !== 0) {
           const registered = findTruck(fleet.data?.trucks ?? [], row.truck);
           if (registered === null || registered.carrierId !== carrier) return false;
@@ -141,33 +156,58 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
         if (needle === '') return true;
         return fold(row.driver).includes(needle) || fold(row.truck).includes(needle);
       }),
-    [rows, direction, paidFilter, carrier, fleet.data, needle],
+    [rows, direction, carrier, fleet.data, needle],
   );
 
   const groups = useMemo((): DriverGroup[] => {
     const map = new Map<string, DriverHaulRow[]>();
     for (const row of shownRows) {
-      const id = groupOf(row);
+      const id = groupOf(row, by);
       const list = map.get(id);
       if (list === undefined) map.set(id, [row]);
       else list.push(row);
     }
     return [...map.entries()].map(([id, list]) => {
-      const driver = list[0]?.driver ?? '';
       const truck = list[0]?.truck ?? '';
-      const named = driver !== '';
+      const byTruck = id.startsWith('T:');
+      // One plate may have carried more than one man over a month.
+      const names = [...new Set(list.map((row) => row.driver).filter((name) => name !== ''))];
+      const driver = byTruck ? '' : (list[0]?.driver ?? '');
       return {
         key: id,
         driver,
         truck,
-        named,
-        label: named ? driver : truck !== '' ? AR.driverByTruck(truck) : AR.driverUnknown,
+        nameless: names.length === 0,
+        byTruck,
+        label: !byTruck
+          ? driver
+          : truck === ''
+            ? AR.driverUnknown
+            : names.length === 0
+              ? AR.driverByTruck(truck)
+              : names.length === 1
+                ? AR.truckWithDriver(truck, names[0] ?? '')
+                : AR.truckManyDrivers(truck, names.length),
         rows: list,
         total: list.reduce((sum, row) => sum + (row.amount ?? 0), 0),
         paid: list.reduce((sum, row) => sum + (row.paidAt !== null ? (row.amount ?? 0) : 0), 0),
+        settled: list.every((row) => row.paidAt !== null),
       };
     });
-  }, [shownRows]);
+  }, [shownRows, by]);
+
+  /**
+   * «الناس الي ما حاسبت والناس الي حاسبت»: settled means every haul under the
+   * heading is stamped received. A haul with no figure written is not settled
+   * — it is work still waiting to be priced.
+   */
+  const shownGroups = useMemo(
+    () =>
+      groups.filter((group) =>
+        paidFilter === 'ALL' ? true : paidFilter === 'PAID' ? group.settled : !group.settled,
+      ),
+    [groups, paidFilter],
+  );
 
   const refetch = (): void => {
     void queryClient.invalidateQueries({ queryKey: ['drivers'] });
@@ -312,8 +352,16 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
         </div>
       </div>
 
-      {/* «فلاتر عند حساب السائقين»: الاتجاه، الاستلام، والناقل. */}
+      {/* «فلاتر عند حساب السائقين»: التجميع، الاتجاه، الاستلام، والناقل. */}
       <div className="flex flex-wrap items-center gap-3">
+        <Seg
+          value={by}
+          onPick={setBy}
+          options={[
+            ['DRIVER', AR.groupByDriver],
+            ['TRUCK', AR.groupByTruck],
+          ]}
+        />
         <Seg
           value={direction}
           onPick={setDirection}
@@ -351,19 +399,19 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
       {rows.length === 0 && (
         <p className="py-6 text-center text-sm text-faint">{AR.driversEmpty}</p>
       )}
-      {rows.length > 0 && groups.length === 0 && (
+      {rows.length > 0 && shownGroups.length === 0 && (
         <p className="py-6 text-center text-sm text-faint">{AR.driversNoMatch}</p>
       )}
 
-      {groups.map((group) => (
+      {shownGroups.map((group) => (
         <section key={group.key} className="rounded-2xl border border-line bg-surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3
               className={
                 'text-base font-bold ' +
-                (group.named ? 'text-ink' : 'text-amber-700 dark:text-amber-400')
+                (group.nameless ? 'text-amber-700 dark:text-amber-400' : 'text-ink')
               }
-              dir={group.named ? undefined : 'rtl'}
+              dir={group.byTruck ? 'rtl' : undefined}
             >
               {group.label}
             </h3>
@@ -533,9 +581,9 @@ function PrintDriver(props: {
           <div className="border-b-2 border-rule-strong px-3 py-3 text-center">
             <p className="text-sm font-semibold text-muted">{AR.appName}</p>
             <p className="mt-1 text-base font-bold text-ink">
-              {group.named
-                ? AR.driversPrintTitle(group.driver)
-                : AR.driversPrintTitleTruck(group.truck)}
+              {group.byTruck
+                ? AR.driversPrintTitleTruck(group.truck)
+                : AR.driversPrintTitle(group.driver)}
             </p>
             <p className="mt-1 text-xs text-muted" dir="ltr">
               {props.from} — {props.to}
