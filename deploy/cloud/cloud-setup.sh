@@ -15,10 +15,15 @@ DOMAIN="${1:-}"
 APP=/opt/aqaba-yard
 SERVICE_USER=aqaba
 
+# أوبونتو يشغّل تحديثاته التلقائية في الخلفية فيمسك قفل التثبيت دقائق، وأي
+# تثبيت هنا كان يفشل في اللحظة نفسها بدل أن ينتظره. هذه تنتظر خمس دقائق.
+export DEBIAN_FRONTEND=noninteractive
+apt_get() { command apt-get -o DPkg::Lock::Timeout=300 "$@"; }
+
 echo "== Node 24 =="
 if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 24 ]; then
   curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
-  apt-get install -y nodejs
+  apt_get install -y nodejs
 fi
 
 echo "== ذاكرة احتياطية (swap) =="
@@ -40,8 +45,8 @@ if [ ! -x /opt/google/chrome/chrome ]; then
     | gpg --dearmor --yes -o /usr/share/keyrings/google-chrome.gpg
   echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
     > /etc/apt/sources.list.d/google-chrome.list
-  apt-get update
-  apt-get install -y google-chrome-stable
+  apt_get update
+  apt_get install -y google-chrome-stable
 fi
 
 echo "== التطبيق وقاعدة البيانات =="
@@ -64,15 +69,27 @@ systemctl restart aqaba-yard
 
 if [ -n "$DOMAIN" ]; then
   echo "== HTTPS عبر Caddy على $DOMAIN =="
-  apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
-    | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
-    | tee /etc/apt/sources.list.d/caddy-stable.list
-  apt-get update
-  apt-get install -y caddy
-  sed "s/{{DOMAIN}}/$DOMAIN/" "$APP/deploy/cloud/Caddyfile" > /etc/caddy/Caddyfile
-  systemctl restart caddy
+  # التثبيت مرة واحدة. إعادته في كل رفعة كانت تجرّ السكربت إلى قفل apt بلا
+  # حاجة، فيتوقف بعد أن يكون التطبيق قد رُفع وشُغّل فعلاً — فيبدو الرفع
+  # فاشلاً وهو ناجح.
+  if ! command -v caddy >/dev/null 2>&1; then
+    apt_get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+      | gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+      | tee /etc/apt/sources.list.d/caddy-stable.list
+    apt_get update
+    apt_get install -y caddy
+  fi
+  # العنوان قد يتغيّر فالملف يُكتب في كل مرة، لكن Caddy لا يُعاد تشغيله إلا
+  # إن تغيّر فعلاً — فلا ينقطع الموقع في كل تحديث بلا سبب.
+  sed "s/{{DOMAIN}}/$DOMAIN/" "$APP/deploy/cloud/Caddyfile" > /tmp/Caddyfile.new
+  if cmp -s /tmp/Caddyfile.new /etc/caddy/Caddyfile 2>/dev/null; then
+    rm -f /tmp/Caddyfile.new
+  else
+    mv /tmp/Caddyfile.new /etc/caddy/Caddyfile
+    systemctl restart caddy
+  fi
 fi
 
 echo "== الجدار: SSH و80/443 فقط — منفذ التطبيق يبقى داخلياً =="
