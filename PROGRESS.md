@@ -1879,3 +1879,45 @@ totals 122/55/67 correct to the ledger, the plate 60-33333 gathering
 «حماد عودة» and «حماد عوده» into one account that the name-grouping
 splits in two, الاستلام cutting headings and not rows, and تسديد الكل
 stamping and the account dropping out of «لم يستلموا».
+
+## المرحلة 30 — الترميز يُقرأ من اليسار — 2026-08-26
+
+«اتاكد من الترميز بيجي من الشمال مو من اليمين يعني 60-85745 وهكذا». He
+was right, and it was worse than it looked.
+
+Rendered in headless Edge inside `dir="rtl"` and measured by the visual
+x-position of every character — not by reading the string, which returns
+logical order and would have said everything was fine:
+
+    سيارة 60-45165 نهاية      displayed as   سيارة 45165-60 نهاية
+    الخانة 2-B-32-01-B نهاية   displayed as   الخانة B-32-01-B-2 نهاية
+    سيارة 60/45165 نهاية      displayed correctly
+    بطاقة 0035/2026           displayed correctly
+    الحاوية ASLU5008663       displayed correctly
+
+So it is the HYPHEN. A hyphenated code dropped into Arabic text is cut at
+its hyphens and the pieces are laid out right to left. Every plate in his
+fleet is hyphenated, and so is every slot address in the yard. Codes
+joined by a slash, and codes with no separator at all, were measured and
+are correct as they stand — they are deliberately left alone.
+
+The cure is two unprintable characters, U+2066 and U+2069, around the
+code — and it belongs in the SENTENCE, not in the screen, because these
+same sentences become confirm dialogs, toasts and printed headings, none
+of which can carry an HTML tag. `ar.ts` grew one private `ltr()` helper
+and every sentence carrying a plate or an address now uses it.
+
+What it must never touch: a value that is stored, compared or searched. A
+plate with an invisible character inside it would stop matching the same
+plate typed at the gate, and the fleet register matches plates by text.
+A test pins that boundary along with the isolation itself.
+
+Also this round, by his word: «ورتب الدخول اولا والخروج اخر شي ب
+الترتيب» — inside every account the entries now come first and the exits
+last, each run in its own time order, and the printed statement reads
+from the same array so paper follows the screen.
+
+Verified in the running app, not asserted: every heading measured
+character by character, `60-33333` intact left to right, and a plate
+carrying four hauls showing دخول، دخول، خروج، خروج in that order.
+313 tests, gates green.

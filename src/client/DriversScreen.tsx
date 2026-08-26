@@ -203,7 +203,23 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
       if (list === undefined) map.set(id, [row]);
       else list.push(row);
     }
-    return [...map.entries()].map(([id, list]) => {
+    return [...map.entries()].map(([id, rows]) => {
+      // «ورتب الدخول اولا والخروج اخر شي ب الترتيب»: the period's entries
+      // first, then its exits, each run in its own time order. The printed
+      // statement reads from the same array, so paper follows the screen.
+      const list = rows
+        .slice()
+        .sort((a, b) =>
+          a.direction !== b.direction
+            ? a.direction === 'IN'
+              ? -1
+              : 1
+            : a.at < b.at
+              ? -1
+              : a.at > b.at
+                ? 1
+                : a.containerId - b.containerId,
+        );
       const truck = list[0]?.truck ?? '';
       const byTruck = id.startsWith('T:');
       // One plate may have carried more than one man over a month.

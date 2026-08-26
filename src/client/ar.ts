@@ -10,7 +10,23 @@ import { TIERS } from '../shared/types';
  *
  * The place words stay the official plan's own: يارد، زون، باي، ستاك، طابق —
  * and the full code reads `1-A-03-01-A`.
+ *
+ * Any Latin code inside these sentences is wrapped with `ltr()` below, or it
+ * is read backwards. See that helper for the measurement.
  */
+
+/**
+ * عزل ترميز لاتيني داخل جملة عربية. رقم السيارة «60-45165» في نص من اليمين
+ * إلى اليسار يُعرض «45165-60»: الشرطة تقطعه، فتُرصَّ قطعه بالمقلوب. وكذلك
+ * عنوان الخانة «2-B-32-01-B» يُقرأ «B-32-01-B-2». والعزل هنا حرفان لا
+ * يُطبعان (U+2066 و U+2069) يجعلان ما بينهما يُقرأ من اليسار دائماً —
+ * «اتاكد من الترميز بيجي من الشمال مو من اليمين».
+ *
+ * ويُوضَع في الجملة نفسها لا في الشاشة، لأن هذه الجمل تظهر في نوافذ التأكيد
+ * وفي التنبيهات وفي عناوين الورق المطبوع — ولا وسم HTML في أي منها.
+ * ولا يُوضَع أبداً في قيمة تُخزَّن أو تُقارَن أو يُبحث بها.
+ */
+const ltr = (code: string): string => `⁦${code}⁩`;
 
 export const AR = {
   appName: 'ساحة العقبة',
@@ -142,7 +158,7 @@ export const AR = {
   truckDelete: 'حذف السيارة',
   confirmTruckDeleteTitle: 'حذف سيارة',
   confirmTruckDeleteBody: (plate: string): string =>
-    `هل تريد حذف السيارة ${plate} من سجل الناقل؟ الكشوفات القديمة تبقى كما هي.`,
+    `هل تريد حذف السيارة ${ltr(plate)} من سجل الناقل؟ الكشوفات القديمة تبقى كما هي.`,
   truckAdded: 'تم تسجيل السيارة.',
   truckSaved: 'تم حفظ بيانات السيارة.',
   truckMoved: (carrier: string): string => `تم نقل السيارة إلى الناقل ${carrier}.`,
@@ -307,7 +323,7 @@ export const AR = {
   optional: 'اختياري',
   confirmGateIn: 'تأكيد الإدخال',
   gateInDone: (number: string, slot: string): string =>
-    `تم إدخال الحاوية ${number} في الموقع ${slot}`,
+    `تم إدخال الحاوية ${ltr(number)} في الموقع ${ltr(slot)}`,
 
   // ---- container card ----
   slot: 'الموقع',
@@ -334,10 +350,10 @@ export const AR = {
   actionUnexit: 'إلغاء الخروج',
   confirmUnexitTitle: 'إلغاء خروج',
   confirmUnexitBody: (number: string, slot: string): string =>
-    `هل تريد إلغاء خروج الحاوية ${number}؟ تعود إلى موقعها ${slot} وتُلغى بطاقة ` +
+    `هل تريد إلغاء خروج الحاوية ${ltr(number)}؟ تعود إلى موقعها ${ltr(slot)} وتُلغى بطاقة ` +
     'خروجها، ويعود رقمها إلى تسلسل السنة. استخدم هذا إذا سُجّل الخروج بالخطأ.',
   unexitDone: (number: string, slot: string): string =>
-    `تم إلغاء خروج الحاوية ${number}، وعادت إلى الموقع ${slot}`,
+    `تم إلغاء خروج الحاوية ${ltr(number)}، وعادت إلى الموقع ${ltr(slot)}`,
   /** The reprint buttons and the edit stay open after a departure. */
   departedStillEditable: 'الحاوية خارج الساحة — يمكن تصحيح بياناتها أو إلغاء خروجها.',
   movementsTitle: 'الحركات',
@@ -396,13 +412,16 @@ export const AR = {
     'اسم سائقها تُدرج تحت رقم سيارتها، فلا تسقط نقلة من الحساب.',
   driversEmpty: 'لا نقلات في هذه الفترة.',
   /** «ضعها تحت نفس رقم السيارة»: نقلة بلا اسم سائق تُنسب إلى لوحتها. */
-  driverByTruck: (truck: string): string => `سيارة ${truck} — بلا اسم سائق`,
+  driverByTruck: (truck: string): string => `سيارة ${ltr(truck)} — بلا اسم سائق`,
   /** الصيغة داخل الجملة، حيث لا يستقيم عنوان المجموعة. */
-  driverOfTruck: (truck: string): string => `سائق السيارة ${truck}`,
+  driverOfTruck: (truck: string): string => `سائق السيارة ${ltr(truck)}`,
   /** عنوان مجموعة السيارة حين يُعرف سائقها، أو حين تعدّد سائقوها في الفترة. */
-  truckWithDriver: (truck: string, driver: string): string => `سيارة ${truck} — ${driver}`,
+  truckWithDriver: (truck: string, driver: string): string =>
+    `سيارة ${ltr(truck)} — ${driver}`,
   truckManyDrivers: (truck: string, count: number): string =>
-    count === 2 ? `سيارة ${truck} — سائقان` : `سيارة ${truck} — ${String(count)} سائقين`,
+    count === 2
+      ? `سيارة ${ltr(truck)} — سائقان`
+      : `سيارة ${ltr(truck)} — ${String(count)} سائقين`,
   groupByDriver: 'حسب السائق',
   groupByTruck: 'حسب السيارة',
   driverUnknown: 'بلا اسم سائق ولا رقم سيارة',
@@ -447,7 +466,7 @@ export const AR = {
   wageUnset: 'بلا أجر',
   driverSignature: 'توقيع السائق',
   driversPrintTitle: (driver: string): string => `كشف حساب السائق ${driver}`,
-  driversPrintTitleTruck: (truck: string): string => `كشف حساب سيارة ${truck}`,
+  driversPrintTitleTruck: (truck: string): string => `كشف حساب سيارة ${ltr(truck)}`,
 
   // ---- photos ----
   photosTitle: 'الصور',
@@ -780,7 +799,7 @@ export const AR = {
   // ---- delete ----
   confirmDeleteTitle: 'حذف سجل',
   confirmDeleteBody: (number: string): string =>
-    `هل تريد حذف سجل الحاوية ${number}؟ استخدم هذا الخيار فقط إذا كُتب السجل كله بالخطأ.`,
+    `هل تريد حذف سجل الحاوية ${ltr(number)}؟ استخدم هذا الخيار فقط إذا كُتب السجل كله بالخطأ.`,
   deleteDone: 'تم حذف السجل.',
 
   // ---- search results ----
