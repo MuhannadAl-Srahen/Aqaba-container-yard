@@ -23,7 +23,11 @@ param(
   [switch]$SkipDnsCheck
 )
 
-$ErrorActionPreference = 'Stop'
+# PowerShell 5.1 يحوّل كل سطر يكتبه برنامج خارجي على قناة الأخطاء إلى خطأ
+# قاتل حين تكون السياسة Stop — وssh يكتب تنبيهات عادية هناك، مثل «أضيف
+# مفتاح هذا السيرفر إلى قائمة المعروفين» في أول اتصال. فالحكم على البرامج
+# الخارجية يبقى على رمز الخروج وحده، وهو ما يُفحص بعد كل نداء أدناه.
+$ErrorActionPreference = 'Continue'
 $remote = "${User}@${Server}"
 # accept-new: أول اتصال لا يسأل سؤال المفتاح، لكن تغيّر مفتاح السيرفر لاحقاً
 # يبقى يُرفض — وهو ما يحمي من انتحال السيرفر.
@@ -110,7 +114,7 @@ if (-not $SkipDnsCheck -and $Domain -ne '') {
 
   # ذاكرة ويندوز المؤقتة تحتفظ بالجواب القديم ساعات. تُمسح هنا فيرى
   # متصفحك أيضاً الحقيقة الجديدة.
-  try { Clear-DnsClientCache } catch { }
+  try { Clear-DnsClientCache -ErrorAction SilentlyContinue } catch { }
 
   $a = Resolve-Authoritative -Name $Domain -Type 'A'
   if (-not $a.reached) {
@@ -201,7 +205,7 @@ Ok 'الخدمة تعمل'
 if ($Domain -ne '') {
   $url = "https://$Domain"
   try {
-    $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 25
+    $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 25 -ErrorAction Stop
     Ok "الموقع يستجيب: $($response.StatusCode)"
   } catch {
     Warn "الموقع لم يستجب بعد — الشهادة قد تحتاج دقيقة. جرّب فتح $url في المتصفح."
