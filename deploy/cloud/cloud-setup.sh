@@ -7,10 +7,13 @@
 # التشغيل، بصلاحية root، مع اسم النطاق الذي يشير إلى IP هذا السيرفر:
 #   bash /opt/aqaba-yard/deploy/cloud/cloud-setup.sh yard.example.com
 # بلا نطاق (تجربة على المنفذ 8787 مباشرة): شغّله بلا وسيط.
+#
+# الأمر يُعاد تشغيله بأمان: كل خطوة تتحقق قبل أن تعمل.
 set -euo pipefail
 
 DOMAIN="${1:-}"
 APP=/opt/aqaba-yard
+SERVICE_USER=aqaba
 
 echo "== Node 24 =="
 if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]')" -lt 24 ]; then
@@ -18,15 +21,46 @@ if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.spli
   apt-get install -y nodejs
 fi
 
+echo "== ذاكرة احتياطية (swap) =="
+# قرص السحابة يأتي بلا swap. الاسترجاع يحمّل ملف النسخة كاملاً في الذاكرة،
+# وطباعة PDF تفتح متصفحاً — والاثنان معاً على ذاكرة صغيرة يقتلان الخدمة.
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+echo "== متصفح الطباعة (تصدير PDF) =="
+# زر «تصدير PDF» في الكشوف يطبع الورقة بمحرك متصفح حقيقي على السيرفر.
+# بلا متصفح مثبّت يفشل الزر وحده بينما يبدو النظام سليماً.
+if [ ! -x /opt/google/chrome/chrome ]; then
+  curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor --yes -o /usr/share/keyrings/google-chrome.gpg
+  echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list
+  apt-get update
+  apt-get install -y google-chrome-stable
+fi
+
 echo "== التطبيق وقاعدة البيانات =="
 mkdir -p "$APP/data"
 cd "$APP"
 npm install --omit=dev
 
+echo "== مستخدم الخدمة =="
+# النظام لا يعمل بصلاحية root: خادم على الإنترنت العام يفتح متصفحاً، وصندوق
+# أمان المتصفح نفسه يرفض العمل تحت root. مستخدم خاص يحلّ الاثنين معاً.
+id -u "$SERVICE_USER" >/dev/null 2>&1 \
+  || useradd --system --home "$APP" --shell /usr/sbin/nologin "$SERVICE_USER"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$APP"
+
 echo "== الخدمة الدائمة =="
 cp "$APP/deploy/cloud/aqaba-yard.service" /etc/systemd/system/aqaba-yard.service
 systemctl daemon-reload
-systemctl enable --now aqaba-yard
+systemctl enable aqaba-yard
+systemctl restart aqaba-yard
 
 if [ -n "$DOMAIN" ]; then
   echo "== HTTPS عبر Caddy على $DOMAIN =="
@@ -48,6 +82,12 @@ ufw allow 443
 ufw --force enable
 
 echo ""
+echo "== فحص أخير =="
+sleep 2
+systemctl is-active --quiet aqaba-yard \
+  && echo "الخدمة تعمل." \
+  || { echo "الخدمة لا تعمل. اقرأ السبب: journalctl -u aqaba-yard -n 50"; exit 1; }
+
 if [ -n "$DOMAIN" ]; then
   echo "تم. افتح: https://$DOMAIN — أول فتح يطلب تهيئة كلمة المالك."
 else

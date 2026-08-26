@@ -9,7 +9,12 @@ Environment=YARD_DB=/opt/aqaba-yard/data/yard.db
 ExecStart=/usr/bin/npm start
 Restart=always
 RestartSec=3
-User=root
+# لا root: الخادم يفتح متصفحاً لطباعة الكشوف، وصندوق أمان المتصفح يرفض
+# العمل تحت root — والسيرفر على الإنترنت العام لا يشغّل تطبيقاً بأعلى صلاحية.
+# ينشئ سكربت التجهيز هذا المستخدم ويملّكه مجلد التطبيق.
+User=aqaba
+Group=aqaba
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target
