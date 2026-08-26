@@ -49,6 +49,16 @@ if [ ! -x /opt/google/chrome/chrome ]; then
   apt_get install -y google-chrome-stable
 fi
 
+echo "== خطوط عربية للطباعة =="
+# سيرفر لينكس يأتي بلا خط عربي واحد، فمتصفح الطباعة لا يجد شكلاً للحرف
+# ويرسم مربعاً فارغاً مكان كل كلمة في ملف PDF. النص سليم في قاعدة البيانات
+# — الخط وحده هو الناقص. وترويسة صفحة PDF وتذييلها تُرسمان في مستند منفصل
+# لا يرث خطوط الصفحة، فلا يكفي خط داخل الصفحة: لا بد من خط في النظام نفسه.
+if [ "$(fc-list :lang=ar 2>/dev/null | wc -l)" -eq 0 ]; then
+  apt_get install -y fontconfig fonts-noto-core fonts-noto-ui-core
+  fc-cache -f >/dev/null 2>&1 || true
+fi
+
 echo "== التطبيق وقاعدة البيانات =="
 mkdir -p "$APP/data"
 cd "$APP"
@@ -104,6 +114,13 @@ sleep 2
 systemctl is-active --quiet aqaba-yard \
   && echo "الخدمة تعمل." \
   || { echo "الخدمة لا تعمل. اقرأ السبب: journalctl -u aqaba-yard -n 50"; exit 1; }
+
+ARABIC_FONTS="$(fc-list :lang=ar 2>/dev/null | wc -l)"
+if [ "$ARABIC_FONTS" -eq 0 ]; then
+  echo "تحذير: لا خط عربي على السيرفر — ستخرج ملفات PDF بمربعات فارغة."
+else
+  echo "الخطوط العربية للطباعة: $ARABIC_FONTS"
+fi
 
 if [ -n "$DOMAIN" ]; then
   echo "تم. افتح: https://$DOMAIN — أول فتح يطلب تهيئة كلمة المالك."

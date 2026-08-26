@@ -173,7 +173,13 @@ export function sheetHtml(title: string, period: string, model: TableModel): str
   return (
     `<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><style>` +
     `*{-webkit-print-color-adjust:exact;print-color-adjust:exact}` +
-    `body{font-family:'Cairo','Segoe UI',Tahoma,sans-serif;margin:0;color:#0f172a;` +
+    // Cairo is the yard's own face and is present on the office machine. The
+    // PDF, though, is drawn by the browser ON THE SERVER, which has no Cairo
+    // and — until the setup script installed one — no Arabic font at all, so
+    // every word came out an empty box. Noto Naskh is what the server has;
+    // naming it keeps the choice ours instead of fontconfig's guess.
+    `body{font-family:'Cairo','Noto Naskh Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;` +
+    `margin:0;color:#0f172a;` +
     `font-variant-numeric:lining-nums}` +
     `.head{text-align:center;border-bottom:2.5px solid #1e293b;padding-bottom:8px;margin-bottom:12px}` +
     `.site{color:#64748b;font-size:12px;margin:0 0 2px}` +

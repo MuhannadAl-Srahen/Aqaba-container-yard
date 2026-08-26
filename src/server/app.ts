@@ -1634,7 +1634,11 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         displayHeaderFooter: true,
         headerTemplate: '<div></div>',
         footerTemplate:
-          `<div style="width:100%;font-family:'Segoe UI',Tahoma,sans-serif;font-size:8px;` +
+          // The footer is a SEPARATE document that inherits nothing from the
+          // page — not its stylesheet and not any web font it loaded. Its
+          // Arabic can only come from a font installed on the machine, which
+          // is why deploy/cloud/cloud-setup.sh installs one.
+          `<div style="width:100%;font-family:'Noto Naskh Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;font-size:8px;` +
           `color:#64748b;padding:0 9mm;display:flex;justify-content:space-between;direction:rtl">` +
           `<span>${escapeHtml(body.title)}</span>` +
           `<span>صفحة <span class="pageNumber"></span> من <span class="totalPages"></span></span>` +

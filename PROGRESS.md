@@ -1921,3 +1921,37 @@ Verified in the running app, not asserted: every heading measured
 character by character, `60-33333` intact left to right, and a plate
 carrying four hauls showing دخول، دخول، خروج، خروج in that order.
 313 tests, gates green.
+
+## المرحلة 31 — الخط الذي لم يكن هناك — 2026-08-27
+
+«يوجد مشكلة في النظام عند طابعة الكشوفات PDF وخصوصا كشف الحاويات» — and
+the picture showed a register whose every Arabic word was an empty box,
+while the numbers and dates beside them were perfect.
+
+Nothing was wrong with the data or the code. `fc-list :lang=ar` on the
+server answered with nothing at all: sixteen fonts installed, not one of
+them carrying an Arabic glyph. The office machine is Windows and has
+Arabic fonts, so this never appeared until the yard moved to a Linux
+server — the same build, printing correctly in Aqaba and printing boxes
+in Paris.
+
+Two details made it worse than a missing package. The PDF is drawn from
+HTML passed through `page.setContent` with no base URL, so the page
+cannot reach the app's own Cairo web font even though it sits in the same
+build. And the header and footer of a Chrome PDF are rendered in a
+SEPARATE document that inherits neither the stylesheet nor any web font
+the page loaded — so «صفحة 1 من 3» could only ever come from a font
+installed on the machine. Embedding a font in the page would not have
+fixed the footer.
+
+So the provisioner installs one, guarded so a redeploy does not reinstall
+it, and both font stacks — the page's and the footer's — now name Noto
+Naskh Arabic explicitly rather than leaving the choice to fontconfig. The
+setup script also counts the Arabic fonts at the end and says so, because
+the failure is silent otherwise: a PDF still generates, still downloads,
+and is simply unreadable.
+
+Proved by rendering on the server itself as the service user, with the
+exact font stack the PDF uses, and looking at the picture: «كشف الحاويات
+الواقفة في الساحة» reads as it should. Twelve Arabic fonts where there
+were none.
