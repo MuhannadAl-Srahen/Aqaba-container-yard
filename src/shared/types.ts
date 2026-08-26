@@ -359,6 +359,8 @@ export interface PermitItemDto {
   readonly cardIn: number | null;
   readonly cardInYear: number | null;
   readonly enteredAt: string;
+  /** الوزن كما كُتب لحظة الإصدار — part of the stamped snapshot. */
+  readonly weight: string;
   /**
    * For the paper's totals line, the bill sheet's own «n حاوية — عشرين ·
    * أربعين». Read live rather than snapshotted, which is safe for this one

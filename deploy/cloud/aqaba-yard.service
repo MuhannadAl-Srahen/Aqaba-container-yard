@@ -1,0 +1,15 @@
+[Unit]
+Description=Aqaba Yard - ساحة العقبة
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/aqaba-yard
+Environment=PORT=8787
+Environment=YARD_DB=/opt/aqaba-yard/data/yard.db
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target

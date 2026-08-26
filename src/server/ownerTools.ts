@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -147,6 +147,9 @@ export function registerOwnerTools(
       if (bytes.subarray(0, 15).toString('utf8') !== 'SQLite format 3') refuse(400, 'BAD_BACKUP');
 
       const scratch = path.join(path.dirname(file), 'backups', `.restore-${String(Date.now())}.db`);
+      // A fresh install has never taken a snapshot, so backups/ may not
+      // exist yet — the very first thing the owner does may be a restore.
+      mkdirSync(path.dirname(scratch), { recursive: true });
       writeFileSync(scratch, bytes);
       let source: DatabaseSync | null = null;
       try {

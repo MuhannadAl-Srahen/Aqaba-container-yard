@@ -36,6 +36,11 @@ export function PermitSheet(props: {
         .map((container) => [container.id, container.truckOut]),
     ),
   );
+  /** «اريد وضع خانة للوزن ايضا»: prefilled from the record, editable, and
+   * whatever stands here at issue time is what the stamped paper reads. */
+  const [weights, setWeights] = useState<Readonly<Record<number, string>>>(() =>
+    Object.fromEntries(listed.map((container) => [container.id, container.weight])),
+  );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -54,6 +59,7 @@ export function PermitSheet(props: {
       .map((container) => ({
         containerId: container.id,
         truck: (trucks[container.id] ?? '').trim(),
+        weight: (weights[container.id] ?? '').trim(),
       }));
     if (items.length === 0 || busy) return;
     setBusy(true);
@@ -95,9 +101,9 @@ export function PermitSheet(props: {
                 match === null
                   ? null
                   : (fleet.data?.carriers.find((c) => c.id === match.carrierId) ?? null);
-              // Two quiet lines, never a squeeze: the box and its badges on
-              // the first, the entry facts and the plate on the second — a
-              // narrow panel wraps nothing and overlaps nothing.
+              // Quiet lines, never a squeeze: the box and its badges first,
+              // then the entry facts — and on a narrow panel the weight and
+              // plate inputs WRAP onto their own line rather than overflow.
               return (
                 <li key={container.id} className="px-3 py-2.5">
                   <label className="flex cursor-pointer items-center gap-2.5">
@@ -121,7 +127,7 @@ export function PermitSheet(props: {
                       </span>
                     )}
                   </label>
-                  <div className="mt-1.5 flex items-center gap-3 ps-7">
+                  <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 ps-7">
                     <span className="shrink-0 font-mono text-xs text-muted" dir="ltr">
                       {cardSerial(container.cardIn, container.cardInYear) ?? '—'}
                     </span>
@@ -130,9 +136,19 @@ export function PermitSheet(props: {
                     </span>
                     <input
                       dir="ltr"
+                      placeholder={AR.colWeight}
+                      disabled={!on}
+                      className={`${inputClass} ms-auto w-20 py-1 text-start text-sm disabled:opacity-40`}
+                      value={weights[container.id] ?? ''}
+                      onChange={(event) => {
+                        setWeights({ ...weights, [container.id]: event.target.value });
+                      }}
+                    />
+                    <input
+                      dir="ltr"
                       placeholder={AR.colPermitTruck}
                       disabled={!on}
-                      className={`${inputClass} ms-auto w-28 py-1 text-start text-sm disabled:opacity-40`}
+                      className={`${inputClass} w-28 py-1 text-start text-sm disabled:opacity-40`}
                       value={plate}
                       onChange={(event) => {
                         setTrucks({ ...trucks, [container.id]: event.target.value });

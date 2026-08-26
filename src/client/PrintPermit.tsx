@@ -112,6 +112,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                 <th className={`${headCell} w-10`}>{AR.colSeq}</th>
                 <th className={headCell}>{AR.colEntryCard}</th>
                 <th className={headCell}>{AR.colNumber}</th>
+                <th className={headCell}>{AR.colWeight}</th>
                 <th className={headCell}>{AR.colEnteredAt}</th>
               </tr>
             </thead>
@@ -124,6 +125,11 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                   </td>
                   <td className={`${bodyCell} font-mono tracking-wider`} dir="ltr">
                     {item.number}
+                  </td>
+                  {/* «اظهارها بالطباعة»: the weight as the paper was issued —
+                      the row's own dash where none was recorded. */}
+                  <td className={bodyCell} dir="ltr">
+                    {item.weight === '' ? '—' : item.weight}
                   </td>
                   {/* No truck column: the owner struck the plates off this
                       paper — they live in the permit screen alone. */}
@@ -139,7 +145,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                   {AR.totalRow}
                 </td>
                 <td
-                  colSpan={3}
+                  colSpan={4}
                   className={`${bodyCell} border-t-2 border-t-rule-strong font-bold`}
                 >
                   {AR.billTotals(permit.items.length, t20, t40)}

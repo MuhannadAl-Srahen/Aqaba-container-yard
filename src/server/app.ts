@@ -180,6 +180,8 @@ const permitSchema = z.object({
       z.object({
         containerId: z.number().int().positive(),
         truck: z.string().trim().max(30),
+        /** الوزن كما تُصدره الورقة — prefilled from the record, editable. */
+        weight: z.string().trim().max(20).default(''),
       }),
     )
     .min(1)
@@ -745,6 +747,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           cardIn: container.cardIn,
           cardInYear: container.cardInYear,
           enteredAt: container.enteredAt,
+          weight: item.weight,
         };
       });
       const at = now();

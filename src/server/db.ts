@@ -362,7 +362,9 @@ export function migrate(db: DatabaseSync, file: string): void {
       number       TEXT    NOT NULL DEFAULT '',
       card_in      INTEGER,
       card_in_year INTEGER,
-      entered_at   TEXT    NOT NULL DEFAULT ''
+      entered_at   TEXT    NOT NULL DEFAULT '',
+      -- v23: «اريد وضع خانة للوزن ايضا» — الوزن كما كُتب لحظة الإصدار.
+      weight       TEXT    NOT NULL DEFAULT ''
     );
 
     CREATE INDEX IF NOT EXISTS idx_permit_items_permit ON permit_items (permit_id);
@@ -420,7 +422,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_wages_live
       ON wages (container_id, direction) WHERE deleted_at IS NULL;
 
-    PRAGMA user_version = 22;
+    PRAGMA user_version = 23;
   `);
 
   // v21 upgrade: a permits table born before the owner's yards existed does
@@ -449,7 +451,11 @@ export function migrate(db: DatabaseSync, file: string): void {
     .prepare('SELECT name FROM pragma_table_info(?)')
     .all('permit_items') as unknown as Array<{ name: string }>;
   if (!permitItemColumns.some((column) => column.name === 'number')) {
+    // One transaction: exec() commits statement by statement, so a process
+    // dying between the ALTER and the backfill would leave the column
+    // present, the sniff satisfied, and the backfill skipped forever.
     db.exec(`
+      BEGIN;
       ALTER TABLE permit_items ADD COLUMN number TEXT NOT NULL DEFAULT '';
       ALTER TABLE permit_items ADD COLUMN card_in INTEGER;
       ALTER TABLE permit_items ADD COLUMN card_in_year INTEGER;
@@ -459,6 +465,21 @@ export function migrate(db: DatabaseSync, file: string): void {
         card_in      = (SELECT k.card_in FROM containers k WHERE k.id = container_id),
         card_in_year = (SELECT k.card_in_year FROM containers k WHERE k.id = container_id),
         entered_at   = COALESCE((SELECT k.entered_at FROM containers k WHERE k.id = container_id), '');
+      COMMIT;
+    `);
+  }
+
+  // v23: the weight joined the snapshot — «اريد وضع خانة للوزن ايضا
+  // واظهارها بالطباعة». Old lines backfill from the container as it stands
+  // now, the closest thing to «as issued» they still have.
+  if (!permitItemColumns.some((column) => column.name === 'weight')) {
+    // ALTER and backfill in ONE transaction — see the v20 note above.
+    db.exec(`
+      BEGIN;
+      ALTER TABLE permit_items ADD COLUMN weight TEXT NOT NULL DEFAULT '';
+      UPDATE permit_items SET
+        weight = COALESCE((SELECT k.weight FROM containers k WHERE k.id = container_id), '');
+      COMMIT;
     `);
   }
 

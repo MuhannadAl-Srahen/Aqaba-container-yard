@@ -176,4 +176,41 @@ describe('الصور في النسخة الاحتياطية', () => {
     expect(served.status).toBe(200);
     expect(Buffer.compare(served.bytes, jpeg)).toBe(0);
   });
+
+  it('a restore lands even before this install ever took a backup', async () => {
+    const id = await seedContainer();
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 5, 5, 0xff, 0xd9]);
+    const added = await upload(id, jpeg);
+    const photoId = added.body['id'] as number;
+    const backup = await call({ method: 'POST', url: '/api/backup' });
+
+    // A brand-new install: no snapshot was ever taken, so backups/ does not
+    // exist — the very first thing this owner does is restore the old yard.
+    const freshDir = mkdtempSync(path.join(tmpdir(), 'yard-fresh-'));
+    const freshDb = openDatabase(path.join(freshDir, 'yard.db'));
+    const fresh = buildApp(freshDb);
+    const setupRes = await fresh.inject({
+      method: 'POST',
+      url: '/api/setup',
+      payload: { password: 'owner-secret-2' },
+    });
+    const header = setupRes.headers['set-cookie'];
+    const freshCookie =
+      (Array.isArray(header) ? header[0] : header)?.split(';')[0] ?? '';
+    const restored = await fresh.inject({
+      method: 'POST',
+      url: '/api/owner/restore',
+      headers: { cookie: freshCookie, 'content-type': 'application/octet-stream' },
+      payload: backup.bytes,
+    });
+    expect(restored.statusCode).toBe(200);
+    const served = await fresh.inject({
+      method: 'GET',
+      url: `/api/photos/${String(photoId)}`,
+      headers: { cookie: freshCookie },
+    });
+    expect(served.statusCode).toBe(200);
+    expect(Buffer.compare(served.rawPayload, jpeg)).toBe(0);
+    freshDb.close();
+  });
 });

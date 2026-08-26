@@ -1572,3 +1572,35 @@ Tailscale's job (already installed there, already serving the ts.net
 URL): each new device installs the Tailscale app, signs into the same
 account, and opens the same address. Front and back stay ONE process —
 no split, ever, for this system.
+
+Two corrections the next morning. First, MY error on the record above:
+the owner's «لا اريد ان ارفع النظام على سيرفر سحابي» read backwards —
+he clarified «قصدت اني اريد سيرفر سحابي لا على tailscale»: he WANTS the
+cloud VPS and it is Tailscale he refuses. So `deploy/cloud/` was born: a
+one-command Ubuntu setup script (Node 24, npm install on the server —
+never Windows node_modules — systemd service, Caddy with automatic
+HTTPS, UFW closing everything but SSH/80/443), the unit file, the
+Caddyfile template, and اقرأني-السيرفر.md walking him rent → upload →
+one command → restore the office backup → weekly backup habit. One
+process serves client and API — front and back never split. Second, the
+permit grew its weight: «اريد وضع خانة للوزن ايضا واظهارها بالطباعة» —
+permit_items snapshots a weight column (v23, old lines backfilled from
+their containers), the issue screen prefills it from the record and lets
+the clerk correct it before the stamp, and the paper prints الوزن (كغم)
+between the number and the entry date. Proven the snapshot way: a permit
+issued with 30480 over a weightless container reprints 30480 (294
+tests), and a browser probe watched 28500 prefill, become 28900 by hand,
+and land on the printed paper.
+
+The weight change went through its own adversarial panel (9 agents)
+before shipping, and all five confirmed findings closed the same hour:
+the v20 AND v23 ALTER+backfill now run in one transaction (exec commits
+per statement — a death between them would have skipped the backfill
+forever); restore no longer 500s on a brand-new install that never took
+a backup (mkdir before the scratch write, locked by a regression test
+with a second fresh app); api.createPermit's wire type finally names the
+weight (a wieght: typo compiled clean before — proven by the verifier);
+the permit sheet's facts row WRAPS instead of overflowing the 380px
+panel by 65px (measured in headless Chrome by the verifier); and an
+unrecorded weight prints the row's own «—», not an invitingly blank box.
+295 tests.

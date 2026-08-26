@@ -1233,6 +1233,7 @@ export function insertPermit(
       cardIn: number | null;
       cardInYear: number | null;
       enteredAt: string;
+      weight: string;
     }>;
   },
 ): number {
@@ -1245,8 +1246,9 @@ export function insertPermit(
       .lastInsertRowid,
   );
   const addItem = db.prepare(
-    `INSERT INTO permit_items (permit_id, container_id, truck, number, card_in, card_in_year, entered_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO permit_items
+       (permit_id, container_id, truck, number, card_in, card_in_year, entered_at, weight)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const item of permit.items) {
     addItem.run(
@@ -1257,6 +1259,7 @@ export function insertPermit(
       item.cardIn,
       item.cardInYear,
       item.enteredAt,
+      item.weight,
     );
   }
   return id;
@@ -1278,7 +1281,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
   const items = db
     .prepare(
       `SELECT i.container_id, i.truck, i.number, i.card_in, i.card_in_year, i.entered_at,
-              k.size
+              i.weight, k.size
        FROM permit_items i
        JOIN containers k ON k.id = i.container_id
        WHERE i.permit_id = ?
@@ -1291,6 +1294,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
     card_in: number | null;
     card_in_year: number | null;
     entered_at: string;
+    weight: string;
     size: number;
   }>;
   return {
@@ -1307,6 +1311,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
       cardIn: item.card_in,
       cardInYear: item.card_in_year,
       enteredAt: item.entered_at,
+      weight: item.weight,
       size: (item.size === 40 ? 40 : 20) as Size,
       truck: item.truck,
     })),

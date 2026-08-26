@@ -214,6 +214,28 @@ describe('كشف خروج وتحميل داخلي', () => {
     expect(paper.body.items[0]?.number).toBe('PERM0117');
   });
 
+  it('the weight rides the paper as issued — the permit’s own figure, not a live read', async () => {
+    const entered = await gateIn('PERM0122', slot(13, 1), '7788');
+    const permit = await call({
+      method: 'POST',
+      url: '/api/permits',
+      payload: {
+        bill: '7788',
+        items: [{ containerId: entered.body.id, truck: '', weight: '30480' }],
+      },
+    });
+    expect(permit.status).toBe(201);
+    expect(permit.body.items[0]?.weight).toBe('30480');
+    // The container itself was recorded with NO weight, so the paper's
+    // figure can only be the permit's own snapshot.
+    const detail = await call({ method: 'GET', url: `/api/containers/${String(entered.body.id)}` });
+    expect(
+      (detail.body as unknown as { container: { weight: string } }).container.weight,
+    ).toBe('');
+    const paper = await call({ method: 'GET', url: `/api/permits/${String(permit.body.id)}` });
+    expect(paper.body.items[0]?.weight).toBe('30480');
+  });
+
   it('voiding is the owner’s alone, and the year’s book closes over the gap', async () => {
     const box = await gateIn('PERM0091', slot(9, 1), '3210');
     const one = await issue('3210', [{ containerId: box.body.id, truck: '' }]);

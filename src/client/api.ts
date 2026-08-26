@@ -395,7 +395,7 @@ export const api = {
    */
   createPermit: (input: {
     bill: string;
-    items: ReadonlyArray<{ containerId: number; truck: string }>;
+    items: ReadonlyArray<{ containerId: number; truck: string; weight: string }>;
   }): Promise<PermitDto> =>
     request('/api/permits', { method: 'POST', body: JSON.stringify(input) }),
 
