@@ -1563,3 +1563,12 @@ photo attachment opens its own clean page. 293 tests (delete-exited,
 seal search), and a 14-check browser harness — filters counted rows,
 the pencil opened the form over the register, the doubts glowed amber —
 screenshots read by eye.
+
+And the hosting question closed with the owner's own ruling: NO cloud
+server, not even a cheap subscription — «لا اريد ان ارفع النظام على
+سيرفر سحابي ولو كان ب اشتراك عادي». The office machine stays the one
+server, the data stays in the yard, and reaching it from anywhere is
+Tailscale's job (already installed there, already serving the ts.net
+URL): each new device installs the Tailscale app, signs into the same
+account, and opens the same address. Front and back stay ONE process —
+no split, ever, for this system.
