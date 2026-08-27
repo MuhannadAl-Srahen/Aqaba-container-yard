@@ -169,6 +169,7 @@ export function GateInSheet(props: {
           <input
             dir="ltr"
             className={`${inputClass} text-start font-mono tracking-wider`}
+            maxLength={20}
             value={number}
             onChange={(event) => {
               setNumber(event.target.value);
@@ -195,6 +196,7 @@ export function GateInSheet(props: {
             <input
               dir="ltr"
               className={`${inputClass} text-start`}
+              maxLength={30}
               value={truck}
               onChange={(event) => {
                 setTruck(event.target.value);
@@ -216,6 +218,7 @@ export function GateInSheet(props: {
             <input
               dir="ltr"
               className={`${inputClass} text-start font-mono`}
+              maxLength={30}
               value={seal}
               onChange={(event) => {
                 setSeal(event.target.value);
@@ -229,6 +232,7 @@ export function GateInSheet(props: {
             <input
               dir="ltr"
               className={`${inputClass} text-start font-mono`}
+              maxLength={40}
               value={bill}
               onChange={(event) => {
                 setBill(event.target.value);
@@ -249,6 +253,7 @@ export function GateInSheet(props: {
               dir="ltr"
               inputMode="numeric"
               className={`${inputClass} text-start`}
+              maxLength={20}
               value={weight}
               onChange={(event) => {
                 setWeight(event.target.value);
@@ -284,6 +289,7 @@ export function GateInSheet(props: {
         <Field label={AR.driver} hint={<DriverHint value={driver} />}>
           <input
             className={inputClass}
+            maxLength={60}
             value={driver}
             onChange={(event) => {
               setDriver(event.target.value);

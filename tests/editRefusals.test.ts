@@ -186,6 +186,21 @@ describe('كل رفض على التصحيح يسمّي سببه', () => {
     expect((bad.body['details'] as Record<string, unknown>)['field']).toBe('number');
   });
 
+  /**
+   * A fault is not a refusal. Reporting a crash as VALIDATION told the office
+   * its data was wrong when the server was, and sent the owner hunting a
+   * field that had never been wrong.
+   */
+  it('a server fault reports itself as a fault, not as bad data', async () => {
+    const codes = (await import('../src/shared/types')).ERROR_CODES;
+    expect(codes).toContain('SERVER_FAULT');
+    const source = await import('node:fs').then((fs) =>
+      fs.readFileSync('src/server/app.ts', 'utf8'),
+    );
+    expect(source).toContain("status(500).send({ code: 'SERVER_FAULT' }");
+    expect(source).not.toContain("status(500).send({ code: 'VALIDATION' }");
+  });
+
   it('the ordinary correction still passes untouched', async () => {
     const id = await gateIn('STAL0063');
     const c = await detail(id);

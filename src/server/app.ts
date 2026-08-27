@@ -364,7 +364,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       void reply.status(409).send({ code: 'NAME_TAKEN' } satisfies ApiError);
       return;
     }
-    void reply.status(500).send({ code: 'VALIDATION' } satisfies ApiError);
+    // A fault is not a refusal. Reporting one as VALIDATION told the office
+    // its data was wrong when the server was — the stack is in the log above.
+    void reply.status(500).send({ code: 'SERVER_FAULT' } satisfies ApiError);
   });
 
   /**

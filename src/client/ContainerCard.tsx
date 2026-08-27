@@ -501,6 +501,7 @@ export function ContainerCard(props: {
                 <input
                   dir="ltr"
                   className={`${inputClass} text-start`}
+                  maxLength={30}
                   value={truckOut}
                   onChange={(event) => {
                     setTruckOut(event.target.value);
@@ -520,6 +521,7 @@ export function ContainerCard(props: {
               <Field label={AR.driver} hint={<DriverHint value={driverOut} />}>
                 <input
                   className={inputClass}
+                  maxLength={60}
                   value={driverOut}
                   onChange={(event) => {
                     setDriverOut(event.target.value);
@@ -635,9 +637,25 @@ function EditForm(props: {
   const numberCheck = checkNumber(number);
   const enteredIso = fromLocalStamp(enteredAt);
   const exitedIso = departed ? fromLocalStamp(exitedAt) : null;
+  /**
+   * The same horizon the server keeps (app.ts): a gate instant that has not
+   * happened would put a row in a register period that has not happened. The
+   * form mirrored the exit-after-entry order but not this one, so a future
+   * date passed the screen and came back a refusal.
+   */
+  const horizon = Date.now() + 60_000;
+  const enteredFuture = enteredIso !== null && Date.parse(enteredIso) > horizon;
+  const exitedFuture = exitedIso !== null && Date.parse(exitedIso) > horizon;
+  const exitBeforeEntry =
+    departed && enteredIso !== null && exitedIso !== null && Date.parse(exitedIso) < Date.parse(enteredIso);
   const datesSane =
     enteredIso !== null &&
-    (!departed || (exitedIso !== null && Date.parse(exitedIso) >= Date.parse(enteredIso)));
+    !enteredFuture &&
+    !exitedFuture &&
+    !exitBeforeEntry &&
+    (!departed || exitedIso !== null);
+  /** The latest instant either picker may offer, on the Amman wall clock. */
+  const latestStamp = toLocalStamp(new Date());
 
   // Same rule as the gate: the notes, the driver's name and the weight may be
   // left empty, everything else must carry a value. The exit paperwork only
@@ -662,6 +680,7 @@ function EditForm(props: {
         <input
           dir="ltr"
           className={`${inputClass} text-start font-mono`}
+          maxLength={20}
           value={number}
           onChange={(event) => {
             setNumber(event.target.value);
@@ -672,6 +691,7 @@ function EditForm(props: {
         <input
           dir="ltr"
           className={`${inputClass} text-start font-mono`}
+          maxLength={40}
           value={bill}
           onChange={(event) => {
             setBill(event.target.value);
@@ -702,6 +722,7 @@ function EditForm(props: {
           dir="ltr"
           inputMode="numeric"
           className={`${inputClass} text-start`}
+          maxLength={20}
           value={weight}
           onChange={(event) => {
             setWeight(event.target.value);
@@ -740,6 +761,7 @@ function EditForm(props: {
           <input
             dir="ltr"
             className={`${inputClass} text-start`}
+            maxLength={30}
             value={truckIn}
             onChange={(event) => {
               setTruckIn(event.target.value);
@@ -750,6 +772,7 @@ function EditForm(props: {
           <input
             dir="ltr"
             className={`${inputClass} text-start font-mono`}
+            maxLength={30}
             value={sealIn}
             onChange={(event) => {
               setSealIn(event.target.value);
@@ -759,6 +782,7 @@ function EditForm(props: {
         <Field label={AR.driver} hint={<DriverHint value={driverIn} />}>
           <input
             className={inputClass}
+            maxLength={60}
             value={driverIn}
             onChange={(event) => {
               setDriverIn(event.target.value);
@@ -767,12 +791,19 @@ function EditForm(props: {
         </Field>
         <Field
           label={AR.enteredAt}
-          hint={enteredIso === null ? <span className="text-danger">{AR.badDate}</span> : undefined}
+          hint={
+            enteredIso === null ? (
+              <span className="text-danger">{AR.badDate}</span>
+            ) : enteredFuture ? (
+              <span className="text-danger">{AR.dateFuture}</span>
+            ) : undefined
+          }
         >
           <input
             type="datetime-local"
             dir="ltr"
             className={`${inputClass} text-start`}
+            max={latestStamp}
             value={enteredAt}
             onChange={(event) => {
               setEnteredAt(event.target.value);
@@ -796,6 +827,7 @@ function EditForm(props: {
               <input
                 dir="ltr"
                 className={`${inputClass} text-start`}
+                maxLength={30}
                 value={truckOut}
                 onChange={(event) => {
                   setTruckOut(event.target.value);
@@ -805,6 +837,7 @@ function EditForm(props: {
             <Field label={AR.driver} hint={<DriverHint value={driverOut} />}>
               <input
                 className={inputClass}
+                maxLength={60}
                 value={driverOut}
                 onChange={(event) => {
                   setDriverOut(event.target.value);
@@ -813,12 +846,21 @@ function EditForm(props: {
             </Field>
             <Field
               label={AR.exitedAt}
-              hint={!datesSane ? <span className="text-danger">{AR.exitBeforeEntry}</span> : undefined}
+              hint={
+                exitedFuture ? (
+                  <span className="text-danger">{AR.dateFuture}</span>
+                ) : exitBeforeEntry ? (
+                  <span className="text-danger">{AR.exitBeforeEntry}</span>
+                ) : exitedIso === null ? (
+                  <span className="text-danger">{AR.badDate}</span>
+                ) : undefined
+              }
             >
               <input
                 type="datetime-local"
                 dir="ltr"
                 className={`${inputClass} text-start`}
+                max={latestStamp}
                 value={exitedAt}
                 onChange={(event) => {
                   setExitedAt(event.target.value);

@@ -2037,3 +2037,37 @@ through the real print path shows a full-colour photograph. Whatever is
 turning his prints grey is between the print dialog and the paper.
 
 327 tests, gates green.
+
+## المرحلة 34 — الخطأ الذي كان يتّهم الكاتب — 2026-08-27
+
+Stage 33 fixed the stale card. A deeper audit of the same route found the
+reason the report could not be acted on at all, and three more beside it.
+
+**The server's own faults wore the same sentence.** Every uncaught error
+in the entire application — a crash inside a write transaction included —
+was answered `500 { code: 'VALIDATION' }`, which the office reads as
+«توجد بيانات ناقصة أو غير صحيحة. راجع الخانات». So a fault in the code
+sent the owner hunting a field that had never been wrong. It has its own
+code now, and its own sentence: the error is in the server, not in what
+you typed.
+
+**No box was capped.** The schema caps a driver's name at 60 characters,
+a plate at 30, a bill at 40 — and not one input carried a `maxLength`, so
+a name one clause too long left Save enabled and came back refused.
+His longest stored driver name is already 34 characters and they carry
+parentheticals like «صالح عبد الكريم (بهاء ابو الربع)»; 60 is one clause
+away. Sixteen inputs across the card and the gate now stop where the
+server stops.
+
+**A future date was refused but never warned.** The form mirrored the
+exit-after-entry rule and not the horizon, so a mistyped year passed the
+screen. Both pickers now carry `max`, the guard mirrors the server, and
+each date says which rule it broke rather than sharing one message.
+
+**And the undo button in the log lied.** `correctMove` writes its «before»
+as an ARRAY; `parseEditNote` accepted that, so «تراجع» appeared on a
+corrected move, resolved every field to undefined, sent an unchanged
+payload and reported success having done nothing. Latent — no move has
+been corrected in his book yet — and live the moment one is.
+
+328 tests, gates green.

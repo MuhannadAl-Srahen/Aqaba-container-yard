@@ -478,6 +478,13 @@ export const ERROR_CODES = [
   'BLOCKED_DESCENT',
   'SAME_SLOT',
   /**
+   * NOT a refusal: the server itself broke. It wore `VALIDATION` for a long
+   * time, so every fault in the application reached the office as «توجد
+   * بيانات ناقصة أو غير صحيحة» and sent the owner hunting a field that was
+   * never wrong. A fault must never blame the person typing.
+   */
+  'SERVER_FAULT',
+  /**
    * The four refusals below used to share the single `VALIDATION` code, so
    * every one of them reached the user as «توجد بيانات ناقصة أو غير صحيحة»
    * and none of them said WHICH rule was broken — «بقول المعلومات غير كاملة

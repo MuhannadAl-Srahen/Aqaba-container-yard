@@ -36,7 +36,11 @@ interface EditNote {
 function parseEditNote(note: string): EditNote | null {
   try {
     const parsed = JSON.parse(note) as { k?: string[]; b?: Record<string, string | number> };
-    if (!Array.isArray(parsed.k) || parsed.b === undefined) return null;
+    // `correctMove` writes its «before» as an ARRAY, and an array passed this
+    // guard: the «تراجع» button appeared, resolved every field to undefined,
+    // sent an unchanged payload and reported success having done nothing.
+    if (!Array.isArray(parsed.k) || parsed.b === undefined || Array.isArray(parsed.b))
+      return null;
     return { keys: parsed.k, before: parsed.b };
   } catch {
     return null;
