@@ -243,13 +243,10 @@ function copyAcross(db: DatabaseSync, source: DatabaseSync): RestoreCounts {
       }
       if (cookieSecret !== null) setSetting(db, 'cookie_secret', cookieSecret);
 
-      // A snapshot may have been taken by an older version, whose deletions
-      // left holes in the year's card numbers. What comes back is held to the
-      // same rule as everything else: 1, 2, 3 … N, nothing missing — the
-      // permit book included, because the open-time repair only runs on the
-      // next restart and the yard does not wait for one.
-      store.renumberCards(db);
-      store.renumberPermits(db);
+      // A snapshot comes back exactly as it was written. Holes in a year's
+      // card numbers are LEGAL now — «ما بدي حدا يوخذ مكانها خلص يضل يكمل» —
+      // and repairing them here would move numbers already printed on paper
+      // that is filed beside this very backup.
 
       // AUTOINCREMENT reads its next id from here, not from the table, so
       // without this the first new row would collide with a restored one —
@@ -439,9 +436,8 @@ export function seedDemoYard(db: DatabaseSync): {
     standing.push({ id, number, size, position: slot });
   }
   // The examples are written in a scattered order over three weeks, so their
-  // serials are counted through once at the end — the practice registers read
-  // 1, 2, 3 by date exactly as the real ones do.
-  store.renumberCards(db);
+  // serials read in the order they were ISSUED rather than by date — which is
+  // exactly how the real registers read, now that a serial is never re-seated.
   return {
     added,
     departed,

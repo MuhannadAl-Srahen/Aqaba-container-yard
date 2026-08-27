@@ -70,7 +70,7 @@ export const AR = {
   permitDelete: 'حذف التصريح',
   confirmPermitDeleteTitle: 'حذف تصريح',
   confirmPermitDeleteBody: (serial: string): string =>
-    `هل تريد حذف التصريح رقم ${serial}؟ يُغلق دفتر السنة على أرقامه فلا تبقى فجوة.`,
+    `هل تريد حذف التصريح رقم ${serial}؟ يبقى رقمه محجوزاً له فلا يأخذه تصريح آخر.`,
   permitDeleted: 'تم حذف التصريح.',
   permitsCount: (count: number): string => `عدد التصاريح: ${String(count)}`,
 
@@ -340,7 +340,8 @@ export const AR = {
   confirmUnexitTitle: 'إلغاء خروج',
   confirmUnexitBody: (number: string, slot: string): string =>
     `هل تريد إلغاء خروج الحاوية ${ltrCode(number)}؟ تعود إلى موقعها ${ltrCode(slot)} وتُلغى بطاقة ` +
-    'خروجها، ويعود رقمها إلى تسلسل السنة. استخدم هذا إذا سُجّل الخروج بالخطأ.',
+    'خروجها، ويبقى رقمها محجوزاً لها فلا تأخذه حاوية أخرى. استخدم هذا إذا سُجّل ' +
+    'الخروج بالخطأ.',
   unexitDone: (number: string, slot: string): string =>
     `تم إلغاء خروج الحاوية ${ltrCode(number)}، وعادت إلى الموقع ${ltrCode(slot)}`,
   /** The reprint buttons and the edit stay open after a departure. */

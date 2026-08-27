@@ -464,6 +464,45 @@ export function getContainerAny(
   return row === undefined ? null : { ...toDto(row), deleted: row.deleted_at !== null };
 }
 
+/**
+ * Does a LIVE record already carry the serial this one holds?
+ *
+ * It cannot happen under the never-reuse rule — the count climbs past a
+ * struck-out record rather than into its seat. But a book kept under the OLD
+ * rule is full of these: closing the hole a deletion left moved a live card
+ * onto a number the struck-out record was still holding. The owner's own
+ * database carries thirteen of them. Restoring such a record would put two
+ * live cards on one number, so it is given a fresh one instead — its card was
+ * voided when it was struck out, and the number it used to carry is printed on
+ * somebody else's paper now.
+ */
+export function serialClashes(db: DatabaseSync, id: number, kind: 'in' | 'out'): boolean {
+  const serial = kind === 'in' ? 'card_in' : 'card_out';
+  const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
+  const row = db
+    .prepare(
+      `SELECT 1 AS hit FROM containers me
+         JOIN containers other
+           ON other.${serial} = me.${serial} AND other.${stamped} = me.${stamped}
+          AND other.id <> me.id AND other.deleted_at IS NULL
+        WHERE me.id = ? AND me.${serial} IS NOT NULL AND me.${stamped} IS NOT NULL
+        LIMIT 1`,
+    )
+    .get(id) as { hit: number } | undefined;
+  return row !== undefined;
+}
+
+/** Write one gate serial, and nothing else. */
+export function setCardSerial(
+  db: DatabaseSync,
+  id: number,
+  kind: 'in' | 'out',
+  serial: number,
+): void {
+  const column = kind === 'in' ? 'card_in' : 'card_out';
+  db.prepare(`UPDATE containers SET ${column} = ? WHERE id = ?`).run(serial, id);
+}
+
 /** Where the container stood at the moment it was deleted, if anywhere. */
 export function lastDeletePosition(db: DatabaseSync, id: number): Position | null {
   const row = db
@@ -635,8 +674,12 @@ export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out', year: numbe
   const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
   const row = db
     .prepare(
-      `SELECT MAX(${serial}) AS top FROM containers
-        WHERE ${stamped} = ? AND deleted_at IS NULL`,
+      // DELETED ROWS COUNT. «ما بدي حدا يوخذ مكانها خلص يضل يكمل»: a serial
+      // that has been printed once is never printed again, so the year's
+      // count climbs past a struck-out record instead of stepping into its
+      // seat. The register may carry a hole; it may never carry the same
+      // number twice.
+      `SELECT MAX(${serial}) AS top FROM containers WHERE ${stamped} = ?`,
     )
     .get(year) as { top: number | null };
   return (row.top ?? 0) + 1;
@@ -647,120 +690,36 @@ export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out', year: numbe
  * so this card belongs to the MOVEMENT and not to the container — the ledger
  * is the movements table, counted per year like the two gate ledgers.
  *
- * Movements of a struck-out record do not count, exactly as its gate cards do
- * not: a record written by mistake takes its whole paper trail out with it.
+ * A struck-out record's move cards count too — the paper was printed and
+ * handed to a crane driver, and no second card may ever carry its number.
  */
 export function nextMoveCardNumber(db: DatabaseSync, year: number): number {
   const row = db
     .prepare(
-      `SELECT MAX(m.card) AS top FROM movements m
-        JOIN containers k ON k.id = m.container_id
-        WHERE m.type = 'MOVE' AND m.card_year = ? AND k.deleted_at IS NULL`,
+      `SELECT MAX(card) AS top FROM movements
+        WHERE type = 'MOVE' AND card_year = ?`,
     )
     .get(year) as { top: number | null };
   return (row.top ?? 0) + 1;
 }
 
-/** One card that is sitting on the wrong serial, and the one it belongs on. */
-export interface CardFix {
-  /** The row's id in its OWN table: a container for in/out, a movement for move. */
-  readonly id: number;
-  readonly kind: 'in' | 'out' | 'move';
-  readonly serial: number;
-}
-
 /**
- * THE RULE THE REGISTER IS HELD TO: the live cards of one year carry 1, 2,
- * 3 … N in the order the gate issued them, with no hole anywhere — not where
- * a record was struck out, not where a counter of an older version of this
- * program skipped a number. Deleting the third of five used to leave the
- * fourth reading «0004» forever with nothing in front of it; the owner found
- * exactly that on the office machine and asked for it to be rebuilt.
+ * الترقيم لا يُعاد أبداً.
  *
- * This says what would have to change to make it true. Handing back the plan
- * rather than doing it lets the caller take a copy of the file first, and
- * lets the whole thing be asserted in a test without a write.
+ * A renumbering pass lived here: it re-seated every live card of a year to
+ * run 1 … N with no hole, and it ran on delete, on restore, on an exit taken
+ * back, on a corrected gate date, and on every database open. It is gone,
+ * and its absence is the rule — «ما بدي حدا يوخذ مكانها خلص يضل يكمل».
  *
- * The seat a card takes is decided by the gate date — the entry date for an
- * entry card, the exit date for an exit one, the moment of the lift for a
- * move — and ties are broken by the serial already carried, so a register
- * that is already whole plans nothing and running this twice changes nothing
- * the second time.
- *
- * Three ledgers, one rule. The move cards live in the movements table, so
- * they are counted there, but a struck-out record takes its moves out of the
- * count with it exactly as it takes its gate cards.
+ * Closing a hole moved the numbers of records that had nothing to do with
+ * the mistake, so a card already printed and handed to a driver stopped
+ * matching the register it came from. A hole is visible and harmless; a
+ * number that changes hands is neither. A serial is written once, at the
+ * gate, and nothing rewrites it — except a restore whose old number a live
+ * record has since been given by the OLD rule, settled in the restore route
+ * by moving that one record and nobody else.
  */
-export function renumberPlan(db: DatabaseSync): CardFix[] {
-  const fixes: CardFix[] = [];
 
-  const moves = db
-    .prepare(
-      `SELECT m.id AS id, m.card_year AS year, m.card AS serial FROM movements m
-        JOIN containers k ON k.id = m.container_id
-        WHERE m.type = 'MOVE' AND m.card IS NOT NULL AND m.card_year IS NOT NULL
-          AND k.deleted_at IS NULL
-        ORDER BY m.card_year, m.at, m.card, m.id`,
-    )
-    .all() as Array<{ id: number; year: number; serial: number }>;
-  let moveYear: number | null = null;
-  let moveSeat = 0;
-  for (const row of moves) {
-    if (row.year !== moveYear) {
-      moveYear = row.year;
-      moveSeat = 0;
-    }
-    moveSeat += 1;
-    if (row.serial !== moveSeat) fixes.push({ id: row.id, kind: 'move', serial: moveSeat });
-  }
-
-  for (const kind of ['in', 'out'] as const) {
-    const column = kind === 'in' ? 'card_in' : 'card_out';
-    const stamped = kind === 'in' ? 'card_in_year' : 'card_out_year';
-    const dated = kind === 'in' ? 'entered_at' : 'exited_at';
-    const rows = db
-      .prepare(
-        `SELECT id, ${stamped} AS year, ${column} AS serial FROM containers
-          WHERE ${stamped} IS NOT NULL AND ${column} IS NOT NULL AND deleted_at IS NULL
-          ORDER BY ${stamped}, ${dated}, ${column}, id`,
-      )
-      .all() as Array<{ id: number; year: number; serial: number }>;
-
-    let year: number | null = null;
-    let seat = 0;
-    for (const row of rows) {
-      if (row.year !== year) {
-        year = row.year;
-        seat = 0;
-      }
-      seat += 1;
-      if (row.serial !== seat) fixes.push({ id: row.id, kind, serial: seat });
-    }
-  }
-  return fixes;
-}
-
-export function applyCardFixes(db: DatabaseSync, fixes: readonly CardFix[]): void {
-  const seat = {
-    in: db.prepare('UPDATE containers SET card_in = ? WHERE id = ?'),
-    out: db.prepare('UPDATE containers SET card_out = ? WHERE id = ?'),
-    // A move card is addressed by its movement, not by its container.
-    move: db.prepare('UPDATE movements SET card = ? WHERE id = ?'),
-  };
-  for (const fix of fixes) seat[fix.kind].run(fix.serial, fix.id);
-}
-
-/**
- * Hold the register to the rule, and say how many cards had to move. Called
- * after anything that changes which records are live — a deletion, a record
- * brought back, a corrected gate date — so a hole never outlives the
- * operation that opened it.
- */
-export function renumberCards(db: DatabaseSync): number {
-  const fixes = renumberPlan(db);
-  applyCardFixes(db, fixes);
-  return fixes.length;
-}
 
 interface GateRow {
   container_id: number;
@@ -1221,7 +1180,9 @@ interface PermitRow {
 export function nextPermitNumber(db: DatabaseSync, year: number): number {
   const row = db
     .prepare(
-      'SELECT MAX(serial) AS top FROM permits WHERE serial_year = ? AND deleted_at IS NULL',
+      // A voided permit keeps its number for ever, like every other paper
+      // that left the office under a stamp.
+      'SELECT MAX(serial) AS top FROM permits WHERE serial_year = ?',
     )
     .get(year) as { top: number | null };
   return (row.top ?? 0) + 1;
@@ -1360,37 +1321,6 @@ export function softDeletePermit(db: DatabaseSync, id: number, at: string): void
   db.prepare('UPDATE permits SET deleted_at = ? WHERE id = ?').run(at, id);
 }
 
-/**
- * Hold the permit book to the ledger rule: the live permits of one year carry
- * 1 … N in issue order, no hole where one was struck out. Returns how many
- * serials had to move; on an already-whole book it plans nothing and writes
- * nothing, which is the normal case.
- */
-export function renumberPermits(db: DatabaseSync): number {
-  const rows = db
-    .prepare(
-      `SELECT id, serial, serial_year FROM permits
-        WHERE deleted_at IS NULL
-        ORDER BY serial_year, at, id`,
-    )
-    .all() as unknown as Array<{ id: number; serial: number; serial_year: number }>;
-  const fix = db.prepare('UPDATE permits SET serial = ? WHERE id = ?');
-  let corrected = 0;
-  let year = -1;
-  let next = 1;
-  for (const row of rows) {
-    if (row.serial_year !== year) {
-      year = row.serial_year;
-      next = 1;
-    }
-    if (row.serial !== next) {
-      fix.run(next, row.id);
-      corrected += 1;
-    }
-    next += 1;
-  }
-  return corrected;
-}
 
 // ---- الزونات التي يعرّفها المالك ----
 

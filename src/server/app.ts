@@ -825,8 +825,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     const id = idParam(request);
     return transaction(db, () => {
       if (store.getPermit(db, id) === null) refuse(404, 'NOT_FOUND');
+      // The voided permit keeps its number, and the book carries the hole.
       store.softDeletePermit(db, id, now());
-      store.renumberPermits(db);
       return { ok: true };
     });
   });
@@ -1112,11 +1112,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         if (changed.includes('exitedAt') && body.exitedAt !== null) {
           store.retimeMovement(db, id, 'OUT', body.exitedAt);
         }
-        // A gate date decides where the card sits in the year's count, so a
-        // corrected date re-seats it — and everything it passed on the way.
-        if (changed.includes('enteredAt') || changed.includes('exitedAt')) {
-          store.renumberCards(db);
-        }
+        // The card serial does NOT follow the corrected date. A serial is the
+        // order the paper was ISSUED in, and that paper is already in a
+        // driver's hand: re-seating it would hand its number to a different
+        // container — «ما بدي حدا يوخذ مكانها».
 
         // The note carries machine keys AND the old values, so the log can
         // both name the change in Arabic and undo it later.
@@ -1167,9 +1166,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       store.cancelExit(db, id, wasAt);
       store.recordMovement(db, id, 'RETURN', now(), null, wasAt, '', actorId(actor));
-      // The exit card is void, so its number goes back into the year's count
-      // and the ledger closes over the hole — the same rule as everywhere.
-      store.renumberCards(db);
+      // The voided exit card leaves a hole in the year, and the hole stays.
+      // Its number was printed once and belongs to nobody else.
       return store.getContainer(db, id);
     });
   });
@@ -1195,12 +1193,19 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       }
       store.restoreContainer(db, id, wasAt);
 
-      // Its serial went back into circulation the moment it was struck out,
-      // so by now it may be printed on somebody else's card. The record
-      // coming back takes its seat by its gate date and the year is counted
-      // through again: two cards of one year may never carry one number, and
-      // no number may be missing between the first and the last.
-      store.renumberCards(db);
+      // It keeps the serial it always had — nothing could have taken it, since
+      // the count climbs PAST a struck-out record rather than into its seat.
+      //
+      // Except in a book kept under the old rule, where closing a hole moved a
+      // live card onto a number a struck-out record still held. Those records
+      // exist and cannot be wished away, so a restored one whose number is
+      // already on somebody else's card is given a fresh number instead. Only
+      // this record moves; every other card stays where it was printed.
+      for (const kind of ['in', 'out'] as const) {
+        const year = kind === 'in' ? existing.cardInYear : existing.cardOutYear;
+        if (year === null || !store.serialClashes(db, id, kind)) continue;
+        store.setCardSerial(db, id, kind, store.nextCardNumber(db, kind, year));
+      }
 
       store.recordMovement(db, id, 'RESTORE', now(), null, wasAt, '', actorId(actor));
       return store.getContainer(db, id);
@@ -1236,12 +1241,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // The mistake itself goes on the record — audits hide nothing.
       store.recordMovement(db, id, 'DELETE', at, existing.position, null, '', actorId(actor));
       settleAbove(descents, at, existing.number, actorId(actor));
-      // And the year closes over the gap the struck-out record left, so the
-      // register never carries a missing number. Every card issued after it
-      // moves down one — which is the price of a register with no holes, and
-      // the owner's own call.
-      const resealed = store.renumberCards(db);
-      return { ok: true, resealed };
+      // The gap STAYS. «لو كان عندي 1 2 3 وحذفت 3، الي بدي اجي اضيفها خلص
+      // لازم تيجي 4، مو توخذ محل ال 3» — the owner's reversal of his own
+      // earlier call. A card printed once is never printed again, so no
+      // other card moves and the year simply carries a hole where this
+      // record was. `resealed` is kept on the wire and is now always zero.
+      return { ok: true, resealed: 0 };
     });
   });
 

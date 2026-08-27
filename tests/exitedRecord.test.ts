@@ -67,7 +67,7 @@ afterEach(() => {
 });
 
 describe('سجل الخارجة', () => {
-  it('an exited record deletes, and both card ledgers close over its numbers', async () => {
+  it('an exited record deletes, and both ledgers keep the holes it leaves', async () => {
     const first = await gateIn('EXDL0010', { zone: 'B', bay: 3, stack: 1, tier: 'A' }, 'JO111');
     const second = await gateIn('EXDL0025', { zone: 'B', bay: 5, stack: 1, tier: 'A' }, 'JO112');
     await call({
@@ -77,9 +77,10 @@ describe('سجل الخارجة', () => {
     });
     const removed = await call({ method: 'DELETE', url: `/api/containers/${String(first)}` });
     expect(removed.status).toBe(200);
-    // The survivor's entry card slid down into the freed number.
+    // The survivor keeps the entry card it was printed with — 2, not 1. Its
+    // paper is already in a drawer and the register must still match it.
     const detail = await call({ method: 'GET', url: `/api/containers/${String(second)}` });
-    expect((detail.body['container'] as ContainerDto).cardIn).toBe(1);
+    expect((detail.body['container'] as ContainerDto).cardIn).toBe(2);
     // The record is gone from the search.
     const found = await call({ method: 'GET', url: '/api/containers?q=EXDL0010' });
     expect(found.body['results']).toHaveLength(0);

@@ -2126,3 +2126,48 @@ the ground strip shows why the other side was not offered. Then the same
 box narrowed back to a twenty at B-01. The entry movement follows the
 address; each correction leaves one EDIT carrying the previous class and
 slot; no MOVE and no DROP anywhere. 337 tests, gates green.
+
+## المرحلة 36 — الرقم يُعطى مرة واحدة — 2026-08-28
+
+«في حال تم حذف حاوية من السجل كامل ما بدي حدا يوخذ مكانها خلص يضل يكمل …
+لو كان عندي 1 2 3 وحذفت 3، الي بدي اجي اضيفها خلص لازم تيجي 4، مو توخذ
+محل ال 3».
+
+This reverses his own earlier instruction, which the code quoted back at
+him in three places: «في حال حذف الحاوية او سجل خطأ يجب ان لا يتم القفز
+عن الرقم التسلسلي». He was told so. He is also right the second time, and
+the old rule's own cost is the argument: closing a hole re-seated every
+live card after it, so a card already printed and handed to a driver
+stopped matching the register it came from. A hole is visible and
+harmless. A number that changes hands is neither.
+
+So the count now reads over ALL records, struck-out included, and climbs
+past a deletion instead of into its seat. And every renumbering was
+removed — from the delete, the restore, the exit taken back, the
+corrected gate date, the backup restore, the practice seed, the permit
+void, and, most dangerous of all, **the repair that ran on every database
+open**. That last one would have re-seated his whole register at the next
+restart. The functions themselves are gone, not merely unused: a
+renumbering pass left lying around is a rule violation waiting for a
+caller.
+
+Four books, one rule: entry cards, exit cards, move cards, permits.
+
+**The one thing that could not simply be deleted.** A book kept under the
+old rule is full of collisions — closing a hole moved a live card onto a
+number a struck-out record was still holding. His database carries
+thirteen of them, checked on the server: struck-out ABCD1234 holds entry
+1 and live TIIU6303396 holds entry 1 as well. Restoring such a record
+would put two live cards on one number. So a restore whose serial a live
+record already carries gives **that record alone** a fresh number, and
+moves nobody else. Its card was voided the day it was struck out, and its
+old number is printed on somebody else's paper now.
+
+Checked on the live server before any of this shipped: no two live
+records share a serial in any of the four books, and 2026 has 778 entry
+cards with the highest at 778 — no holes yet. So nothing already written
+moves; the rule takes effect from the next deletion onward.
+
+Nine tests asserted the old rule and were rewritten rather than deleted —
+each now locks the reversal, and two of them carry his sentence. Four
+more fell when the open-time repair went. 341 tests, gates green.

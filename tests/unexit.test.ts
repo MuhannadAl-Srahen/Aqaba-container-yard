@@ -139,21 +139,22 @@ describe('taking an exit back', () => {
     expect(movements[2]?.to).toEqual(slot(3, 1, 'A'));
   });
 
-  it('gives the exit serial back, and the year closes over the hole', async () => {
+  it('voids the exit serial for ever, and moves no other card', async () => {
     const first = await gateIn('BACK0003', slot(5, 1, 'A'));
     const second = await gateIn('BACK0004', slot(7, 1, 'A'));
     await gateOut(first.body.id);
     await gateOut(second.body.id);
     expect((await detail(second.body.id)).container.cardOut).toBe(2);
 
-    // The FIRST exit was the mistake: taking it back leaves the second
-    // holding card 2 with nothing at 1, so the year counts through again.
+    // The FIRST exit was the mistake. Taking it back voids exit card 1, and
+    // 1 belongs to nobody from here on — the second still reads 2, as its
+    // own printed card does.
     await unexit(first.body.id);
-    expect((await detail(second.body.id)).container.cardOut).toBe(1);
-    // And the next departure takes 2, not 3.
+    expect((await detail(second.body.id)).container.cardOut).toBe(2);
+    // And the next departure takes 3, past the void.
     const third = await gateIn('BACK0005', slot(9, 1, 'A'));
     const out = await gateOut(third.body.id);
-    expect(out.body.cardOut).toBe(2);
+    expect(out.body.cardOut).toBe(3);
   });
 
   it('refuses when somebody has taken the slot in the meantime', async () => {

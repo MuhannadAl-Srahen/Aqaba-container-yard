@@ -350,15 +350,15 @@ describe('schema v9 — the cutover to the official yard', () => {
     const cards = upgraded
       .prepare('SELECT id, card_in, card_in_year, card_out, card_out_year FROM containers ORDER BY id')
       .all() as Array<Record<string, number | null>>;
-    // Every serial is dated — and the hole in 2026 closes. The old file has
-    // entry cards 1 and 3 in that year with nothing at 2, which is the very
-    // fault the owner found on the office machine; the fourth record moves
-    // down onto it. 2025 was already whole and does not move.
+    // Every serial is DATED and none is moved. The old file has entry cards 1
+    // and 3 in 2026 with nothing at 2, and that hole is carried across
+    // untouched: the numbers on this file's printed cards are the numbers the
+    // register still reads.
     expect(cards).toEqual([
       { id: 1, card_in: 1, card_in_year: 2025, card_out: 1, card_out_year: 2025 },
       { id: 2, card_in: 2, card_in_year: 2025, card_out: null, card_out_year: null },
       { id: 3, card_in: 1, card_in_year: 2026, card_out: 1, card_out_year: 2026 },
-      { id: 4, card_in: 2, card_in_year: 2026, card_out: 2, card_out_year: 2026 },
+      { id: 4, card_in: 3, card_in_year: 2026, card_out: 2, card_out_year: 2026 },
     ]);
 
     // v13 in the same breath: the serial is read from the records now, so the
@@ -441,12 +441,12 @@ describe('schema v9 — the cutover to the official yard', () => {
   });
 
   /**
-   * The repair the office machine needs, on a file of the CURRENT shape: it
-   * is not a one-time upgrade step but the rule the register is held to, so
-   * it runs on every open — and takes a copy of the file the one time it has
-   * anything to change.
+   * A hole is LEGAL now, and opening the file leaves it exactly where it is.
+   * The old repair ran on every open and re-seated the whole year; removing it
+   * is the owner's reversal — «ما بدي حدا يوخذ مكانها خلص يضل يكمل» — and
+   * this is the test that would catch it coming back.
    */
-  it('closes a hole in the numbering on open, keeping a copy first', () => {
+  it('leaves a hole in the numbering exactly where it is, on every open', () => {
     const dir = scratch();
     const file = path.join(dir, 'holed.db');
     const seed = openDatabase(file);
@@ -475,31 +475,30 @@ describe('schema v9 — the cutover to the official yard', () => {
     const backup = `${file}.pre-renumber-backup.db`;
     expect(existsSync(backup)).toBe(false);
 
-    const fixed = openDatabase(file);
+    const opened = openDatabase(file);
     const serials = (
-      fixed
+      opened
         .prepare('SELECT card_in AS serial FROM containers ORDER BY entered_at')
         .all() as Array<{ serial: number }>
     ).map((row) => row.serial);
-    expect(serials).toEqual([1, 2, 3]);
-    // The next card carries on from the end of a whole register.
-    expect(nextCardNumber(fixed, 'in', 2026)).toBe(4);
-    fixed.close();
+    // The hole at 3 is still a hole. Nothing moved.
+    expect(serials).toEqual([1, 2, 4]);
+    // And the next card carries on past the top rather than into the gap.
+    expect(nextCardNumber(opened, 'in', 2026)).toBe(5);
+    opened.close();
 
-    // The file as it stood before the repair is beside it, holes and all.
-    expect(existsSync(backup)).toBe(true);
-    const kept = new DatabaseSync(backup, { readOnly: true });
+    // Nothing was rewritten, so no rescue copy was ever needed.
+    expect(existsSync(backup)).toBe(false);
+
+    // Opening again is the same answer — it is a rule, not a one-time script.
+    const again = openDatabase(file);
     expect(
       (
-        kept.prepare('SELECT MAX(card_in) AS top FROM containers').get() as { top: number }
+        again.prepare('SELECT MAX(card_in) AS top FROM containers').get() as { top: number }
       ).top,
     ).toBe(4);
-    kept.close();
-
-    // Opening again has nothing to do and writes no second copy.
-    const bytes = readFileSync(backup).length;
-    openDatabase(file).close();
-    expect(readFileSync(backup).length).toBe(bytes);
+    again.close();
+    expect(existsSync(backup)).toBe(false);
   });
 
   /**
@@ -510,7 +509,7 @@ describe('schema v9 — the cutover to the official yard', () => {
    * and the four live cards run 1, 2, 3, 4. A year with a hole in it is the
    * other test, and closing that hole is what the owner asked for.
    */
-  it('renumbers no card of a year that is already whole', () => {
+  it('imports every serial untouched, and counts on past the struck-out one', () => {
     const dir = scratch();
     const file = path.join(dir, 'office-serials.db');
     const db = new DatabaseSync(file);
@@ -572,10 +571,9 @@ describe('schema v9 — the cutover to the official yard', () => {
       { id: 5, card_in: 5, card_in_year: 2026, card_out: null, card_out_year: null },
     ]);
 
-    // The next entry card takes 5 — the number the struck-out record was
-    // holding — instead of 6, which is the hole being filled rather than a
-    // number being taken from anybody.
-    expect(nextCardNumber(upgraded, 'in', 2026)).toBe(5);
+    // The next entry card takes 6, past the 5 the struck-out record is still
+    // holding: a serial printed once is never printed again.
+    expect(nextCardNumber(upgraded, 'in', 2026)).toBe(6);
     // And the exits carry on from where they truly are.
     expect(nextCardNumber(upgraded, 'out', 2026)).toBe(3);
     // A year the office has not reached yet starts at one.
@@ -641,9 +639,10 @@ describe('schema v9 — the cutover to the official yard', () => {
       expect(columnsOf(upgraded, 'containers'), gone).not.toContain(gone);
     }
     // Everything else rode across: the container, its movement, its staff and
-    // the session secret that keeps them signed in. Its SERIAL is re-seated:
-    // the file carries one live record of 2026 holding card 8, which is seven
-    // numbers missing in front of it, and the register is held to 1 … N.
+    // the session secret that keeps them signed in — its SERIAL included. The
+    // file carries one live record of 2026 holding card 8, with seven numbers
+    // missing in front of it, and card 8 is what its printed paper says. The
+    // upgrade does not argue with the paper.
     const kept = upgraded
       .prepare('SELECT number, bill, zone, bay, weight, card_in, card_in_year, notes FROM containers')
       .get() as Record<string, unknown>;
@@ -653,7 +652,7 @@ describe('schema v9 — the cutover to the official yard', () => {
       zone: 'B',
       bay: 3,
       weight: '28000',
-      card_in: 1,
+      card_in: 8,
       card_in_year: 2026,
       notes: 'الباب مبعوج',
     });

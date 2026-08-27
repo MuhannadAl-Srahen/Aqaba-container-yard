@@ -1,15 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from '../src/server/db';
-import { nextCardNumber, renumberCards, renumberPlan } from '../src/server/store';
+import { nextCardNumber } from '../src/server/store';
 import { cardSerial } from '../src/shared/types';
 import { ammanYear } from '../src/shared/dates';
 
 /**
  * The gate cards are numbered per year, four places, starting again at 1 every
  * January. The serial is READ FROM THE RECORDS rather than from a counter kept
- * beside them, which is what keeps the register free of holes: a mistake
- * struck out at once hands its number straight back.
+ * beside them — and it is read over ALL of them, struck out or not.
+ *
+ * A SERIAL IS NEVER ISSUED TWICE. The owner reversed his earlier rule, which
+ * had been to close the hole a deletion left: «في حال تم حذف حاوية من السجل
+ * كامل ما بدي حدا يوخذ مكانها خلص يضل يكمل … لو كان عندي 1 2 3 وحذفت 3، الي
+ * بدي اجي اضيفها خلص لازم تيجي 4، مو توخذ محل ال 3».
+ *
+ * The reversal is the better trade and the old rule's own cost is why: closing
+ * a hole moved the numbers of records that had nothing to do with the mistake,
+ * so a card already printed and handed to a driver stopped matching the
+ * register it came from. A hole is visible and harmless; a number that changes
+ * hands is neither.
  */
 
 /** A container carrying an entry card of that year, entered on `day` of June. */
@@ -76,28 +86,27 @@ describe('the gate card serial', () => {
     db.close();
   });
 
-  /**
-   * The whole reason the counter left the settings table: «في حال حذف الحاوية
-   * او سجل خطأ يجب ان لا يتم القفز عن الرقم التسلسلي».
-   */
-  it('gives a struck-out record’s number straight back to the next one', () => {
+  /** The owner's worked example, exactly as he wrote it. */
+  it('never gives a struck-out record’s number to anybody else', () => {
     const db = openDatabase(':memory:');
     issued(db, 'AAAA0001', 2026);
     issued(db, 'AAAA0002', 2026);
     // The third was a mistake and is struck out the moment it is noticed.
     expect(issued(db, 'AAAA0003', 2026, true)).toBe(3);
-    // The next real one takes 3, not 4: no hole in the register.
-    expect(issued(db, 'AAAA0004', 2026)).toBe(3);
+    // «الي بدي اجي اضيفها خلص لازم تيجي 4، مو توخذ محل ال 3».
+    expect(issued(db, 'AAAA0004', 2026)).toBe(4);
+    // And the hole stays a hole: the register reads 1, 2, 4.
+    expect(ledger(db, 2026)).toEqual([1, 2, 4]);
     db.close();
   });
 
   /**
-   * Giving the number back only works when the record struck out was the LAST
-   * one. Strike out one from the middle — which is what happened on the office
-   * machine — and the register keeps a hole nothing fills. So the year is
-   * counted through again: «صار خطأ ب التسلسل … بسبب الحذف».
+   * A record struck out of the MIDDLE leaves a hole, and the hole stays. The
+   * four cards standing around it keep the numbers they were printed with —
+   * which is the whole point, since three of them are already on paper
+   * somewhere.
    */
-  it('closes the hole a struck-out record leaves in the middle of the year', () => {
+  it('leaves the hole where a middle record was, and moves nobody', () => {
     const db = openDatabase(':memory:');
     for (let day = 1; day <= 5; day += 1) {
       issued(db, `AAAA000${String(day)}`, 2026, false, day);
@@ -105,23 +114,11 @@ describe('the gate card serial', () => {
     expect(ledger(db, 2026)).toEqual([1, 2, 3, 4, 5]);
 
     strike(db, 2026, 3);
-    expect(ledger(db, 2026)).toEqual([1, 2, 4, 5]); // the hole, before the repair
-    expect(renumberCards(db)).toBe(2); // the two cards standing after it move
-    expect(ledger(db, 2026)).toEqual([1, 2, 3, 4]);
+    expect(ledger(db, 2026)).toEqual([1, 2, 4, 5]);
 
-    // And the next one issued carries on from the end rather than repeating.
-    expect(issued(db, 'AAAA0009', 2026, false, 9)).toBe(5);
-    db.close();
-  });
-
-  it('plans nothing for a register that is already whole', () => {
-    const db = openDatabase(':memory:');
-    issued(db, 'AAAA0001', 2026, false, 1);
-    issued(db, 'AAAA0002', 2026, false, 2);
-    expect(renumberPlan(db)).toEqual([]);
-    // Twice over is the same answer — it is a rule, not a one-time script.
-    expect(renumberCards(db)).toBe(0);
-    expect(renumberCards(db)).toBe(0);
+    // The next one carries on past the top; 3 belongs to nobody for ever.
+    expect(issued(db, 'AAAA0009', 2026, false, 9)).toBe(6);
+    expect(ledger(db, 2026)).toEqual([1, 2, 4, 5, 6]);
     db.close();
   });
 
@@ -133,9 +130,9 @@ describe('the gate card serial', () => {
     issued(db, 'BBBB0001', 2027, false, 1);
     issued(db, 'BBBB0002', 2027, false, 2);
 
-    renumberCards(db);
-    expect(ledger(db, 2026)).toEqual([1, 2]);
-    expect(ledger(db, 2027)).toEqual([1, 2]); // the next year is untouched by it
+    // 2026 reads 1 and 3 — the hole at 2 is the struck-out record's, kept.
+    expect(ledger(db, 2026)).toEqual([1, 3]);
+    expect(ledger(db, 2027)).toEqual([1, 2]); // the next year is its own book
 
     // The struck-out record keeps the number it was issued: the log is a
     // record of what happened, and its old card is not reprinted.
@@ -146,21 +143,23 @@ describe('the gate card serial', () => {
     db.close();
   });
 
-  it('seats a card by its gate date, so a corrected date re-seats it', () => {
+  /**
+   * A serial is the order the PAPER was issued in, not the order the yard was
+   * entered in. Correcting a gate date afterwards leaves it exactly where it
+   * is — the card it names is already printed and gone from the office.
+   */
+  it('a corrected gate date does not re-seat the card', () => {
     const db = openDatabase(':memory:');
     issued(db, 'AAAA0001', 2026, false, 10);
     issued(db, 'AAAA0002', 2026, false, 20);
-    // The gate typed the wrong day and the office corrects it: this one came
-    // in FIRST. The register is a chronological document, so it takes 1.
     db.prepare("UPDATE containers SET entered_at = '2026-06-05T09:00:00.000Z' WHERE card_in = 2")
       .run();
-    expect(renumberCards(db)).toBe(2);
     const seats = db
       .prepare('SELECT number, card_in AS serial FROM containers ORDER BY card_in')
       .all() as Array<{ number: string; serial: number }>;
     expect(seats).toEqual([
-      { number: 'AAAA0002', serial: 1 },
-      { number: 'AAAA0001', serial: 2 },
+      { number: 'AAAA0001', serial: 1 },
+      { number: 'AAAA0002', serial: 2 },
     ]);
     db.close();
   });

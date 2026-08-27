@@ -194,24 +194,38 @@ describe('كشف خروج وتحميل داخلي', () => {
     expect(paper.body.items.map((item) => item.number)).toEqual(['PERM0070', 'PERM0086']);
   });
 
-  it('a reprint reads as the stamped original: later renumbering never touches the paper', async () => {
-    const struck = await gateIn('PERM0102', slot(11, 1), '9999');
+  it('a reprint reads as the stamped original, however the record changes after', async () => {
+    await gateIn('PERM0102', slot(11, 1), '9999');
     const listed = await gateIn('PERM0117', slot(11, 2), '3210');
     const permit = await issue('3210', [{ containerId: listed.body.id, truck: '' }]);
-    // The paper went out naming entry card 2.
+    // The paper went out naming this container, its entry card and its class.
     expect(permit.body.items[0]?.cardIn).toBe(2);
+    expect(permit.body.items[0]?.number).toBe('PERM0117');
+    expect(permit.body.items[0]?.size).toBe(20);
 
-    // The owner strikes out the OTHER record; the card book closes over the
-    // hole and the listed container's live card becomes 1 …
-    await call({ method: 'DELETE', url: `/api/containers/${String(struck.body.id)}` });
-    const detail = await call({ method: 'GET', url: `/api/containers/${String(listed.body.id)}` });
-    expect((detail.body as unknown as { container: { cardIn: number } }).container.cardIn).toBe(1);
+    // The record is corrected afterwards — a mistyped number put right, and
+    // the class corrected on the map.
+    const before = await call({ method: 'GET', url: `/api/containers/${String(listed.body.id)}` });
+    const live = (before.body as unknown as { container: Record<string, unknown> }).container;
+    const edited = await call({
+      method: 'PATCH',
+      url: `/api/containers/${String(listed.body.id)}`,
+      payload: { ...live, number: 'PERM0125' },
+    });
+    expect(edited.status).toBe(200);
+    const reclassed = await call({
+      method: 'POST',
+      url: `/api/containers/${String(listed.body.id)}/reclass`,
+      payload: { to: { zone: 'B', bay: 10, stack: 2, tier: 'A' } },
+    });
+    expect(reclassed.status).toBe(200);
 
-    // … but the stamped paper in the drawer still says 2, so its reprint
-    // must say 2 — the permit's lines are a snapshot, not a live view.
+    // The stamped paper in the drawer says what it always said. A permit's
+    // lines are a snapshot, not a live view — number, card and class alike.
     const paper = await call({ method: 'GET', url: `/api/permits/${String(permit.body.id)}` });
     expect(paper.body.items[0]?.cardIn).toBe(2);
     expect(paper.body.items[0]?.number).toBe('PERM0117');
+    expect(paper.body.items[0]?.size).toBe(20);
   });
 
   it('the weight rides the paper as issued — the permit’s own figure, not a live read', async () => {
@@ -236,7 +250,7 @@ describe('كشف خروج وتحميل داخلي', () => {
     expect(paper.body.items[0]?.weight).toBe('30480');
   });
 
-  it('voiding is the owner’s alone, and the year’s book closes over the gap', async () => {
+  it('voiding is the owner’s alone, and the void keeps its number', async () => {
     const box = await gateIn('PERM0091', slot(9, 1), '3210');
     const one = await issue('3210', [{ containerId: box.body.id, truck: '' }]);
     const two = await issue('3210', [{ containerId: box.body.id, truck: '' }]);
@@ -271,12 +285,17 @@ describe('كشف خروج وتحميل داخلي', () => {
     const removed = await call({ method: 'DELETE', url: `/api/permits/${String(one.body.id)}` });
     expect(removed.status).toBe(200);
 
-    // The struck paper is gone from the book, and the survivor reads 1.
+    // The struck paper is gone from the book, and the survivor keeps the
+    // number printed on it: 2. Number 1 belongs to the voided paper for ever.
     expect(
       (await call({ method: 'GET', url: `/api/permits/${String(one.body.id)}` })).status,
     ).toBe(404);
     const listed = await call({ method: 'GET', url: `/api/permits?${range()}` });
     expect(listed.body.rows).toHaveLength(1);
-    expect(listed.body.rows[0]?.serial).toBe(1);
+    expect(listed.body.rows[0]?.serial).toBe(2);
+
+    // And the next permit issued is 3, never 1.
+    const third = await issue('3210', [{ containerId: box.body.id, truck: '' }]);
+    expect(third.body.serial).toBe(3);
   });
 });

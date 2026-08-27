@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { ammanYear } from '../shared/dates';
-import { applyCardFixes, renumberPermits, renumberPlan } from './store';
+
 
 /**
  * SQLite through Node's own driver: one file, no native build step, and a
@@ -528,31 +528,17 @@ export function migrate(db: DatabaseSync, file: string): void {
   ).n;
   if (carriersEver === 0) seedFleet(db);
 
-  // v15: the register is rebuilt to run 1, 2, 3 … N with no hole in it. A
-  // deletion under an older version of this program left the numbers after it
-  // standing where they were, and the owner found that on the office machine:
-  // «صار خطأ ب التسلسل … بسبب الحذف». The repair is not a one-time script but
-  // the rule itself — it runs every time the file is opened, so a database
-  // arriving from anywhere (an older machine, a restored backup, a copy) is
-  // held to it. When the register is already whole this plans nothing and
-  // writes nothing, which is the normal case on every start after the first.
-  const repair = renumberPlan(db);
-  if (repair.length > 0) {
-    if (file !== ':memory:') {
-      const backup = `${file}.pre-renumber-backup.db`;
-      if (!existsSync(backup)) db.exec(`VACUUM INTO '${backup.replaceAll("'", "''")}'`);
-    }
-    applyCardFixes(db, repair);
-    console.log(`[db] card serials rebuilt: ${String(repair.length)} corrected`);
-  }
-
-  // The permit ledger is held to the same rule as the card ledgers — live
-  // permits of one year read 1 … N with no hole — and held to it on every
-  // open, so a file arriving from anywhere is straightened the moment it is.
-  const permitFixes = renumberPermits(db);
-  if (permitFixes > 0) {
-    console.log(`[db] permit serials rebuilt: ${String(permitFixes)} corrected`);
-  }
+  // v15 rebuilt every register on every open to run 1, 2, 3 … N with no hole.
+  // That repair is GONE, and its absence is the rule now: «ما بدي حدا يوخذ
+  // مكانها خلص يضل يكمل». A hole is what a deletion leaves and what it should
+  // leave — closing one moved the numbers of records that had nothing to do
+  // with the mistake, so a card already printed and in a driver's hand stopped
+  // matching the register it came from.
+  //
+  // Nothing replaces it. A serial is written once, at the gate, and no code
+  // path rewrites one again — except a restore whose old number a live record
+  // has since been given by the OLD rule, which is settled in the restore
+  // route by moving that one record and nobody else.
 }
 
 /**
