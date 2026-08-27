@@ -136,7 +136,6 @@ export function ContainerCard(props: {
   onChanged: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
-  const { container } = props;
   const [confirming, setConfirming] = useState<'exit' | 'unexit' | 'delete' | null>(null);
   /**
    * A caller may ask the card to open already editing (the register row's
@@ -158,13 +157,25 @@ export function ContainerCard(props: {
   const autoDriver = useRef('');
 
   const detail = useQuery({
-    queryKey: ['container', container.id],
-    queryFn: () => api.detail(container.id),
+    queryKey: ['container', props.container.id],
+    queryFn: () => api.detail(props.container.id),
     // An open card keeps up with the yard — a container can descend a tier
     // because a neighbour left from another device. Except while somebody is
     // correcting it: nothing may move under a form being filled in.
     refetchInterval: editing ? false : 10_000,
   });
+
+  /**
+   * The row AS THE SERVER HAS IT NOW, not as it stood when the card was
+   * opened. The card used to read `props.container` — a snapshot — while
+   * quietly polling the truth beside it. So a card left open while the
+   * container was gated out from the booth still believed it was standing,
+   * and correcting anything on it sent a payload with no exit paperwork
+   * against a row that had left: refused, and the refusal blamed the fields
+   * — «بقول المعلومات غير كاملة او غير صحيحة». Everything below reads the
+   * live row, so the form can only ever describe the record that exists.
+   */
+  const container = detail.data?.container ?? props.container;
 
   const inYard = container.position !== null;
   /** The exit it would be taken back from: its slot is on that movement. */
@@ -397,7 +408,14 @@ export function ContainerCard(props: {
               <Button
                 kind="quiet"
                 onClick={() => {
-                  setEditing(true);
+                  // Ask the server what this record is before describing it:
+                  // the card polls every ten seconds, and ten seconds is
+                  // long enough for the booth to gate the container out.
+                  setBusy(true);
+                  void detail.refetch().finally(() => {
+                    setBusy(false);
+                    setEditing(true);
+                  });
                 }}
                 disabled={busy}
               >
@@ -424,6 +442,10 @@ export function ContainerCard(props: {
 
         {editing && props.may('EDIT') && (
           <EditForm
+            // Remounted if the row changes what it IS — a container that left,
+            // or an exit taken back — so the form is never a description of a
+            // record that no longer exists.
+            key={`${String(container.id)}:${container.exitedAt ?? 'standing'}`}
             container={container}
             standing={inYard}
             busy={busy}

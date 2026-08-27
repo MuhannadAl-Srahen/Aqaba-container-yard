@@ -477,6 +477,20 @@ export const ERROR_CODES = [
    */
   'BLOCKED_DESCENT',
   'SAME_SLOT',
+  /**
+   * The four refusals below used to share the single `VALIDATION` code, so
+   * every one of them reached the user as «توجد بيانات ناقصة أو غير صحيحة»
+   * and none of them said WHICH rule was broken — «بقول المعلومات غير كاملة
+   * او غير صحيحة». A refusal owes the cause and the remedy.
+   */
+  /** Exit paperwork offered on a container that is still standing. */
+  'EXIT_ON_STANDING',
+  /** A departed record may not lose its exit date or its exit plate. */
+  'EXIT_PAPERS_MISSING',
+  /** A gate instant later than now — the register would carry a row from a day that has not happened. */
+  'TIME_IN_FUTURE',
+  /** An exit earlier than the entry it belongs to. */
+  'EXIT_BEFORE_ENTRY',
   'NUMBER_IN_YARD',
   'ALREADY_OUT',
   'NAME_TAKEN',

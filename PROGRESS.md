@@ -1992,3 +1992,48 @@ Deliberately left alone, having been measured correct: card serials
 slash is absorbed into the number run; a hyphen is not.
 
 321 tests, gates green.
+
+## المرحلة 33 — الرفض الذي لا يقول شيئاً — 2026-08-27
+
+«عندما اريد التعديل مثلا على اسم السائق او حتى فقط التاريخ بصير في مشكلة
+بقول المعلومات غير كاملة او غير صحيحة». Nothing he typed was wrong.
+
+Six different rules on the correction route all refused with the one code
+`VALIDATION`, so every one of them reached him as the same sentence about
+missing or incorrect data, naming no cause and no remedy. His own records
+were checked against every one of those rules on the live server: not one
+violated any of them. So the failing payload was not describing the record
+in the database.
+
+It was describing an OLDER one. The card polls the server every ten
+seconds — it has to, because a container can descend a tier when a
+neighbour leaves from another device — but the card was DISPLAYING
+`props.container`, the snapshot taken when it was opened, and the edit
+form was built from that snapshot. Leave a card open, let the booth gate
+that container out, then correct anything at all: the form sends a
+payload with no exit paperwork against a row that has left, and the
+server refuses. Correctly. Silently. About the wrong thing.
+
+The card now reads the live row for everything, the form remounts if the
+record changes what it IS (departed, or an exit taken back), and pressing
+«تعديل» asks the server first rather than trusting a poll up to ten
+seconds old.
+
+And every refusal now says which rule it is: `EXIT_ON_STANDING`,
+`EXIT_PAPERS_MISSING`, `TIME_IN_FUTURE`, `EXIT_BEFORE_ENTRY` — each with
+a sentence naming the cause and the remedy, and the first two naming the
+likely REAL cause, which is a card that has been open too long. A payload
+the schema rejects now carries the offending field, so the sentence names
+the box instead of the whole form.
+
+That last part was not free: adding four codes broke the build until all
+four had Arabic, which is the type system doing exactly what it is there
+for.
+
+Also settled this round, by measurement rather than opinion: the owner's
+photos print in colour. All thirty stored on the server are colour JPEGs,
+`print-color-adjust` resolves to `exact` under print, and a card rendered
+through the real print path shows a full-colour photograph. Whatever is
+turning his prints grey is between the print dialog and the paper.
+
+327 tests, gates green.

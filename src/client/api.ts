@@ -71,10 +71,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // Refusals that involve another container carry its number, so the
       // sentence can say WHO is on top or already standing there.
       const other = body.details?.['other'];
+      // A rejected field names itself, when the server could say which one.
+      const field = body.details?.['field'];
+      const named = typeof field === 'string' ? AR.fieldName[field] : undefined;
       const arabic =
         (body.code === 'BLOCKED_DESCENT' || body.code === 'OCCUPIED') && typeof other === 'string'
           ? AR.errorWith(body.code, other)
-          : (AR.errors[body.code] ?? AR.networkError);
+          : body.code === 'VALIDATION' && named !== undefined
+            ? AR.validationField(named)
+            : (AR.errors[body.code] ?? AR.networkError);
       throw new ApiFailure(body.code, arabic, body.details);
     }
     throw new ApiFailure('NETWORK', AR.networkError);

@@ -197,9 +197,19 @@ const truckSchema = z.object({
   driver: z.string().trim().max(60),
 });
 
+/**
+ * A rejected payload now says WHICH field it tripped on. Without it every
+ * schema failure in the whole app reached the user as one sentence about
+ * «بيانات ناقصة أو غير صحيحة» with nothing to act on, and the only way to
+ * find the offending field was to guess.
+ */
 function parseOrRefuse<S extends z.ZodTypeAny>(schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);
-  if (!result.success) throw new Refusal(400, { code: 'VALIDATION' });
+  if (!result.success) {
+    const first = result.error.issues[0];
+    const field = first === undefined ? '' : first.path.join('.');
+    throw new Refusal(400, field === '' ? { code: 'VALIDATION' } : { code: 'VALIDATION', details: { field } });
+  }
   return result.data as z.output<S>;
 }
 
@@ -1018,12 +1028,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const stillStanding = existing.exitedAt === null;
       const exitFields = [body.truckOut, body.driverOut];
       if (stillStanding && (body.exitedAt !== null || exitFields.some((v) => v !== ''))) {
-        refuse(409, 'VALIDATION');
+        refuse(409, 'EXIT_ON_STANDING');
       }
       // Once it has left, its exit paperwork is as mandatory as its entry's —
       // the driver's name excepted, which is optional in both directions.
       if (!stillStanding && (body.exitedAt === null || body.truckOut === '')) {
-        refuse(409, 'VALIDATION');
+        refuse(409, 'EXIT_PAPERS_MISSING');
       }
 
       // A container cannot leave before it arrived, and neither instant may
@@ -1032,8 +1042,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const entered = Date.parse(body.enteredAt);
       const exited = body.exitedAt === null ? null : Date.parse(body.exitedAt);
       const horizon = Date.now() + 60_000;
-      if (entered > horizon || (exited !== null && exited > horizon)) refuse(409, 'VALIDATION');
-      if (exited !== null && exited < entered) refuse(409, 'VALIDATION');
+      if (entered > horizon || (exited !== null && exited > horizon)) refuse(409, 'TIME_IN_FUTURE');
+      if (exited !== null && exited < entered) refuse(409, 'EXIT_BEFORE_ENTRY');
 
       const changed: string[] = [];
       const before: Record<string, string | number> = {};
