@@ -26,6 +26,7 @@ import { downloadBlob } from './sheetKit';
 import { usePanZoom } from './usePanZoom';
 import { GateInSheet } from './GateInSheet';
 import { ContainerCard } from './ContainerCard';
+import { ReclassSheet } from './ReclassSheet';
 import { DriversScreen } from './DriversScreen';
 import { BaySheet } from './BaySheet';
 import { OwnerToolsScreen } from './OwnerToolsScreen';
@@ -54,6 +55,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [moving, setMoving] = useState<ContainerDto | null>(null);
   /** When set, the placing flow CORRECTS this movement instead of moving. */
   const [correcting, setCorrecting] = useState<number | null>(null);
+  /**
+   * تصحيح الفئة: its own sheet, NOT the placing flow. A reclass moves no
+   * steel and may not offer the whole yard — the choice is the bay beside
+   * the one it already stands on, and nothing else.
+   */
+  const [reclassing, setReclassing] = useState<ContainerDto | null>(null);
   /** The container whose card should open on its edit form — the register's
    * pencil sets it, the card's close clears it. */
   const [editContainer, setEditContainer] = useState<number | null>(null);
@@ -181,6 +188,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   const containers = useMemo(() => state.data?.containers ?? [], [state.data]);
   const loads = useMemo(() => buildBayLoads(containers), [containers]);
+  /** Everything on the ground, as the shared rules want to see it. */
+  const standingNow = useMemo(
+    () =>
+      containers
+        .filter((row): row is ContainerDto & { position: Position } => row.position !== null)
+        .map((row) => ({ id: row.id, number: row.number, size: row.size, position: row.position })),
+    [containers],
+  );
 
   /**
    * The whole ground as it stands: the official plan plus the zones the
@@ -1015,6 +1030,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             setMoving(container);
             setCorrecting(movementId);
           }}
+          onStartReclass={(container) => {
+            setSelected(null);
+            setReclassing(container);
+          }}
           onPrint={setPrintCard}
           onExited={(departed, message) => {
             refresh(message);
@@ -1024,6 +1043,21 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           onClose={() => {
             setSelected(null);
             setEditContainer(null);
+          }}
+        />
+      )}
+      {reclassing !== null && (
+        <ReclassSheet
+          container={reclassing}
+          layout={yardLayout}
+          standing={standingNow}
+          onDone={(corrected, message) => {
+            setReclassing(null);
+            refresh(message);
+            setSelected(corrected);
+          }}
+          onClose={() => {
+            setReclassing(null);
           }}
         />
       )}

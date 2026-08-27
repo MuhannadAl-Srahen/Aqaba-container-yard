@@ -505,6 +505,42 @@ export const AR = {
 
   // ---- correcting a move ----
   correctMoveAction: 'تصحيح النقلة',
+
+  // ---- تصحيح الفئة ----
+  actionReclass: 'تصحيح الفئة',
+  sizeFollowsBay: 'الفئة يقرّرها الباي. لتصحيحها استعمل زر «تصحيح الفئة».',
+  reclassTitle: (number: string): string => `تصحيح فئة الحاوية ${ltrCode(number)}`,
+  reclassLead: (from: number, to: number): string =>
+    `السجل يقول إنها ${String(from)} قدماً. اختر الباي الذي تقف عليه فعلاً، والفئة تتبعه: ` +
+    `${String(to)} قدماً.`,
+  reclassExplain:
+    'الحاوية لا تتحرك ولا تُطبع لها بطاقة نقل، والزون والستاك والطابق لا تتغير. ' +
+    'التصحيح يصحّح ما يقوله السجل عن الأرض التي تشغلها.',
+  reclassOption: (at: string, size: number): string =>
+    `الباي ${ltrCode(at)} — ${String(size)} قدماً`,
+  /**
+   * الواو تسبق كلمة عربية لا ترميزاً لاتينياً: «… و⁦2-B-03⁩» تلتصق بالرمز
+   * فتُقرأ جزءاً منه. فالباي يُكرَّر لتستقر الواو على حرف عربي.
+   */
+  reclassCovers: (first: string, second: string): string =>
+    `تشغل الباي ${ltrCode(first)} والباي ${ltrCode(second)}`,
+  reclassFrees: (bay: string): string => `تخلي الباي ${ltrCode(bay)}`,
+  reclassNeighbours: 'الأرض المجاورة الآن:',
+  reclassEmptyCell: 'فارغة',
+  reclassWallCell: 'خارج المخطط',
+  reclassNoRoom:
+    'لا يوجد باي يصلح لهذه الفئة بجانب موقعها الحالي: الباي المجاور مشغول أو مغلق أو ' +
+    'غير موجود في المخطط. انقل ما يجاورها أو راجع المالك، ثم أعد المحاولة.',
+  reclassGoneLead:
+    'هذه الحاوية غادرت الساحة، فتصحيح فئتها لا يشغل أرضاً. اختر الباي الذي كانت تقف ' +
+    'عليه فعلاً حتى يبقى سجل الخروج صحيحاً ويبقى إلغاء الخروج ممكناً.',
+  reclassGoneNoSlot: 'سجل خروج هذه الحاوية لا يحمل موقعاً، فالتصحيح يمسّ الفئة وحدها.',
+  confirmReclassTitle: 'تأكيد تصحيح الفئة',
+  confirmReclassBody: (number: string, size: number, from: string, to: string): string =>
+    `تصير الحاوية ${ltrCode(number)} من فئة ${String(size)} قدماً، وينتقل عنوانها من ` +
+    `${ltrCode(from)} إلى ${ltrCode(to)}. الحاوية لا تتحرك من مكانها.`,
+  reclassDone: (number: string, size: number, at: string): string =>
+    `تم تصحيح فئة الحاوية ${ltrCode(number)} إلى ${String(size)} قدماً في الموقع ${ltrCode(at)}`,
   correctingBanner: (number: string): string =>
     `تصحيح نقلة الحاوية ${ltrCode(number)}: اضغط على الباي ثم على الخانة الصحيحة — يُصحَّح السجل وبطاقة النقل نفسها.`,
   correctMoveDone: (number: string, to: string): string =>
@@ -841,6 +877,15 @@ export const AR = {
     BLOCKED_DESCENT:
       'الحاوية التي فوقها لا تجد موقعاً تنزل إليه. انقلها إلى موقع آخر أولاً.',
     SAME_SLOT: 'هذا هو موقعها الحالي نفسه.',
+    RECLASS_BURIED:
+      'فوق هذه الحاوية حاويات في السجل، وتصحيح فئتها يغيّر الأرض التي تقف هي ' +
+      'عليها فتصير التي فوقها على أرض غير المسجّلة. انقل ما فوقها أولاً ثم صحّح فئتها.',
+    NOT_ADJACENT_BAY:
+      'تصحيح الفئة لا ينقل الحاوية: الزون والستاك والطابق لا تتغير، والباي ' +
+      'يتحرك خانة واحدة. اختر أحد البايين المعروضين.',
+    RETURN_SIZE_CHANGED:
+      'فئة الحاوية صُحِّحت بعد خروجها، والموقع المسجّل في حركة الخروج لا يناسب ' +
+      'الفئة الجديدة. صحّح الفئة إلى الباي الصحيح أولاً، ثم أعد المحاولة.',
     SERVER_FAULT:
       'حدث خطأ في الخادم، لا في البيانات التي كتبتها. أعد المحاولة، وإن تكرر ' +
       'فراجع المطوّر — السبب مسجّل في سجل الخادم.',

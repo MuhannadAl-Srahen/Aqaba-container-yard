@@ -377,7 +377,11 @@ export function migrate(db: DatabaseSync, file: string): void {
       card_in_year INTEGER,
       entered_at   TEXT    NOT NULL DEFAULT '',
       -- v23: «اريد وضع خانة للوزن ايضا» — الوزن كما كُتب لحظة الإصدار.
-      weight       TEXT    NOT NULL DEFAULT ''
+      weight       TEXT    NOT NULL DEFAULT '',
+      -- v24: الفئة كانت تُقرأ حيّة من سجل الحاوية لأنها كانت لا تتغير أبداً.
+      -- وقد صارت تُصحَّح («تصحيح الفئة»)، فلو بقيت حيّة لتغيّر سطر «عشرين /
+      -- أربعين» في تصريح مختوم ومحفوظ. تُثبَّت هنا كأخواتها.
+      size         INTEGER NOT NULL DEFAULT 20
     );
 
     CREATE INDEX IF NOT EXISTS idx_permit_items_permit ON permit_items (permit_id);
@@ -435,8 +439,24 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_wages_live
       ON wages (container_id, direction) WHERE deleted_at IS NULL;
 
-    PRAGMA user_version = 23;
+    PRAGMA user_version = 24;
   `);
+
+  // v24 upgrade: a permit_items born before الفئة could be corrected reads it
+  // live off the container. Pin what each stamped paper actually said, taken
+  // from the container as it stands — which is still the truth for every
+  // permit issued before the first correction.
+  const permitSizeColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('permit_items') as unknown as Array<{ name: string }>;
+  if (!permitSizeColumns.some((column) => column.name === 'size')) {
+    db.exec(`
+      ALTER TABLE permit_items ADD COLUMN size INTEGER NOT NULL DEFAULT 20;
+      UPDATE permit_items
+         SET size = COALESCE(
+           (SELECT k.size FROM containers k WHERE k.id = permit_items.container_id), 20);
+    `);
+  }
 
   // v21 upgrade: a permits table born before the owner's yards existed does
   // not name the yard on the paper — every permit it issued was yard 2.

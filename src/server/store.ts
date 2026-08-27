@@ -338,6 +338,18 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
   return Number(result.lastInsertRowid);
 }
 
+/**
+ * تصحيح الفئة: the class alone, one column.
+ *
+ * Never `updateContainer` — that rewrites fourteen columns and no position
+ * column, and routing a class through it IS the corruption: a 40 addressed at
+ * an odd bay. The class and the address move together, in one transaction, or
+ * not at all.
+ */
+export function setSize(db: DatabaseSync, id: number, size: Size): void {
+  db.prepare('UPDATE containers SET size = ? WHERE id = ?').run(size, id);
+}
+
 export function setPosition(db: DatabaseSync, id: number, position: Position | null): void {
   db.prepare('UPDATE containers SET zone = ?, bay = ?, stack = ?, tier = ? WHERE id = ?').run(
     position?.zone ?? null,
@@ -1234,6 +1246,8 @@ export function insertPermit(
       cardInYear: number | null;
       enteredAt: string;
       weight: string;
+      /** v24: pinned, now that «تصحيح الفئة» can change the live one. */
+      size: Size;
     }>;
   },
 ): number {
@@ -1247,8 +1261,8 @@ export function insertPermit(
   );
   const addItem = db.prepare(
     `INSERT INTO permit_items
-       (permit_id, container_id, truck, number, card_in, card_in_year, entered_at, weight)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       (permit_id, container_id, truck, number, card_in, card_in_year, entered_at, weight, size)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const item of permit.items) {
     addItem.run(
@@ -1260,6 +1274,7 @@ export function insertPermit(
       item.cardInYear,
       item.enteredAt,
       item.weight,
+      item.size,
     );
   }
   return id;
@@ -1275,15 +1290,16 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
   // The lines are read from the permit's own snapshot, never from the live
   // container: what left the office under the stamp is what a reprint says,
   // even after the container is corrected, renumbered or struck out.
-  // The size joins live — the ONE container fact that can never drift,
-  // because the size is locked for life — for the totals line the paper
-  // closes its table with, the bill sheet's own.
+  //
+  // The size used to join live, licensed by a lock that no longer exists:
+  // «تصحيح الفئة» can now change it, and a stamped paper's «عشرين / أربعين»
+  // totals line must not change under the customs officer holding it. Pinned
+  // at v24 like every other fact on the line.
   const items = db
     .prepare(
       `SELECT i.container_id, i.truck, i.number, i.card_in, i.card_in_year, i.entered_at,
-              i.weight, k.size
+              i.weight, i.size
        FROM permit_items i
-       JOIN containers k ON k.id = i.container_id
        WHERE i.permit_id = ?
        ORDER BY i.id`,
     )
@@ -1719,4 +1735,28 @@ export function retargetMovement(db: DatabaseSync, id: number, to: Position): vo
   db.prepare(
     'UPDATE movements SET to_zone = ?, to_bay = ?, to_stack = ?, to_tier = ? WHERE id = ?',
   ).run(to.zone, to.bay, to.stack, to.tier, id);
+}
+
+/**
+ * The mirror of `retargetMovement` for a departure: an OUT movement keeps the
+ * slot it LEFT in `from_*`, and that is the address «إلغاء الخروج» reads back
+ * to stand the container up again. Correcting the class of a container that
+ * has gone must move this with it, or the record remembers a slot whose
+ * parity contradicts its own class and can never be un-exited.
+ */
+export function refromMovement(db: DatabaseSync, id: number, from: Position): void {
+  db.prepare(
+    'UPDATE movements SET from_zone = ?, from_bay = ?, from_stack = ?, from_tier = ? WHERE id = ?',
+  ).run(from.zone, from.bay, from.stack, from.tier, id);
+}
+
+/** The id of the departure whose slot `lastExitPosition` reads. */
+export function lastExitMovementId(db: DatabaseSync, id: number): number | null {
+  const row = db
+    .prepare(
+      `SELECT id FROM movements WHERE container_id = ? AND type = 'OUT'
+       ORDER BY at DESC, id DESC LIMIT 1`,
+    )
+    .get(id) as { id: number } | undefined;
+  return row === undefined ? null : row.id;
 }

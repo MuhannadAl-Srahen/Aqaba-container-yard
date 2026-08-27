@@ -24,7 +24,7 @@ import type {
   UnassignedPlateRow,
   YardStateDto,
 } from '../shared/types';
-import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES } from '../shared/types';
+import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
 import type { DriverHaulRow } from '../shared/types';
 import { normalizePlate, plateMatches } from '../shared/fleet';
 import { plainCode } from '../shared/bidi';
@@ -32,7 +32,7 @@ import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates'
 import { checkNumber } from '../shared/iso6346';
 import { baySpan, positionLabel, samePosition, yardOf } from '../shared/address';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
-import { canMove, canPlace, planRemoval, slotUsable } from '../shared/rules';
+import { canMove, canPlace, planRemoval, restingOn, slotUsable } from '../shared/rules';
 import { composeLayout, zoneDefOf } from '../shared/layout';
 import type { YardLayout } from '../shared/types';
 import {
@@ -763,6 +763,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           cardInYear: container.cardInYear,
           enteredAt: container.enteredAt,
           weight: item.weight,
+          // Pinned like the rest, now that «تصحيح الفئة» can change the live
+          // class: a stamped paper's «عشرين / أربعين» line must not move.
+          size: container.size,
         };
       });
       const at = now();
@@ -1017,12 +1020,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         }
       }
 
-      // THE CLASS IS FIXED for the life of the record, standing or departed.
-      // A 40 occupies two slots and a 20 one, so a class corrected after the
-      // fact falsifies the ground itself and every count taken off it. The
-      // owner's own bar: «لا يوجد تعديل على فئة الحاوية … الا عند حذفها ثم
-      // ادخالها مره اخرى» — which is also the truthful record of what
-      // happened, since a 20 that turns out to be a 40 was never that 20.
+      // THE CLASS IS NOT A FIELD OF THIS FORM, and never was: the bay's
+      // parity IS the class, so writing one here without an address would
+      // make a 40 that lives at an odd bay. It is corrected on the map, by
+      // «تصحيح الفئة», which names the bay and derives the class from it.
+      // Keeping the refusal here is what makes the corrupt state unreachable
+      // — through the form, through the wire type, and through the undo
+      // button in the log.
       if (body.size !== existing.size) refuse(409, 'SIZE_LOCKED');
 
       // The exit paperwork only exists once there has been an exit; offering
@@ -1056,7 +1060,6 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       };
 
       diff('number', check.normalized, existing.number);
-      diff('size', body.size, existing.size);
       diff('bill', body.bill, existing.bill);
       diff('notes', body.notes, existing.notes);
       diff('weight', body.weight, existing.weight);
@@ -1154,6 +1157,11 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const wasAt = store.lastExitPosition(db, id);
       if (wasAt === null) refuse(409, 'BAD_SLOT');
       if (wasAt === null) throw new Error('unreachable');
+      // The remembered slot must still fit the class the record now carries.
+      // `/reclass` keeps the two in step, so this cannot fire through the
+      // screen — but it turns a mystifying BAD_SLOT into its own sentence for
+      // any record that ever drifts.
+      if (sizeOfBay(wasAt.bay) !== existing.size) refuse(409, 'RETURN_SIZE_CHANGED');
       const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, wasAt);
       if (refusal !== null) refuseRule(refusal);
 
@@ -1181,6 +1189,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       const wasAt = store.lastDeletePosition(db, id);
       if (wasAt !== null) {
+        if (sizeOfBay(wasAt.bay) !== existing.size) refuse(409, 'RETURN_SIZE_CHANGED');
         const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, wasAt);
         if (refusal !== null) refuseRule(refusal);
       }
@@ -1578,7 +1587,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // The record shows others resting on it? Rewriting the ground under
       // them is refused outright — nothing physically moved.
       const mover = { id: containerId, number: dto.number, size: dto.size, position };
-      if (liftPlan(standing, mover).length > 0) refuse(409, 'MOVE_BURIED');
+      // A burial reports a burial. `liftPlan` plans a REMOVAL and refuses
+      // BLOCKED_DESCENT first, so a correction that moves no steel could come
+      // back talking about a container that cannot find a landing.
+      if (restingOn(standing, mover).length > 0) refuse(409, 'MOVE_BURIED');
       const refusal = canPlace(layoutNow(), standing, dto.size, body.to, containerId);
       if (refusal !== null) refuseRule(refusal);
       store.setPosition(db, containerId, body.to);
@@ -1598,6 +1610,129 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (container === null || corrected === null) refuse(404, 'NOT_FOUND');
       if (container === null || corrected === null) throw new Error('unreachable');
       return { container, move: corrected };
+    });
+  });
+
+  /**
+   * تصحيح فئة الحاوية — «ممكن الشخص خربط ف بطر انو يعدل بدل ما يحذفها من
+   * السجل كامللل». The owner's reversal of his own earlier bar, and the
+   * geometry decides its shape rather than a dropdown:
+   *
+   * The bay's parity IS the class. So a class written wrong is an ADDRESS
+   * written wrong — the box is standing on ground the book has misdescribed —
+   * and it is corrected by naming the bay it truly occupies. The class is
+   * never in the body: it is `sizeOfBay(to.bay)`, derived exactly as the gate
+   * derives it. Nothing moves: same zone, same stack, same tier, bay ±1. No
+   * MOVE, no move card, no serial is touched — a serial is a function of the
+   * gate date, not of the class.
+   *
+   * Refuses if anything is standing ON it: changing what this box IS changes
+   * what they stand on, and no descent happened to justify a DROP. That is
+   * the owner's own choice — «يرفض الآن» — over correcting a whole column.
+   */
+  app.post('/api/containers/:id/reclass', (request) => {
+    const actor = requirePerm(request, 'MOVE');
+    requirePerm(request, 'EDIT');
+    const id = idParam(request);
+    const body = parseOrRefuse(z.object({ to: positionSchema.optional() }), request.body);
+
+    return transaction(db, () => {
+      const existing = store.getContainer(db, id);
+      if (existing === null) refuse(404, 'NOT_FOUND');
+      if (existing === null) throw new Error('unreachable');
+
+      /** The bay may only step one place sideways; everything else holds. */
+      const adjacent = (from: Position, to: Position): boolean =>
+        to.zone === from.zone &&
+        to.stack === from.stack &&
+        to.tier === from.tier &&
+        Math.abs(to.bay - from.bay) === 1;
+
+      const at = now();
+
+      if (existing.position !== null) {
+        const from = existing.position;
+        if (body.to === undefined) refuse(400, 'VALIDATION', { field: 'to' });
+        if (body.to === undefined) throw new Error('unreachable');
+        if (!adjacent(from, body.to)) refuse(409, 'NOT_ADJACENT_BAY');
+
+        const standing = store.listStanding(db);
+        const mover = { id, number: existing.number, size: existing.size, position: from };
+        const above = restingOn(standing, mover);
+        const first = above[0];
+        if (first !== undefined) refuse(409, 'RECLASS_BURIED', { other: first.number });
+
+        const size = sizeOfBay(body.to.bay);
+        const refusal = canPlace(layoutNow(), standing, size, body.to, id);
+        if (refusal !== null) refuseRule(refusal);
+
+        store.setSize(db, id, size);
+        store.setPosition(db, id, body.to);
+        // The movement that says where it IS becomes true. That one row only:
+        // the journey never happened differently, only its description.
+        const placement = store.latestPlacementId(db, id);
+        if (placement !== null) store.retargetMovement(db, placement, body.to);
+        store.recordMovement(
+          db,
+          id,
+          'EDIT',
+          at,
+          null,
+          null,
+          JSON.stringify({ k: ['size', 'slot'], b: { size: existing.size, slot: positionLabel(from) } }),
+          actorId(actor),
+        );
+      } else {
+        // Departed: no ground is being claimed, so occupancy and support are
+        // not consulted. The remembered exit slot still has to move with the
+        // class, or «إلغاء الخروج» reads back a slot whose parity contradicts
+        // the record and refuses forever.
+        const wasAt = store.lastExitPosition(db, id);
+        if (wasAt === null) {
+          if (body.to !== undefined) refuse(409, 'NOT_ADJACENT_BAY');
+          const size = existing.size === 20 ? 40 : 20;
+          store.setSize(db, id, size);
+          store.recordMovement(
+            db,
+            id,
+            'EDIT',
+            at,
+            null,
+            null,
+            JSON.stringify({ k: ['size'], b: { size: existing.size } }),
+            actorId(actor),
+          );
+        } else {
+          if (body.to === undefined) refuse(400, 'VALIDATION', { field: 'to' });
+          if (body.to === undefined) throw new Error('unreachable');
+          if (!adjacent(wasAt, body.to)) refuse(409, 'NOT_ADJACENT_BAY');
+          const layout = layoutNow();
+          for (const oddBay of baySpan(body.to.bay)) {
+            if (!slotUsable(layout, body.to.zone, oddBay, body.to.stack)) refuse(409, 'BAD_SLOT');
+          }
+          store.setSize(db, id, sizeOfBay(body.to.bay));
+          const departure = store.lastExitMovementId(db, id);
+          if (departure !== null) store.refromMovement(db, departure, body.to);
+          store.recordMovement(
+            db,
+            id,
+            'EDIT',
+            at,
+            null,
+            null,
+            JSON.stringify({
+              k: ['size', 'exitFrom'],
+              b: { size: existing.size, exitFrom: positionLabel(wasAt) },
+            }),
+            actorId(actor),
+          );
+        }
+      }
+
+      const container = store.getContainer(db, id);
+      if (container === null) refuse(404, 'NOT_FOUND');
+      if (container === null) throw new Error('unreachable');
+      return { container };
     });
   });
 

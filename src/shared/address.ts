@@ -74,6 +74,24 @@ export function baySpan(bay: number): readonly number[] {
   return bay % 2 === 1 ? [bay] : [bay - 1, bay + 1];
 }
 
+/**
+ * The inverse of `baySpan`: the even bays whose 40 would cover this odd one.
+ *
+ * A CHOICE of two, not arithmetic — only the person standing in the yard
+ * knows which side the steel actually lies on. Bay 0 is not an address (and
+ * `sizeOfBay(0)` would answer 40 while `baySpan(0)` returned [-1, 1]), so
+ * bay 01 has one answer and not two.
+ *
+ * The caller must still ask the LAYOUT whether the far odd bay exists AT THE
+ * SAME STACK. `zone.bays.includes` is necessary and not sufficient: on the
+ * official plan A 11/2, A 47/1, E 25/1 and E 25/2 pass the bay test and fail
+ * the stack test.
+ */
+export function coveringBays(oddBay: number): readonly number[] {
+  if (oddBay % 2 === 0) return [];
+  return oddBay >= 3 ? [oddBay - 1, oddBay + 1] : [oddBay + 1];
+}
+
 
 /**
  * An address somebody typed, as far as they typed it. The search box takes

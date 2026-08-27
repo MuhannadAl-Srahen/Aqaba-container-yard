@@ -349,6 +349,16 @@ export const api = {
     paid: boolean;
   }): Promise<{ ok: boolean }> =>
     request('/api/wages/pay', { method: 'POST', body: JSON.stringify(input) }),
+  /**
+   * تصحيح الفئة: the class is NEVER sent — the bay decides it, exactly as at
+   * the gate. `to` is absent only for a departed record whose exit movement
+   * remembers no slot.
+   */
+  reclass: (id: number, to?: Position): Promise<{ container: ContainerDto }> =>
+    request(`/api/containers/${String(id)}/reclass`, {
+      method: 'POST',
+      body: JSON.stringify(to === undefined ? {} : { to }),
+    }),
   payMany: (input: {
     hauls: ReadonlyArray<{ containerId: number; direction: HaulDirection }>;
   }): Promise<{ ok: boolean; stamped: number }> =>

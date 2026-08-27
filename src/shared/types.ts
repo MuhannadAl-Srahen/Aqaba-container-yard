@@ -485,6 +485,26 @@ export const ERROR_CODES = [
    */
   'SERVER_FAULT',
   /**
+   * تصحيح الفئة: something is standing ON this container, so changing what it
+   * IS would change what THEY stand on. `details.other` names one of them.
+   * Not `MOVE_BURIED`, which means «you may not correct a move while it holds
+   * others up» — a different sentence about a different act.
+   */
+  'RECLASS_BURIED',
+  /**
+   * A reclass moves no steel: the zone, the stack and the tier are invariant
+   * and the bay moves by exactly one. Unreachable from the screen; it exists
+   * so a hand-made request is not answered with a sentence about walls.
+   */
+  'NOT_ADJACENT_BAY',
+  /**
+   * إلغاء الخروج / الاسترجاع: the slot the record remembers has the wrong
+   * parity for the class it now carries. A belt-and-braces guard — `/reclass`
+   * keeps the remembered slot in step — that turns a mystifying `BAD_SLOT`
+   * into a sentence naming its own cause.
+   */
+  'RETURN_SIZE_CHANGED',
+  /**
    * The four refusals below used to share the single `VALIDATION` code, so
    * every one of them reached the user as «توجد بيانات ناقصة أو غير صحيحة»
    * and none of them said WHICH rule was broken — «بقول المعلومات غير كاملة

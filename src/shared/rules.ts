@@ -107,6 +107,79 @@ export function canPlace(
   return null;
 }
 
+/**
+ * Whatever the record shows resting DIRECTLY on this container — the cells of
+ * its own footprint, one tier up.
+ *
+ * Deliberately not `liftPlan`: that plans a removal and refuses
+ * `BLOCKED_DESCENT` before it can report a burial, so a correction that moves
+ * no steel at all could come back talking about a container that cannot find
+ * a landing. This answers the only question a correction needs: is anything
+ * standing on this box?
+ */
+export function restingOn(
+  standing: readonly Standing[],
+  container: Standing,
+): readonly Standing[] {
+  const above = tierAbove(container.position.tier);
+  if (above === null) return [];
+  const cells = buildOccupancy(standing);
+  const found = new Map<number, Standing>();
+  for (const oddBay of baySpan(container.position.bay)) {
+    const on = cells.get(cellKey(container.position.zone, oddBay, container.position.stack, above));
+    if (on !== undefined && on.id !== container.id) found.set(on.id, on);
+  }
+  return [...found.values()];
+}
+
+/**
+ * تصحيح الفئة: the at-most-two slots this STANDING record could truthfully
+ * claim at the other class.
+ *
+ * A reclass moves no steel — it corrects what the book says about the ground
+ * a box already occupies — so the zone, the stack and the tier are invariant
+ * and only the bay moves, by one. `canPlace` with `ignoreId` then carries
+ * everything else for free: parity (by construction), that every odd bay of
+ * the new span exists at this stack, that both cells are clear with this
+ * container excused, and support under every covered bay off the ground —
+ * including the correct `NO_SUPPORT` when a tier-B 40 would narrow onto an
+ * odd bay whose floor is a 40.
+ */
+export function reclassOptions(
+  layout: YardLayout,
+  standing: readonly Standing[],
+  container: Standing,
+): readonly Position[] {
+  const { position } = container;
+  return [position.bay - 1, position.bay + 1]
+    .filter((bay) => bay >= 1)
+    .map((bay) => ({ ...position, bay }))
+    .filter(
+      (candidate) =>
+        canPlace(layout, standing, sizeOfBay(candidate.bay), candidate, container.id) === null,
+    );
+}
+
+/**
+ * The same two candidates for a record that has LEFT. Nothing is being
+ * placed, so occupancy and support are not consulted — only that every odd
+ * bay of the span is a slot the plan actually has. The address matters
+ * because «إلغاء الخروج» reads it back to stand the container up again.
+ */
+export function reclassOptionsGone(
+  layout: YardLayout,
+  wasAt: Position,
+): readonly Position[] {
+  return [wasAt.bay - 1, wasAt.bay + 1]
+    .filter((bay) => bay >= 1)
+    .map((bay) => ({ ...wasAt, bay }))
+    .filter((candidate) =>
+      baySpan(candidate.bay).every((oddBay) =>
+        slotUsable(layout, candidate.zone, oddBay, candidate.stack),
+      ),
+    );
+}
+
 /** One container coming down a tier because what held it up has gone. */
 export interface Descent {
   readonly container: Standing;

@@ -126,6 +126,8 @@ export function ContainerCard(props: {
   onStartMove: (container: ContainerDto) => void;
   /** Correct where the LAST move landed — the record, not the steel. */
   onStartCorrect: (container: ContainerDto, movementId: number) => void;
+  /** Correct WHAT IT IS — the class, by naming the bay it truly occupies. */
+  onStartReclass: (container: ContainerDto) => void;
   /**
    * Open a printable card. A move card is a movement's paper rather than the
    * container's, so the movement being reprinted comes with it.
@@ -402,6 +404,21 @@ export function ContainerCard(props: {
                 disabled={busy}
               >
                 {AR.actionUnexit}
+              </Button>
+            )}
+            {/* تصحيح الفئة: offered standing and departed alike, because the
+                class is as correctable as anything else a person typed — and
+                it needs both permissions, since it moves an address as well
+                as a fact. */}
+            {props.may('MOVE') && props.may('EDIT') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  props.onStartReclass(container);
+                }}
+                disabled={busy}
+              >
+                {AR.actionReclass}
               </Button>
             )}
             {props.may('EDIT') && (
@@ -703,7 +720,7 @@ function EditForm(props: {
           the ground and every count taken off it. To change it the record is
           struck out and the container received again — which is also the
           truthful account of what happened. */}
-      <Field label={AR.cardSize} hint={<span className="text-faint">{AR.sizeLockedForever}</span>}>
+      <Field label={AR.cardSize} hint={<span className="text-faint">{AR.sizeFollowsBay}</span>}>
         <p className="rounded-xl border border-line bg-sunken px-3 py-2 text-sm font-bold text-muted">
           {AR.feet(props.container.size)}
         </p>

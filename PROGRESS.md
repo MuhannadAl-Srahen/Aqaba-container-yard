@@ -2071,3 +2071,58 @@ payload and reported success having done nothing. Latent — no move has
 been corrected in his book yet — and live the moment one is.
 
 328 tests, gates green.
+
+## المرحلة 35 — الفئة تتبع الباي — 2026-08-27
+
+«وكمان بدي القدرة عند التعديل على تغير فئة الحاوية … ممكن الشخص خربط ف
+بطر انو يعدل بدل ما يحذفها من السجل كامللل». He reversed his own earlier
+bar, and his reason is right: deleting a whole record is an absurd price
+for a mistyped class.
+
+But a dropdown would have been the wrong answer, and the yard says why.
+The bay's parity IS the class — odd is a twenty, even is a forty lying
+across the two odd bays around it — so a class written wrong is an
+ADDRESS written wrong. The box is standing on ground the book has
+misdescribed. So the correction is to name the bay it truly occupies,
+and the class follows, exactly as it does at the gate where nobody is
+asked for it either.
+
+Nothing moves. Same zone, same stack, same tier, one bay sideways: the
+whole choice is at most two slots, judged by `canPlace` with the
+container excused, and the class and the address are written in one
+transaction. No MOVE, no move card, no serial disturbed — a serial is a
+function of the gate date, not of the class.
+
+Three decisions worth recording:
+
+**Buried refuses.** Changing what a box IS changes what the boxes above
+it stand on, and no descent happened to justify a DROP row. Writing one
+would say a container moved at a moment the yard stood still, which is
+the exact lie the DROP type exists to prevent. Measured against his live
+yard: 307 of 620 standing containers carry something. He was given the
+figure and chose the refusal — «يرفض الآن» — over correcting a whole
+column, on the reasoning that a mistyped class is normally caught minutes
+after gate-in, when the box is by construction the top of its stack.
+
+**The departed branch moves the exit slot with the class.** An OUT
+movement remembers where the container stood, and «إلغاء الخروج» reads
+that back. Without moving it, a corrected record remembers an odd bay for
+a forty and can never be un-exited. There is a test that fails without
+it.
+
+**`SIZE_LOCKED` stays on the correction form, for ever.** That is what
+makes the corrupt state — a forty addressed at an odd bay — unreachable
+through the form, through the wire type, and through the log's undo
+button. The class is not a field; it never was.
+
+And the stamped permit stops reading the class off the live container:
+pinned in its own line at v24, like the number, the serial, the entry
+date and the weight already were. The licence for reading it live was the
+lock, and the lock is gone.
+
+Verified in a browser on the built bundle: a twenty at B-03 with bay 05
+occupied is offered exactly ONE option, corrected to a forty at B-02, and
+the ground strip shows why the other side was not offered. Then the same
+box narrowed back to a twenty at B-01. The entry movement follows the
+address; each correction leaves one EDIT carrying the previous class and
+slot; no MOVE and no DROP anywhere. 337 tests, gates green.
