@@ -1,7 +1,7 @@
 import { memo, useState, type ReactElement } from 'react';
 import type { ContainerDto, Landmark, YardLayout, Zone, ZoneDef } from '../shared/types';
 import { AR } from './ar';
-import { bayKey, maxStackOf, summarizeZone, zoneCells, type ZoneCell } from './mapModel';
+import { bayKey, countBay, maxStackOf, summarizeZone } from './mapModel';
 
 /**
  * The official ASEZA yard drawn to scale as SVG: zone strips with their bays
@@ -9,14 +9,8 @@ import { bayKey, maxStackOf, summarizeZone, zoneCells, type ZoneCell } from './m
  * tower and caravan standing where the printed map puts them, so the screen
  * reads like the paper the yard already knows.
  *
- * The ground of a cell is the ODD bay, and the pair a forty block claims is
- * ONE cell with one count — «كان النظام يضع 40 قدم كل خانتين»: a forty is
- * one thing across two slots, and painting it as a number under each of
- * them made one block of nineteen read as two bays of nineteen. The strip
- * looks the same reading and placing — while a container hunts for a slot
- * the cells that can take it light up whole, and choosing the exact slot
- * belongs to the bay sheet a tap opens. What stands in a bay (all tiers,
- * spanning 40s included) is always one tap away.
+ * A map cell is one ODD bay — the ground itself. What stands in it (both
+ * tiers, and any 40 reaching over from an even bay) is one tap away.
  */
 
 const OUTER_PAD = 26;
@@ -93,42 +87,27 @@ export interface MapProps {
   } | null;
 }
 
-/**
- * One cell of the strip: a lone odd bay, or the pair a forty block claims,
- * read as one thing. The same cell serves reading AND placing — «I want you
- * to edit transport of the container to match the look of the map» — so
- * while a container hunts for its slot the pair lights up whole when any of
- * its ground offers a legal landing. Each bay still answers its own tap, so
- * the sheet that opens is the ground actually clicked, and the sheet is the
- * authority on which exact slots take it.
- */
-function RunCell(props: {
+function BayCell(props: {
   zone: ZoneDef;
-  cell: ZoneCell;
-  /** Index of the stretch's first bay within `zone.bays` — its column. */
+  bay: number;
   index: number;
   cellW: number;
   view: MapProps;
 }): ReactElement {
-  const { zone, cell, index, cellW, view } = props;
+  const { zone, bay, index, cellW, view } = props;
+  const key = bayKey(zone.zone, bay);
+  const load = view.loads.get(key);
+  const count = countBay(zone, bay, load);
 
-  const seen = new Set<number>();
-  const load: ContainerDto[] = [];
-  for (const bay of cell.bays) {
-    for (const container of view.loads.get(bayKey(zone.zone, bay)) ?? []) {
-      if (!seen.has(container.id)) {
-        seen.add(container.id);
-        load.push(container);
-      }
-    }
-  }
+  const x = PAD + index * cellW;
+  const y = TITLE_H;
 
-  const isTarget =
-    view.targets !== null &&
-    cell.bays.some((bay) => view.targets?.has(bayKey(zone.zone, bay)) ?? false);
-  const holdsMoving = view.movingId !== null && load.some((c) => c.id === view.movingId);
-  const holdsSelected = view.selectedId !== null && load.some((c) => c.id === view.selectedId);
-  const holdsMatch = load.some((container) => view.matches.has(container.id));
+  const isTarget = view.targets !== null && view.targets.has(key);
+  const holdsMoving =
+    view.movingId !== null && (load?.some((c) => c.id === view.movingId) ?? false);
+  const holdsSelected =
+    view.selectedId !== null && (load?.some((c) => c.id === view.selectedId) ?? false);
+  const holdsMatch = load?.some((container) => view.matches.has(container.id)) ?? false;
 
   // While searching or placing, everything irrelevant steps back. It dims,
   // it never disappears — the map must stay a picture of the whole place.
@@ -136,14 +115,9 @@ function RunCell(props: {
   if (view.searchActive) dimmed = !holdsMatch;
   if (view.targets !== null) dimmed = !(isTarget || holdsMoving);
 
-  const noted = load.some((container) => container.notes !== '');
-
-  const x = PAD + index * cellW;
-  const y = TITLE_H;
-  const width = cellW * cell.bays.length - 4;
-
-  const fill = isTarget ? C.targetFill : cell.empty ? C.free : cell.full ? C.full : C.partial;
-  const textColor = cell.full && !isTarget ? C.fullText : cell.empty ? C.label : C.text;
+  const empty = count.used === 0;
+  const fill = isTarget ? C.targetFill : empty ? C.free : count.full ? C.full : C.partial;
+  const textColor = count.full && !isTarget ? C.fullText : empty ? C.label : C.text;
   const stroke =
     holdsSelected || holdsMoving
       ? C.selected
@@ -151,37 +125,39 @@ function RunCell(props: {
         ? C.match
         : isTarget
           ? C.targetBorder
-          : cell.full
+          : count.full
             ? C.full
-            : cell.empty
+            : empty
               ? C.freeBorder
               : C.partialBorder;
   const strong = holdsSelected || holdsMoving || holdsMatch || isTarget;
-
-  const pad2 = (bay: number): string => String(bay).padStart(2, '0');
-  const first = cell.bays[0];
-  const last = cell.bays[cell.bays.length - 1];
-  const label =
-    cell.bays.length === 1 || first === undefined || last === undefined
-      ? pad2(first ?? 0)
-      : `${pad2(first)}–${pad2(last)}`;
+  // A note on any container here earns a dot: the crew writes the dents, the
+  // opened locks and the customs holds there, and the map must not hide it.
+  const noted = load?.some((container) => container.notes !== '') ?? false;
 
   return (
-    <g className="map-cell" opacity={dimmed ? 0.22 : undefined}>
+    <g
+      className="map-cell"
+      opacity={dimmed ? 0.22 : undefined}
+      onClick={() => {
+        view.onBayClick(zone.zone, bay);
+      }}
+    >
       <rect
         className="cell-frame"
         x={x + 2}
         y={y}
-        width={width}
+        width={cellW - 4}
         height={CELL_H}
         rx={5}
         fill={fill}
         stroke={stroke}
         strokeWidth={strong ? 2.5 : 1.2}
-        strokeDasharray={cell.empty && !strong ? '4 3' : undefined}
+        strokeDasharray={empty && !strong ? '4 3' : undefined}
       />
+      {/* The bay's own number, exactly as the plan paints it on the ground. */}
       <text
-        x={x + (width + 4) / 2}
+        x={x + cellW / 2}
         y={y + 25}
         textAnchor="middle"
         fontSize={15}
@@ -189,10 +165,10 @@ function RunCell(props: {
         fill={textColor}
         direction="ltr"
       >
-        {label}
+        {String(bay).padStart(2, '0')}
       </text>
       <text
-        x={x + (width + 4) / 2}
+        x={x + cellW / 2}
         y={y + 50}
         textAnchor="middle"
         fontSize={12}
@@ -200,23 +176,9 @@ function RunCell(props: {
         fill={textColor}
         direction="ltr"
       >
-        {`${String(cell.boxes)} / ${String(cell.capacity)}`}
+        {`${String(count.used)} / ${String(count.total)}`}
       </text>
-      {noted && <circle cx={x + (width + 4) / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
-      {/* Every bay of the stretch still answers its own tap. */}
-      {cell.bays.map((bay, at) => (
-        <rect
-          key={bay}
-          x={x + at * cellW}
-          y={y}
-          width={cellW}
-          height={CELL_H}
-          fill="transparent"
-          onClick={() => {
-            view.onBayClick(zone.zone, bay);
-          }}
-        />
-      ))}
+      {noted && <circle cx={x + cellW / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
     </g>
   );
 }
@@ -264,17 +226,10 @@ const ZonePanel = memo(
           {AR.zoneBuild(maxStackOf(zone))}
         </text>
         <text x={PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={700} fill={C.label}>
-          {AR.fullAndFree(summary.boxes, summary.totalTeu - summary.usedTeu)}
+          {AR.fullAndFree(summary.usedTeu, summary.totalTeu - summary.usedTeu)}
         </text>
-        {zoneCells(zone, view.loads).map((cell) => (
-          <RunCell
-            key={cell.bays[0]}
-            zone={zone}
-            cell={cell}
-            index={zone.bays.indexOf(cell.bays[0] ?? -1)}
-            cellW={cellW}
-            view={view}
-          />
+        {zone.bays.map((bay, index) => (
+          <BayCell key={bay} zone={zone} bay={bay} index={index} cellW={cellW} view={view} />
         ))}
         {draggable && (
           <rect

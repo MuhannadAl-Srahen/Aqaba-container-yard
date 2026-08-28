@@ -1,7 +1,7 @@
 import type { ContainerDto, Position, Size, Tier, YardLayout, Zone, ZoneDef } from '../shared/types';
 import { TIERS } from '../shared/types';
 import { baySpan, parseAddress } from '../shared/address';
-import { buildOccupancy, canPlace, fortyRoom, type Standing } from '../shared/rules';
+import { buildOccupancy, canPlace, type Standing } from '../shared/rules';
 import { normalizeNumber } from '../shared/iso6346';
 
 /**
@@ -68,16 +68,8 @@ export function countBay(
   return { used, total, full: total > 0 && used >= total };
 }
 
-/** Zone roll-up for the panel header. */
+/** Zone roll-up for the panel header: TEU standing against TEU capacity. */
 export interface ZoneSummary {
-  /**
-   * CONTAINERS standing in the zone, each counted once. The slot figures
-   * count a forty as the two slots it fills, and reading them as container
-   * counts is exactly the mistake the header used to invite — the owner
-   * checks this number against his own register, and the register counts
-   * boxes: «مشغول 386» over a zone holding 195 read as broken arithmetic.
-   */
-  readonly boxes: number;
   readonly usedTeu: number;
   readonly totalTeu: number;
 }
@@ -86,129 +78,16 @@ export function summarizeZone(
   zone: ZoneDef,
   loads: ReadonlyMap<string, readonly ContainerDto[]>,
 ): ZoneSummary {
-  const seen = new Set<number>();
   let usedTeu = 0;
   let totalTeu = 0;
   for (const bay of zone.bays) {
-    const load = loads.get(bayKey(zone.zone, bay));
-    const count = countBay(zone, bay, load);
+    const count = countBay(zone, bay, loads.get(bayKey(zone.zone, bay)));
     usedTeu += count.used;
     totalTeu += count.total;
-    for (const container of load ?? []) seen.add(container.id);
   }
-  return { boxes: seen.size, usedTeu, totalTeu };
+  return { usedTeu, totalTeu };
 }
 
-/**
- * One cell of a zone's strip: the PAIR of odd bays a forty block claims, or
- * a lone odd bay no block does.
- *
- * «كان النظام يضع 40 قدم كل خانتين» — the owner reads a forty as ONE thing
- * across two slots. Painting it as one TEU under each covered bay was
- * arithmetically true about the ground and unreadable as a count of boxes:
- * nineteen forties at bay 08 read «19» under 07 AND «19» under 09, and the
- * moment a block landed off the tidy 04/08/12 grid the neighbouring tiles
- * stopped mirroring and the whole strip looked broken.
- */
-export interface ZoneCell {
-  /** The odd bays this cell covers, in plan order — one, or a claimed pair. */
-  readonly bays: readonly number[];
-  /** Containers belonging to this cell, each counted ONCE zone-wide. */
-  readonly boxes: number;
-  /**
-   * How many containers the cell holds when completed as what it is: a lone
-   * bay fills with twenties on the ground left to it, a pair with forties
-   * (`boxes` plus the forty landings still open in it). This is how the
-   * owner already read «3/24» and «18/24» side by side, and both were true.
-   */
-  readonly capacity: number;
-  /** Every slot of the cell is taken — slot arithmetic, for the paint. */
-  readonly full: boolean;
-  /** Nothing covers any of the cell's ground — not even an overhang. */
-  readonly empty: boolean;
-}
-
-export function zoneCells(
-  zone: ZoneDef,
-  loads: ReadonlyMap<string, readonly ContainerDto[]>,
-): ZoneCell[] {
-  // How many forties are addressed at each even bay of this zone.
-  const fortyAt = new Map<number, number>();
-  for (const bay of zone.bays) {
-    for (const container of loads.get(bayKey(zone.zone, bay)) ?? []) {
-      if (container.size === 40 && container.position !== null) {
-        fortyAt.set(container.position.bay, (fortyAt.get(container.position.bay) ?? 0) + 1);
-      }
-    }
-  }
-
-  /**
-   * A cell is AT MOST a pair — «يجب ان يكون مفصل اكثر، مثلا 19-21، 23-25».
-   * The first cut chained every bay a forty touches, and one stray forty at
-   * bay 22 welded 19–25 into a single coarse cell. So the pairs anchor on
-   * the BLOCKS instead: each loaded even bay claims its two odd neighbours,
-   * heaviest block first, and whatever no block claims stands alone. The
-   * stray forty then counts in the cell holding the lower bay it covers —
-   * off by one bay at the seam, never counted twice, and the sheet a tap
-   * opens tells the exact truth.
-   */
-  const claimed = new Map<number, number[]>();
-  const evens = [...fortyAt.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
-  for (const [even] of evens) {
-    const pair = [even - 1, even + 1];
-    if (pair.every((bay) => zone.bays.includes(bay) && !claimed.has(bay))) {
-      for (const bay of pair) claimed.set(bay, pair);
-    }
-  }
-
-  const cells: number[][] = [];
-  for (const bay of zone.bays) {
-    const pair = claimed.get(bay);
-    if (pair === undefined) cells.push([bay]);
-    else if (pair[0] === bay) cells.push(pair);
-  }
-
-  /** The one cell each container belongs to: a forty, the lower bay it covers. */
-  const cellOf = new Map<number, number[]>();
-  for (const cell of cells) for (const bay of cell) cellOf.set(bay, cell);
-  const home = (container: ContainerDto): number[] | undefined => {
-    if (container.position === null) return undefined;
-    const ground = baySpan(container.position.bay);
-    return cellOf.get(ground[0] ?? container.position.bay) ?? cellOf.get(ground[1] ?? -1);
-  };
-
-  return cells.map((bays): ZoneCell => {
-    const touchers = new Map<number, ContainerDto>();
-    const boxes = new Set<number>();
-    let usedTeu = 0;
-    let totalTeu = 0;
-    for (const bay of bays) {
-      const load = loads.get(bayKey(zone.zone, bay));
-      const count = countBay(zone, bay, load);
-      usedTeu += count.used;
-      totalTeu += count.total;
-      for (const container of load ?? []) {
-        touchers.set(container.id, container);
-        if (home(container) === bays) boxes.add(container.id);
-      }
-    }
-    // Completed as what it is: a pair fills with forties (the standing boxes
-    // plus the landings still open, neighbours' overhang blocking its lanes),
-    // a lone bay with twenties on whatever ground is left to it.
-    const capacity =
-      bays.length === 1
-        ? boxes.size + (totalTeu - usedTeu)
-        : boxes.size +
-          fortyRoom(zone, bays, buildOccupancy(toStanding([...touchers.values()])), TIERS);
-    return {
-      bays,
-      boxes: boxes.size,
-      capacity,
-      full: totalTeu > 0 && usedTeu >= totalTeu,
-      empty: usedTeu === 0,
-    };
-  });
-}
 
 /** The tallest stack this zone reaches anywhere — the bay sheet's grid width. */
 export function maxStackOf(zone: ZoneDef): number {

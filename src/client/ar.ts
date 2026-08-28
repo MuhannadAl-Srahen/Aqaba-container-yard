@@ -251,14 +251,13 @@ export const AR = {
   zoneBuild: (maxStack: number): string =>
     `ستاكات حتى ${String(maxStack)} × ${String(TIERS.length)} طوابق`,
   /**
-   * `195 حاوية · متاح 340 خانة` — the zone header. The first figure counts
-   * CONTAINERS, each once, because that is the number the owner checks
-   * against his register; the second counts the twenty-foot slots still
-   * open. In slot terms a forty is two, and giving the header the slot
-   * figure alone («مشغول 386» over 195 boxes) read as broken arithmetic.
+   * `مشغول 6 · متاح 10` — the split the owner reads at a glance, in
+   * twenty-foot slots (a forty counts as the two it fills). A boxes-first
+   * header and paired cells were tried and the owner chose this original
+   * reading back: «return to the same as the old one».
    */
-  fullAndFree: (boxes: number, free: number): string =>
-    `${String(boxes)} حاوية · متاح ${String(free)} خانة`,
+  fullAndFree: (full: number, free: number): string =>
+    `مشغول ${String(full)} · متاح ${String(free)}`,
   bayHas: (used: number, total: number): string =>
     used === 0 ? 'الباي فارغ' : `مشغول ${String(used)} من ${String(total)}`,
   bayFull: 'ممتلئ',

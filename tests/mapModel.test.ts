@@ -10,7 +10,6 @@ import {
   slotView,
   summarizeZone,
   targetBays,
-  zoneCells,
 } from '../src/client/mapModel';
 import { ASEZA } from '../src/shared/asezaLayout';
 import { canPlace } from '../src/shared/rules';
@@ -153,131 +152,8 @@ describe('bay loads', () => {
 
   it('rolls a zone up for the panel header', () => {
     const loads = buildBayLoads([box('A', at(1, 1, 'A'))]);
-    expect(summarizeZone(zoneA, loads)).toEqual({ boxes: 1, usedTeu: 1, totalTeu: 15 });
+    expect(summarizeZone(zoneA, loads)).toEqual({ usedTeu: 1, totalTeu: 15 });
     expect(maxStackOf(zoneA)).toBe(2);
-  });
-
-  it('counts a spanning forty ONCE in the header, and twice in the slots', () => {
-    const loads = buildBayLoads([box('F', at(2, 1, 'A'), 40)]);
-    // One container standing; two of the zone's fifteen slots under it.
-    expect(summarizeZone(zoneA, loads)).toEqual({ boxes: 1, usedTeu: 2, totalTeu: 15 });
-  });
-});
-
-describe('zone cells — a forty block claims its pair of bays', () => {
-  /**
-   * «كان النظام يضع 40 قدم كل خانتين»: the owner reads a forty as one thing
-   * across two slots, so the strip pairs the bays a block lies across and
-   * counts every box once. And a cell is AT MOST a pair — «يجب ان يكون مفصل
-   * اكثر، مثلا 19-21، 23-25»: on his live zone B one stray forty at bay 22
-   * bridged the blocks at 20 and 24, and the first cut welded all four bays
-   * into one coarse «19–25». Now the heaviest block claims its pair first,
-   * and the stray counts in the cell holding the lower bay it covers.
-   */
-  const zoneWide: ZoneDef = {
-    zone: 'A',
-    yard: 1,
-    x: 0, y: 0, w: 100, h: 100,
-    bays: [1, 3, 5, 7, 9, 11],
-    stacks: {
-      '1': [1, 2, 3], '3': [1, 2, 3], '5': [1, 2, 3],
-      '7': [1, 2, 3], '9': [1, 2, 3], '11': [1, 2, 3],
-    },
-  };
-
-  it('the heavier block anchors the pair; the dribble keeps to the margin', () => {
-    // The live zone A shape: four twenties at bay 1, two forties at bay 02,
-    // a six-forty block at 04, a block at 08, and bay 11 bare. The block at
-    // 04 owns «03–05»; the two at 02 count under the lone «01» beside it.
-    const loads = buildBayLoads([
-      box('T1', at(1, 1, 'A')),
-      box('T2', at(1, 1, 'B')),
-      box('F2', at(2, 2, 'A'), 40),
-      box('F4A', at(4, 3, 'A'), 40),
-      box('F4B', at(4, 3, 'B'), 40),
-      box('F8A', at(8, 1, 'A'), 40),
-      box('F8B', at(8, 1, 'B'), 40),
-      box('F8C', at(8, 2, 'A'), 40),
-    ]);
-    const cells = zoneCells(zoneWide, loads);
-    expect(cells.map((cell) => cell.bays)).toEqual([[1], [3, 5], [7, 9], [11]]);
-
-    // Each container counted once, in one cell: 2 twenties + the stray forty
-    // under «01», the block of two under «03–05», three under «07–09».
-    expect(cells.map((cell) => cell.boxes)).toEqual([3, 2, 3, 0]);
-
-    // The pair's ceiling counts the neighbour's overhang as blocked ground:
-    // completed as forties, «03–05» holds six — two standing plus four
-    // landings (worked by hand; the stray at 02 kills one stack line).
-    expect(cells[1]?.capacity).toBe(6);
-
-    // A pure pair reads like the ledger: three of the nine it can carry
-    // (three shared stacks × three tiers).
-    expect(cells[2]?.capacity).toBe(9);
-    expect(cells[2]?.empty).toBe(false);
-
-    // The bare bay keeps the old arithmetic: twenties over stacks × 3.
-    expect(cells[3]).toEqual({ bays: [11], boxes: 0, capacity: 9, full: false, empty: true });
-  });
-
-  it('the owner’s own case: 19–25 breaks into 19–21 and 23–25', () => {
-    const zoneB: ZoneDef = {
-      zone: 'A',
-      yard: 1,
-      x: 0, y: 0, w: 100, h: 100,
-      bays: [19, 21, 23, 25],
-      stacks: { '19': [1, 2, 3], '21': [1, 2, 3], '23': [1, 2, 3], '25': [1, 2, 3] },
-    };
-    // Blocks at 20 and 24, one stray forty at 22 bridging them — the shape
-    // that produced the coarse «19–25 · 42/59» on his screen.
-    const loads = buildBayLoads([
-      box('F20A', at(20, 1, 'A'), 40),
-      box('F20B', at(20, 2, 'A'), 40),
-      box('F22', at(22, 3, 'A'), 40),
-      box('F24A', at(24, 1, 'A'), 40),
-      box('F24B', at(24, 2, 'A'), 40),
-    ]);
-    const cells = zoneCells(zoneB, loads);
-    expect(cells.map((cell) => cell.bays)).toEqual([[19, 21], [23, 25]]);
-    // The stray at 22 counts once, in the cell holding bay 21.
-    expect(cells.map((cell) => cell.boxes)).toEqual([3, 2]);
-    // And every box of the zone is in exactly one cell.
-    expect(cells.reduce((sum, cell) => sum + cell.boxes, 0)).toBe(
-      summarizeZone(zoneB, loads).boxes,
-    );
-  });
-
-  it('adjacency alone pairs nothing — it takes a forty', () => {
-    const loads = buildBayLoads([box('T1', at(1, 1, 'A')), box('T3', at(3, 1, 'A'))]);
-    const cells = zoneCells(zoneWide, loads);
-    expect(cells.map((cell) => cell.bays)).toEqual([[1], [3], [5], [7], [9], [11]]);
-    expect(cells[0]?.boxes).toBe(1);
-    expect(cells[0]?.capacity).toBe(9);
-  });
-
-  it('a pair is full when every slot under it is taken', () => {
-    // Bays 07–09, three stacks: nine forties stacked three high fill it.
-    const forties = [1, 2, 3].flatMap((stack) =>
-      (['A', 'B', 'C'] as const).map((tier) => box(`F${String(stack)}${tier}`, at(8, stack, tier), 40)),
-    );
-    const cells = zoneCells(zoneWide, buildBayLoads(forties));
-    const pair = cells.find((cell) => cell.bays.length === 2);
-    expect(pair?.bays).toEqual([7, 9]);
-    expect(pair?.boxes).toBe(9);
-    expect(pair?.capacity).toBe(9);
-    expect(pair?.full).toBe(true);
-  });
-
-  it('ground under an overhang alone is not empty, and its room shrinks', () => {
-    // One forty at 02 and nothing else: bay 03's ground is half covered by a
-    // box that belongs to the cell next door.
-    const cells = zoneCells(zoneWide, buildBayLoads([box('F2', at(2, 1, 'A'), 40)]));
-    const lone3 = cells.find((cell) => cell.bays.length === 1 && cell.bays[0] === 3);
-    expect(lone3).toBeUndefined();
-    // 02 is the only block, so it claims «01–03» whole.
-    const pair = cells.find((cell) => cell.bays.length === 2);
-    expect(pair?.bays).toEqual([1, 3]);
-    expect(pair?.boxes).toBe(1);
   });
 });
 

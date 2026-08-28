@@ -2287,3 +2287,22 @@ now refuses by name, one line per closed way: «عبر الباي 04: الخان
 support, or a stack the plan does not give the partner. The generic
 «اختر خانة أخرى» remains only for the gate-in flow, where no size has
 been declared yet. 348 tests, gates green.
+
+## المرحلة 41 — المالك يعيد الشكل الأصلي — 2026-08-28
+
+«bro I want the same as this one — this is the old one with the same
+look with the same behave — return to the same as the old one.»
+
+He lived a day with the paired cells (stages 37–39) and chose the
+original strip back: one tile per odd bay, TEU numbers, «مشغول · متاح»
+in slots. His call, cleanly honored — YardMap restored wholesale from
+the pre-37 tree, `fullAndFree` back to slot wording, `zoneCells` and the
+boxes roll-up deleted, the six pair-cell tests with them. SPEC records
+the decision so the pairing is not re-invented uninvited.
+
+Kept, deliberately: `fortyRoom` in the shared rules (a pure
+generalization of `fortiesInZone`, still carrying the fill calculator),
+and ALL of stage 40 — the bay sheet's glowing landing cells and refusals
+that name the occupier. Those fixed his real stuck move (A-05 stack 5,
+both partners spent under neighbouring overhangs) and touch nothing
+about the map's look. 342 tests, gates green.
