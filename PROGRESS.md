@@ -2260,3 +2260,30 @@ exact sheet, and the sheet is the authority on which slots take it);
 everything that cannot take it dims as before. The old per-bay BayCell
 component is deleted — one cell component, one look. 347 tests, gates
 green.
+
+## المرحلة 40 — الخانة الفارغة التي ترفض تسمّي شاغلَي شريكتها — 2026-08-28
+
+«انا بحاول انقل من 23-25 الى A-5 رغم انها اربعين قدم الا انه يعطيني انه
+لا يمكن نقلها. رجاءا تأكد من كل شي يخص الأرض بان امورها تمام.»
+
+The ground checked out first, read-only: zone A bays 1–9 all carry
+stacks 3–10 on the decoded plan (1–2 are the wall the sheet hatches),
+and the refusal he hit was TRUE. He picked A-05 stack 5 tier A — a cell
+that reads «فارغ» on bay 05's own sheet — but a forty needs a partner
+cell on a neighbouring odd bay, and both partners at stack 5 were spent
+under other blocks' overhangs: bay 03's half under FCIU9356332 (the
+block at 02) and bay 07's half under CIPU5130473 (the block at 08).
+Meanwhile stacks 06–10 stood genuinely open — the pair's own cell said
+«6/21», fifteen landings free — and nothing on the sheet distinguished
+them from the dead stack. Two failures, neither of them the ground's:
+the refusal named no cause, and the grid gave no clue where to aim.
+
+Both fixed in the sheet. While a container is being placed, the cells
+that actually take it GLOW (computed by `bayLandings`, the same shared
+rules the server runs), with a line under the grid saying so — or saying
+plainly that no cell of this bay takes it. And a picked cell that fails
+now refuses by name, one line per closed way: «عبر الباي 04: الخانة
+الشريكة 2-A-03-05-A مشغولة بالحاوية FCIU9356332» — occupier, missing
+support, or a stack the plan does not give the partner. The generic
+«اختر خانة أخرى» remains only for the gate-in flow, where no size has
+been declared yet. 348 tests, gates green.

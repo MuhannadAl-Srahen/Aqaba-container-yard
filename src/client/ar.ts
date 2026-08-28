@@ -276,6 +276,23 @@ export const AR = {
   move40With: (otherBay: string): string => `النقل بالعرض مع ${otherBay}`,
   fortySpans: 'حاوية الأربعين تشغل بايين، ويرمز لها بالرقم الزوجي بينهما.',
   noLandingHere: 'لا يمكن الوضع في هذه الخانة. اختر خانة أخرى.',
+  /**
+   * Why a picked EMPTY slot takes no forty: the cell looks free on this
+   * bay's sheet, but a forty needs a partner cell at the neighbouring odd
+   * bay, and that cell lives on ANOTHER sheet — invisible from here. The
+   * owner hit exactly this: «رغم انها اربعين قدم الا انه يعطيني انه لا
+   * يمكن نقلها» over a green «فارغ». Every refusal names its cause.
+   */
+  noLanding40Occupied: (even: string, partnerCell: string, other: string): string =>
+    `عبر الباي ${even}: الخانة الشريكة ${ltrCode(partnerCell)} مشغولة بالحاوية ${ltrCode(other)}.`,
+  noLanding40NoSupport: (even: string): string =>
+    `عبر الباي ${even}: لا يوجد سند كامل تحت الأربعين في هذا الطابق.`,
+  noLanding40NoGround: (even: string, partnerBay: string): string =>
+    `عبر الباي ${even}: المخطط لا يعطي هذا الستاك عند الباي ${partnerBay}.`,
+  noLanding20NoSupport: 'لا يوجد سند تحت هذه الخانة — الطابق الذي تحتها فارغ.',
+  /** While a container is being placed, the slots that accept it glow. */
+  landingHint: 'الخانات التي تقبل هذه الحاوية مضيئة بالأخضر.',
+  landingNoneInBay: 'لا توجد في هذا الباي خانة تقبل هذه الحاوية.',
   size40Chip: '40',
   size20Chip: '20',
   /** «40 قدم» — the container's class, spelt the same everywhere it appears. */

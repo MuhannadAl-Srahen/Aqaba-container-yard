@@ -5,7 +5,7 @@ import type { YardLayout } from '../shared/types';
 import { positionLabel, bayLabel } from '../shared/address';
 import { canPlace } from '../shared/rules';
 import { AR } from './ar';
-import { maxStackOf, slotView, toStanding } from './mapModel';
+import { bayLandings, maxStackOf, slotView, toStanding } from './mapModel';
 import { Button, useEscape } from './ui';
 
 /**
@@ -51,33 +51,80 @@ export function BaySheet(props: {
     return placing === null ? all : all.filter((s) => s.id !== placing.id);
   }, [props.containers, placing]);
 
-  /** The legal landings from the picked cell — 20 here, or a 40 across. */
+  /**
+   * While a container is being placed: the cells of THIS sheet that hold at
+   * least one legal landing for it, keyed `stack|tier`. They glow before
+   * anything is picked — the owner stood before a grid of identical «فارغ»
+   * cells and guessed, and the one he guessed had no free partner.
+   */
+  const landable = useMemo((): ReadonlySet<string> | null => {
+    if (placing === null) return null;
+    const spots = bayLandings(props.layout, zone, bay, props.containers, placing.size, placing.id);
+    return new Set(spots.map((spot) => `${String(spot.stack)}|${spot.tier}`));
+  }, [placing, props.layout, props.containers, zone, bay]);
+
+  /**
+   * The legal landings from the picked cell — 20 here, or a 40 across. And
+   * when a way is CLOSED while a container is being placed, the reason by
+   * name: a forty's partner cell lives on another bay's sheet, so «الخانة
+   * فارغة» here says nothing about the ground next door.
+   */
   const options = useMemo(() => {
-    if (picked === null) return [];
-    const ignoreId = placing?.id;
     const list: Array<{ position: Position; caption: string }> = [];
+    const blocked: string[] = [];
+    if (picked === null) return { list, blocked };
+    const ignoreId = placing?.id;
     const try20 = placing === null || placing.size === 20;
     const try40 = placing === null || placing.size === 40;
     if (try20) {
       const here: Position = { zone: zone.zone, bay, stack: picked.stack, tier: picked.tier };
-      if (canPlace(props.layout, standing, 20, here, ignoreId) === null) {
+      const refusal = canPlace(props.layout, standing, 20, here, ignoreId);
+      if (refusal === null) {
         list.push({ position: here, caption: placing === null ? AR.put20Here : AR.moveHere });
+      } else if (placing !== null && refusal.code === 'NO_SUPPORT') {
+        blocked.push(AR.noLanding20NoSupport);
       }
     }
     if (try40) {
       for (const even of [bay - 1, bay + 1]) {
         if (even < 2) continue;
+        const partnerBay = even === bay - 1 ? bay - 2 : bay + 2;
         const across: Position = { zone: zone.zone, bay: even, stack: picked.stack, tier: picked.tier };
-        if (canPlace(props.layout, standing, 40, across, ignoreId) === null) {
-          const other = String(even === bay - 1 ? bay - 2 : bay + 2).padStart(2, '0');
+        const refusal = canPlace(props.layout, standing, 40, across, ignoreId);
+        if (refusal === null) {
           list.push({
             position: across,
-            caption: placing === null ? AR.put40With(other) : AR.move40With(other),
+            caption:
+              placing === null
+                ? AR.put40With(String(partnerBay).padStart(2, '0'))
+                : AR.move40With(String(partnerBay).padStart(2, '0')),
           });
+        } else if (placing !== null && placing.size === 40) {
+          const evenLabel = String(even).padStart(2, '0');
+          if (refusal.code === 'OCCUPIED') {
+            // The picked cell is empty on THIS sheet, so the occupier can
+            // only be standing on the partner's half of the pair.
+            blocked.push(
+              AR.noLanding40Occupied(
+                evenLabel,
+                positionLabel({
+                  zone: zone.zone,
+                  bay: partnerBay,
+                  stack: picked.stack,
+                  tier: picked.tier,
+                }),
+                refusal.other ?? '',
+              ),
+            );
+          } else if (refusal.code === 'NO_SUPPORT') {
+            blocked.push(AR.noLanding40NoSupport(evenLabel));
+          } else {
+            blocked.push(AR.noLanding40NoGround(evenLabel, String(partnerBay).padStart(2, '0')));
+          }
         }
       }
     }
-    return list;
+    return { list, blocked };
   }, [picked, placing, standing, zone, bay, props.layout]);
 
   const mayPlace = placing === null ? props.canGateIn : props.canMove;
@@ -153,6 +200,10 @@ export function BaySheet(props: {
         </button>
       );
     }
+    // While placing, the cells that actually take the container glow — the
+    // rest stay plain, so «فارغ» stops promising ground a forty's partner
+    // bay has already spent.
+    const lands = landable !== null && landable.has(`${String(stack)}|${tier}`);
     return (
       <button
         key={`${String(stack)}${tier}`}
@@ -165,7 +216,9 @@ export function BaySheet(props: {
           'h-14 rounded-lg border text-[10px] font-semibold transition-colors ' +
           (isPicked
             ? 'border-emerald-600 bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
-            : 'border-dashed border-line-strong bg-sunken text-faint hover:border-blue-400 disabled:hover:border-line-strong')
+            : lands
+              ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:border-emerald-600 dark:bg-emerald-950 dark:text-emerald-300'
+              : 'border-dashed border-line-strong bg-sunken text-faint hover:border-blue-400 disabled:hover:border-line-strong')
         }
       >
         {AR.slotEmpty}
@@ -238,17 +291,35 @@ export function BaySheet(props: {
         <p className="mt-2 text-xs leading-5 text-faint" dir="rtl">
           {AR.tierCName} · {AR.tierBName} · {AR.tierAName} — {AR.fortySpans}
         </p>
+        {landable !== null && (
+          <p
+            className={
+              'mt-1 text-xs font-semibold leading-5 ' +
+              (landable.size === 0 ? 'text-amber-700 dark:text-amber-400' : 'text-emerald-700 dark:text-emerald-400')
+            }
+            dir="rtl"
+          >
+            {landable.size === 0 ? AR.landingNoneInBay : AR.landingHint}
+          </p>
+        )}
 
-        {/* The landing choices for the picked empty slot. */}
+        {/* The landing choices for the picked empty slot — and when a way is
+            closed, the reason by name instead of a bare refusal. */}
         {picked !== null && (
           <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-sunken p-3">
             <span className="font-mono text-xs font-bold text-muted" dir="ltr">
               {positionLabel({ zone: zone.zone, bay, stack: picked.stack, tier: picked.tier })}
             </span>
-            {options.length === 0 && (
+            {options.list.length === 0 && options.blocked.length === 0 && (
               <span className="text-xs font-semibold text-red-600">{AR.noLandingHere}</span>
             )}
-            {options.map((option) => (
+            {options.list.length === 0 &&
+              options.blocked.map((reason) => (
+                <span key={reason} className="w-full text-xs font-semibold leading-5 text-red-600">
+                  {reason}
+                </span>
+              ))}
+            {options.list.map((option) => (
               <Button
                 key={positionLabel(option.position)}
                 onClick={() => {

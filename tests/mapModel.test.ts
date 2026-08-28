@@ -13,6 +13,7 @@ import {
   zoneCells,
 } from '../src/client/mapModel';
 import { ASEZA } from '../src/shared/asezaLayout';
+import { canPlace } from '../src/shared/rules';
 import type { ContainerDto, Position, Size, YardLayout, ZoneDef } from '../src/shared/types';
 
 const zoneA: ZoneDef = {
@@ -311,6 +312,48 @@ describe('landings inside one bay sheet', () => {
     // Bay 04 pairs 03 with 05, and 05 only has stack 2 — so stack 1 pairs
     // only through bay 02.
     expect(spots.filter((p) => p.bay === 4).map((p) => p.stack)).toEqual([2]);
+  });
+
+  /**
+   * The owner's own dead cell: A-05 stack 5 read «فارغ» and refused his
+   * forty. Its ground was truly free — but a forty needs a partner cell at
+   * the neighbouring odd bay, and BOTH neighbours' cells at that stack were
+   * spent under other blocks' overhangs (bay 02's over 03, bay 08's over
+   * 07). The refusal must name the occupier, and the landing set must skip
+   * that stack while offering the genuinely open ones.
+   */
+  it('a free-looking cell with both partners covered is no landing, by name', () => {
+    const zoneRow: ZoneDef = {
+      zone: 'A',
+      yard: 1,
+      x: 0, y: 0, w: 100, h: 100,
+      bays: [1, 3, 5, 7, 9],
+      stacks: {
+        '1': [1, 2, 3], '3': [1, 2, 3], '5': [1, 2, 3], '7': [1, 2, 3], '9': [1, 2, 3],
+      },
+    };
+    const row: YardLayout = { zones: [zoneRow], landmarks: [] };
+    const containers = [
+      box('LEFT0001', at(2, 1, 'A'), 40), // covers 01 and 03 at stack 1
+      box('RGHT0001', at(8, 1, 'A'), 40), // covers 07 and 09 at stack 1
+    ];
+    const standing = containers.map((c) => ({
+      id: c.id, number: c.number, size: c.size, position: c.position as Position,
+    }));
+
+    // Bay 05's own cell at stack 1 is empty — and still no forty fits:
+    // both even-bay ways are OCCUPIED, each naming who spent the partner.
+    const viaLeft = canPlace(row, standing, 40, { zone: 'A', bay: 4, stack: 1, tier: 'A' });
+    expect(viaLeft?.code).toBe('OCCUPIED');
+    expect(viaLeft?.other).toBe('LEFT0001');
+    const viaRight = canPlace(row, standing, 40, { zone: 'A', bay: 6, stack: 1, tier: 'A' });
+    expect(viaRight?.code).toBe('OCCUPIED');
+    expect(viaRight?.other).toBe('RGHT0001');
+
+    // And the sheet's glow set skips that stack while offering the open ones.
+    const spots = bayLandings(row, zoneRow, 5, containers, 40);
+    expect(spots.some((p) => p.stack === 1)).toBe(false);
+    expect(spots.filter((p) => p.tier === 'A').map((p) => p.stack).sort()).toEqual([2, 2, 3, 3]);
   });
 
   it('ignores the moving container’s own footprint', () => {
