@@ -2171,3 +2171,52 @@ moves; the rule takes effect from the next deletion onward.
 Nine tests asserted the old rule and were rewritten rather than deleted —
 each now locks the reversal, and two of them carry his sentence. Four
 more fell when the open-time repair went. 341 tests, gates green.
+
+## المرحلة 37 — الأربعين شيء واحد على خانتين — 2026-08-28
+
+«هناك مشكلة في النظام في موضوع النقل. كان النظام يضع 40 قدم كل خانتين.
+الأن الخانات وضعها غريب. زبطها وما هي المشكلة.» With two screenshots of
+the zone-A strip: today reading 6/24, 8/24, 6/24, 19/24, 19/24 — and an
+older one reading 3/24, 3/24, 3/24, 18/24, 18/24, «وهذه الشيئ منطقي».
+
+**The forensics came first, read-only against the live server.** Both
+screenshots are THIS system running THE SAME arithmetic — the map's
+counting has not changed since the first map commit on 10 August. The
+data is clean: no forty at an odd bay, no twenty at an even one, no two
+containers on one cell. Every tile number matched the database row by
+row. What changed was the yard: zone A now holds 191 forties and only 4
+twenties, and until this week every forty block sat on the tidy 04, 08,
+12… grid. Then FCIU9356332 came in to C-02 on the 26th, was MOVED to
+A-02 stack 5 the next morning, and CMAU7032792 was stacked on top of it
+— the first block off the grid.
+
+That exposed what the per-bay paint had been doing all along: a forty
+covers ground in TWO odd bays, so it was painted as one TEU under each —
+nineteen forties at bay 08 read «19» under 07 AND «19» under 09, the
+same nineteen boxes twice. On the tidy grid the neighbours mirrored and
+the doubling was invisible; one block at 02 and tiles 01/03/05 read
+6/8/6 — true about the ground, unreadable as a count of boxes.
+
+**The fix is the owner's own sentence.** Reading the yard, the odd bays
+a forty lies across now WELD into one cell — «01–05», «07–09» — and
+every container in the stretch is counted once. The welded cell's
+denominator is what the block holds when completed as what it is: the
+standing boxes plus the forty landings still open in it, by the same
+lane-walk the fill calculator uses (`fortiesInZone` generalized to
+`fortyRoom` over any stretch of bays). A pure pair therefore reads
+exactly like his ledger: nineteen of the twenty-four the pair can carry.
+A lone bay keeps the old arithmetic, stacks × 3. The zone header stops
+speaking TEU too: «195 حاوية · متاح 340 خانة» — boxes counted once
+(the figure he checks against his register), free ground in slots.
+
+While PLACING, the strip falls back to one tile per odd bay — a landing
+is chosen bay by bay, and the placement flow is untouched. Inside a
+welded cell every bay still answers its own tap, so the sheet that opens
+is the ground actually clicked.
+
+Files: `rules.ts` (fortyRoom), `mapModel.ts` (zoneCells, summarizeZone
+gains boxes), `YardMap.tsx` (RunCell; per-bay cells kept for placing),
+`ar.ts` (fullAndFree reworded). Tests: zoneCells welding, once-counting,
+capacity by hand (11 over a mixed stretch, 9/9 full pair), adjacency
+alone welds nothing; the header counts a spanning forty once. 345 tests,
+gates green.

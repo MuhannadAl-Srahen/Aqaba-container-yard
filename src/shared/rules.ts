@@ -397,19 +397,24 @@ export interface ZoneFill extends FillPlan {
  * forties. So each stack line is walked bay by bay at each tier: free
  * neighbours pair up (greedy along a path is optimal for this), and a pair on
  * the tier above is only counted where a pair was counted below it.
+ *
+ * `bays` scopes the walk: the whole zone for the fill calculator, or one
+ * forty block of the map, whose cell shows how many forties the block holds
+ * when it is completed as what it is.
  */
-function fortiesInZone(
+export function fortyRoom(
   zone: ZoneDef,
+  bays: readonly number[],
   taken: ReadonlyMap<string, Standing>,
   tiers: readonly Tier[],
 ): number {
   let total = 0;
   const stacks = new Set<number>();
-  for (const bay of zone.bays) for (const stack of zone.stacks[String(bay)] ?? []) stacks.add(stack);
+  for (const bay of bays) for (const stack of zone.stacks[String(bay)] ?? []) stacks.add(stack);
 
   for (const stack of stacks) {
-    // The odd bays of this zone that have this stack at all, in plan order.
-    const line = zone.bays.filter((bay) => (zone.stacks[String(bay)] ?? []).includes(stack));
+    // The odd bays of this stretch that have this stack at all, in plan order.
+    const line = bays.filter((bay) => (zone.stacks[String(bay)] ?? []).includes(stack));
     /**
      * Which pairs have a forty beneath them — the ones counted here AND the
      * ones already standing. Counting only the planned ones would refuse to
@@ -476,7 +481,7 @@ export function fillPlan(
       // Every empty slot can be reached by filling its stack from the ground
       // up, so what is free IS what still fits.
       twenties: slots - used,
-      forties: fortiesInZone(zone, taken, tiers),
+      forties: fortyRoom(zone, zone.bays, taken, tiers),
     };
   });
 

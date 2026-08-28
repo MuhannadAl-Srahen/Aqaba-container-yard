@@ -10,6 +10,7 @@ import {
   slotView,
   summarizeZone,
   targetBays,
+  zoneCells,
 } from '../src/client/mapModel';
 import { ASEZA } from '../src/shared/asezaLayout';
 import type { ContainerDto, Position, Size, YardLayout, ZoneDef } from '../src/shared/types';
@@ -151,8 +152,89 @@ describe('bay loads', () => {
 
   it('rolls a zone up for the panel header', () => {
     const loads = buildBayLoads([box('A', at(1, 1, 'A'))]);
-    expect(summarizeZone(zoneA, loads)).toEqual({ usedTeu: 1, totalTeu: 15 });
+    expect(summarizeZone(zoneA, loads)).toEqual({ boxes: 1, usedTeu: 1, totalTeu: 15 });
     expect(maxStackOf(zoneA)).toBe(2);
+  });
+
+  it('counts a spanning forty ONCE in the header, and twice in the slots', () => {
+    const loads = buildBayLoads([box('F', at(2, 1, 'A'), 40)]);
+    // One container standing; two of the zone's fifteen slots under it.
+    expect(summarizeZone(zoneA, loads)).toEqual({ boxes: 1, usedTeu: 2, totalTeu: 15 });
+  });
+});
+
+describe('zone cells — the forties weld their ground', () => {
+  /**
+   * «كان النظام يضع 40 قدم كل خانتين»: what the owner caught on his own map.
+   * Nineteen forties at bay 08 painted «19» under 07 AND under 09 — the same
+   * nineteen boxes twice — and the moment two forties landed at bay 02, off
+   * the tidy 04/08/12 grid, tiles 01/03/05 read 6/8/6 and the strip stopped
+   * meaning anything. A cell is now the stretch a forty block actually
+   * covers, and every box in it is counted once.
+   */
+  const zoneWide: ZoneDef = {
+    zone: 'A',
+    yard: 1,
+    x: 0, y: 0, w: 100, h: 100,
+    bays: [1, 3, 5, 7, 9, 11],
+    stacks: {
+      '1': [1, 2, 3], '3': [1, 2, 3], '5': [1, 2, 3],
+      '7': [1, 2, 3], '9': [1, 2, 3], '11': [1, 2, 3],
+    },
+  };
+
+  it('welds the bays a forty lies across, and keeps loners apart', () => {
+    // The live yard's own shape: forties at 02 and 04 chain 01–05 together,
+    // a block at 08 welds 07–09, and bay 11 stands alone.
+    const loads = buildBayLoads([
+      box('T1', at(1, 1, 'A')),
+      box('T2', at(1, 1, 'B')),
+      box('F2', at(2, 2, 'A'), 40),
+      box('F4A', at(4, 3, 'A'), 40),
+      box('F4B', at(4, 3, 'B'), 40),
+      box('F8A', at(8, 1, 'A'), 40),
+      box('F8B', at(8, 1, 'B'), 40),
+      box('F8C', at(8, 2, 'A'), 40),
+    ]);
+    const cells = zoneCells(zoneWide, loads);
+    expect(cells.map((cell) => cell.bays)).toEqual([[1, 3, 5], [7, 9], [11]]);
+
+    // Five containers stand on 01–05 — not the 6/8/6 the per-bay paint said.
+    expect(cells[0]?.boxes).toBe(5);
+    // Completed as a forty block it holds eleven: the five standing plus six
+    // more landings (worked by hand over the three stack lines).
+    expect(cells[0]?.capacity).toBe(11);
+
+    // A pure forty pair reads exactly like the owner's ledger: three of the
+    // nine forties the pair can carry (three shared stacks × three tiers).
+    expect(cells[1]?.boxes).toBe(3);
+    expect(cells[1]?.capacity).toBe(9);
+    expect(cells[1]?.empty).toBe(false);
+    expect(cells[1]?.full).toBe(false);
+
+    // The lone bay keeps the old arithmetic: twenties over stacks × 3.
+    expect(cells[2]).toEqual({ bays: [11], boxes: 0, capacity: 9, full: false, empty: true });
+  });
+
+  it('adjacency alone welds nothing — it takes a forty', () => {
+    const loads = buildBayLoads([box('T1', at(1, 1, 'A')), box('T3', at(3, 1, 'A'))]);
+    const cells = zoneCells(zoneWide, loads);
+    expect(cells.map((cell) => cell.bays)).toEqual([[1], [3], [5], [7], [9], [11]]);
+    expect(cells[0]?.boxes).toBe(1);
+    expect(cells[0]?.capacity).toBe(9);
+  });
+
+  it('a welded stretch is full when every slot under it is taken', () => {
+    // Bays 07–09, three stacks: nine forties stacked three high fill it.
+    const forties = [1, 2, 3].flatMap((stack) =>
+      (['A', 'B', 'C'] as const).map((tier) => box(`F${String(stack)}${tier}`, at(8, stack, tier), 40)),
+    );
+    const cells = zoneCells(zoneWide, buildBayLoads(forties));
+    const pair = cells.find((cell) => cell.bays.length === 2);
+    expect(pair?.bays).toEqual([7, 9]);
+    expect(pair?.boxes).toBe(9);
+    expect(pair?.capacity).toBe(9);
+    expect(pair?.full).toBe(true);
   });
 });
 
