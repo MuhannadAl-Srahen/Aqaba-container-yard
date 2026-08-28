@@ -2243,3 +2243,20 @@ free slots), which for an untouched bay is the same stacks × 3 as ever
 
 His cell reads «19–21 · 21/…» beside «23–25 · 21/…» now. 347 tests,
 gates green.
+
+## المرحلة 39 — شكل واحد للقراءة والنقل — 2026-08-28
+
+«I want you to edit transport of the container to match the look of the
+map.» Stage 37 had deliberately dropped the strip back to one tile per
+odd bay while placing, on the theory that a landing is chosen bay by
+bay. His screenshots put the two views side by side: the reading map in
+tidy pairs, and the move flow suddenly back to «19/24 · 19/24» double
+counts. He wants one language.
+
+So the placing fallback is gone and the paired cells serve both modes.
+While a container hunts for its slot, a cell lights up whole when ANY of
+its ground holds a legal landing (its per-bay tap already opens the
+exact sheet, and the sheet is the authority on which slots take it);
+everything that cannot take it dims as before. The old per-bay BayCell
+component is deleted — one cell component, one look. 347 tests, gates
+green.
