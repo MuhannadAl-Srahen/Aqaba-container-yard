@@ -2220,3 +2220,26 @@ gains boxes), `YardMap.tsx` (RunCell; per-bay cells kept for placing),
 capacity by hand (11 over a mixed stretch, 9/9 full pair), adjacency
 alone welds nothing; the header counts a spanning forty once. 345 tests,
 gates green.
+
+## المرحلة 38 — الخلية زوج على الأكثر — 2026-08-28
+
+«انظر الى هذه يوجد فيها مشكلة اصلحها. يجب ان يكون مفصل اكثر — مثلا 19-21،
+23-25.» A screenshot of «19–25 · 42/59»: on live zone B a single stray
+forty at bay 22 bridged the twenty-box blocks at 20 and 24, and stage
+37's chain-weld faithfully fused all four bays into one coarse cell.
+Geometrically true, unreadable — and he wants pairs.
+
+So the cells anchor on the BLOCKS now, not on connectivity: each loaded
+even bay claims its two odd neighbours, heaviest block first; what no
+block claims stands alone. A cell is a pair at most. The stray forty
+that bridges two claimed pairs counts ONCE, in the cell holding the
+lower bay it covers — off by one bay at the seam, never double-counted,
+and the sheet a tap opens tells the exact truth. A pair's ceiling still
+comes from `fortyRoom`, now fed the pair's TOUCHERS rather than its
+members, so a neighbour block's overhang blocks the lanes it actually
+covers. A lone bay's ceiling is its remaining ground (its own boxes plus
+free slots), which for an untouched bay is the same stacks × 3 as ever
+— and ground covered only by an overhang no longer paints as empty.
+
+His cell reads «19–21 · 21/…» beside «23–25 · 21/…» now. 347 tests,
+gates green.

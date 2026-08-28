@@ -100,9 +100,8 @@ export function summarizeZone(
 }
 
 /**
- * One cell of a zone's strip, once the forties have pulled their ground
- * together: a stretch of odd bays welded into a single cell wherever a forty
- * lies across them, or a lone odd bay where none does.
+ * One cell of a zone's strip: the PAIR of odd bays a forty block claims, or
+ * a lone odd bay no block does.
  *
  * «كان النظام يضع 40 قدم كل خانتين» — the owner reads a forty as ONE thing
  * across two slots. Painting it as one TEU under each covered bay was
@@ -112,20 +111,20 @@ export function summarizeZone(
  * stopped mirroring and the whole strip looked broken.
  */
 export interface ZoneCell {
-  /** The odd bays this cell covers, in plan order — one, or a welded run. */
+  /** The odd bays this cell covers, in plan order — one, or a claimed pair. */
   readonly bays: readonly number[];
-  /** Containers standing on this stretch, each counted ONCE. */
+  /** Containers belonging to this cell, each counted ONCE zone-wide. */
   readonly boxes: number;
   /**
-   * How many containers the stretch holds when completed as what it is:
-   * a lone bay fills with twenties (stacks × 3), a welded run with forties
+   * How many containers the cell holds when completed as what it is: a lone
+   * bay fills with twenties on the ground left to it, a pair with forties
    * (`boxes` plus the forty landings still open in it). This is how the
    * owner already read «3/24» and «18/24» side by side, and both were true.
    */
   readonly capacity: number;
-  /** Every cell of the stretch is taken — slot arithmetic, for the paint. */
+  /** Every slot of the cell is taken — slot arithmetic, for the paint. */
   readonly full: boolean;
-  /** No container touches the stretch at all. */
+  /** Nothing covers any of the cell's ground — not even an overhang. */
   readonly empty: boolean;
 }
 
@@ -133,29 +132,54 @@ export function zoneCells(
   zone: ZoneDef,
   loads: ReadonlyMap<string, readonly ContainerDto[]>,
 ): ZoneCell[] {
-  // An even bay welds its two odd neighbours when a forty is addressed at it.
-  const fortyAt = new Set<number>();
+  // How many forties are addressed at each even bay of this zone.
+  const fortyAt = new Map<number, number>();
   for (const bay of zone.bays) {
     for (const container of loads.get(bayKey(zone.zone, bay)) ?? []) {
       if (container.size === 40 && container.position !== null) {
-        fortyAt.add(container.position.bay);
+        fortyAt.set(container.position.bay, (fortyAt.get(container.position.bay) ?? 0) + 1);
       }
     }
   }
 
-  const runs: number[][] = [];
-  for (const bay of zone.bays) {
-    const run = runs[runs.length - 1];
-    const previous = run?.[run.length - 1];
-    if (run !== undefined && previous !== undefined && bay === previous + 2 && fortyAt.has(bay - 1)) {
-      run.push(bay);
-    } else {
-      runs.push([bay]);
+  /**
+   * A cell is AT MOST a pair — «يجب ان يكون مفصل اكثر، مثلا 19-21، 23-25».
+   * The first cut chained every bay a forty touches, and one stray forty at
+   * bay 22 welded 19–25 into a single coarse cell. So the pairs anchor on
+   * the BLOCKS instead: each loaded even bay claims its two odd neighbours,
+   * heaviest block first, and whatever no block claims stands alone. The
+   * stray forty then counts in the cell holding the lower bay it covers —
+   * off by one bay at the seam, never counted twice, and the sheet a tap
+   * opens tells the exact truth.
+   */
+  const claimed = new Map<number, number[]>();
+  const evens = [...fortyAt.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  for (const [even] of evens) {
+    const pair = [even - 1, even + 1];
+    if (pair.every((bay) => zone.bays.includes(bay) && !claimed.has(bay))) {
+      for (const bay of pair) claimed.set(bay, pair);
     }
   }
 
-  return runs.map((bays): ZoneCell => {
-    const members = new Map<number, ContainerDto>();
+  const cells: number[][] = [];
+  for (const bay of zone.bays) {
+    const pair = claimed.get(bay);
+    if (pair === undefined) cells.push([bay]);
+    else if (pair[0] === bay) cells.push(pair);
+  }
+
+  /** The one cell each container belongs to: a forty, the lower bay it covers. */
+  const cellOf = new Map<number, number[]>();
+  for (const cell of cells) for (const bay of cell) cellOf.set(bay, cell);
+  const home = (container: ContainerDto): number[] | undefined => {
+    if (container.position === null) return undefined;
+    const ground = baySpan(container.position.bay);
+    return cellOf.get(ground[0] ?? container.position.bay) ?? cellOf.get(ground[1] ?? -1);
+  };
+
+  return cells.map((bays): ZoneCell => {
+    const touchers = new Map<number, ContainerDto>();
+    const boxes = new Set<number>();
     let usedTeu = 0;
     let totalTeu = 0;
     for (const bay of bays) {
@@ -163,15 +187,26 @@ export function zoneCells(
       const count = countBay(zone, bay, load);
       usedTeu += count.used;
       totalTeu += count.total;
-      for (const container of load ?? []) members.set(container.id, container);
+      for (const container of load ?? []) {
+        touchers.set(container.id, container);
+        if (home(container) === bays) boxes.add(container.id);
+      }
     }
-    const boxes = members.size;
+    // Completed as what it is: a pair fills with forties (the standing boxes
+    // plus the landings still open, neighbours' overhang blocking its lanes),
+    // a lone bay with twenties on whatever ground is left to it.
     const capacity =
       bays.length === 1
-        ? totalTeu
-        : boxes +
-          fortyRoom(zone, bays, buildOccupancy(toStanding([...members.values()])), TIERS);
-    return { bays, boxes, capacity, full: totalTeu > 0 && usedTeu >= totalTeu, empty: boxes === 0 };
+        ? boxes.size + (totalTeu - usedTeu)
+        : boxes.size +
+          fortyRoom(zone, bays, buildOccupancy(toStanding([...touchers.values()])), TIERS);
+    return {
+      bays,
+      boxes: boxes.size,
+      capacity,
+      full: totalTeu > 0 && usedTeu >= totalTeu,
+      empty: usedTeu === 0,
+    };
   });
 }
 
