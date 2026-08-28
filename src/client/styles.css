@@ -43,6 +43,8 @@
   --yard-target: #dcfce7;
   --yard-target-border: #16a34a;
   --yard-match: #f59e0b;
+  /* The gold the map wears where a bill's own boxes already stand. */
+  --yard-bill: #d97706;
   --yard-selected: #0284c7;
   --yard-text: #0f172a;
   --yard-muted: #64748b;
@@ -79,6 +81,7 @@
   --yard-target: #14361f;
   --yard-target-border: #22c55e;
   --yard-match: #f59e0b;
+  --yard-bill: #f59e0b;
   --yard-selected: #38bdf8;
   --yard-text: #e8eef7;
   --yard-muted: #94a3b8;

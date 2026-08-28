@@ -89,6 +89,91 @@ export function summarizeZone(
 }
 
 
+/**
+ * البوليصة تحكم الرصف — «احنا محكومين فيه الي هو البوليصة»: the merchant
+ * takes his boxes out by the bill, the whole group in one batch, so the
+ * yard tries to keep a bill's containers side by side. These three answer
+ * the questions that flow asks the map.
+ */
+
+/**
+ * Where a bill already stands: each odd bay one of its containers covers,
+ * with how many of them are there — the gold count the map wears while a
+ * container of this bill hunts for its slot. A spanning forty is present
+ * in both bays it covers.
+ */
+export function billBays(
+  containers: readonly ContainerDto[],
+  bill: string,
+  excludeId?: number,
+): Map<string, number> {
+  const bays = new Map<string, number>();
+  if (bill === '') return bays;
+  for (const container of containers) {
+    if (container.bill !== bill || container.position === null || container.id === excludeId) {
+      continue;
+    }
+    for (const oddBay of baySpan(container.position.bay)) {
+      const key = bayKey(container.position.zone, oddBay);
+      bays.set(key, (bays.get(key) ?? 0) + 1);
+    }
+  }
+  return bays;
+}
+
+/**
+ * How a bill's standing boxes fall across zones, biggest first — the words
+ * behind «متفرقة»: a bill in more than one zone is the scatter the owner
+ * asked to be told about, because its batch exit means hunting.
+ */
+export function billSpread(
+  containers: readonly ContainerDto[],
+  bill: string,
+  excludeId?: number,
+): Array<{ zone: Zone; count: number }> {
+  const zones = new Map<Zone, number>();
+  if (bill === '') return [];
+  for (const container of containers) {
+    if (container.bill !== bill || container.position === null || container.id === excludeId) {
+      continue;
+    }
+    zones.set(container.position.zone, (zones.get(container.position.zone) ?? 0) + 1);
+  }
+  return [...zones.entries()]
+    .map(([zone, count]) => ({ zone, count }))
+    .sort((a, b) => b.count - a.count || a.zone.localeCompare(b.zone));
+}
+
+/**
+ * Is this landing BESIDE the bill's standing boxes — same zone, same bay or
+ * the odd bay next door? `null` when the bill has nothing standing, so the
+ * question does not arise. Used to warn, never to refuse: the crane still
+ * goes where the yard needs it to.
+ */
+export function nearBillMates(
+  containers: readonly ContainerDto[],
+  bill: string,
+  landing: Position,
+  excludeId?: number,
+): boolean | null {
+  if (bill === '') return null;
+  const landingBays = baySpan(landing.bay);
+  let any = false;
+  for (const container of containers) {
+    if (container.bill !== bill || container.position === null || container.id === excludeId) {
+      continue;
+    }
+    any = true;
+    if (container.position.zone !== landing.zone) continue;
+    for (const mateBay of baySpan(container.position.bay)) {
+      for (const bay of landingBays) {
+        if (Math.abs(bay - mateBay) <= 2) return true;
+      }
+    }
+  }
+  return any ? false : null;
+}
+
 /** The tallest stack this zone reaches anywhere — the bay sheet's grid width. */
 export function maxStackOf(zone: ZoneDef): number {
   let max = 0;

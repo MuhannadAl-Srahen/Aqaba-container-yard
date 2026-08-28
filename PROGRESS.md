@@ -2306,3 +2306,39 @@ and ALL of stage 40 — the bay sheet's glowing landing cells and refusals
 that name the occupier. Those fixed his real stuck move (A-05 stack 5,
 both partners spent under neighbouring overhangs) and touch nothing
 about the map's look. 342 tests, gates green.
+
+## المرحلة 42 — البوليصة تحكم الرصف، وطابور النقل — 2026-08-28
+
+«بدي اخلي الخريطة افضل لحتى الواحد يقدر يتبع عليها لانو احيانا بقعد
+الواحد يدور على مكان يحط فيه، وكمان احنا محكومين فيه الي هو البوليصة.»
+Asked what the bill categories mean for placement, he named the real
+rule: the merchant takes the whole bill out in ONE batch, so a big bill
+must stand together — and he asked to be TOLD when a bill's boxes are
+separated, and for colours that help. Mid-build he added a second
+feature by message: «اذا ضغطت على حاوية ثانية بحط الحاوية الاولى
+والثانية بقلي وين بدي احطها» — a move queue.
+
+**Grounded in his live data first**: 331 bills standing — 248 singles,
+49 of 2–5, and 34 big bills carrying 369 boxes (half the yard). The crew
+already clusters (ZSN0840117: 15 boxes on one bay), but 13 bills sit in
+more than one zone and AQJCB26000025A spans A and B from bay 08 to 24.
+
+**البوليصة**: three pure helpers in mapModel (billBays, billSpread,
+nearBillMates) drive everything. While a container of a bill is placed —
+or the search names exactly one bill — the bays its group stands in wear
+a GOLD COUNT (new --yard-bill, legend chip) and never dim, a line under
+the moving banner names them, and the bill search row grew a second
+line: «كلها في زون B» calm, «متفرقة: زون A: 8 · زون B: 17» amber — the
+scatter notice he asked for. Confirming a move that lands away from the
+group carries a warning sentence (never a refusal). The gate-in form:
+arrives with the bill prefilled when the search named one (their own
+flow — bill first, then place), and typing a bill with standing mates
+shows green «بجانبها» or amber «بعيد عنها» against the picked slot.
+
+**طابور النقل**: while placing, tapping a standing container in the bay
+sheet QUEUES it instead of opening its card; each landed move promotes
+the next, the banner lists who waits, cancel drops the line, and the
+correction flow takes no queue. The toast after each landing says whose
+turn is next.
+
+345 tests (three new for the bill helpers), gates green.

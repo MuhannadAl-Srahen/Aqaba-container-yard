@@ -6,6 +6,7 @@ import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
 import { truckLooksOdd, weightLooksOdd } from '../shared/doubts';
 import { findTruck } from '../shared/fleet';
+import { billSpread, nearBillMates } from './mapModel';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { shrinkPhoto } from './photos';
@@ -19,11 +20,20 @@ import { Button, DriverHint, ErrorLine, Field, Sheet, inputClass } from './ui';
  */
 export function GateInSheet(props: {
   position: Position;
+  /**
+   * Their own flow puts the bill first — «بندخل رقم البوليصة في النظام على
+   * خانة البحث لنرى انها دخلت مسبقا او لا ثم نقوم بمحاولة وضعها»: when the
+   * gate-in starts while the search names exactly one bill, it arrives
+   * here already written. The clerk sees it and can overwrite it.
+   */
+  initialBill?: string;
+  /** Everything standing — so the form can say where this bill already is. */
+  containers?: readonly ContainerDto[];
   onDone: (container: ContainerDto, message: string) => void;
   onClose: () => void;
 }): ReactElement {
   const [number, setNumber] = useState('');
-  const [bill, setBill] = useState('');
+  const [bill, setBill] = useState(props.initialBill ?? '');
   const [truck, setTruck] = useState('');
   const [seal, setSeal] = useState('');
   const [driver, setDriver] = useState('');
@@ -83,6 +93,24 @@ export function GateInSheet(props: {
   const check = number.trim() === '' ? null : checkNumber(number);
   const size = sizeOfBay(props.position.bay);
   const positionText = positionLabel(props.position);
+
+  /**
+   * Where this bill already stands, and whether the picked slot is beside
+   * it — the group leaves in one batch, so far-from-its-own reads amber.
+   * A hint, never a bar: the slot was chosen on the ground for reasons the
+   * form cannot see.
+   */
+  const billMates = useMemo(() => {
+    const all = props.containers ?? [];
+    const trimmed = bill.trim();
+    if (trimmed === '') return null;
+    const spread = billSpread(all, trimmed);
+    if (spread.length === 0) return null;
+    return {
+      line: spread.map((stop) => AR.billSpreadStop(stop.zone, stop.count)).join(' · '),
+      near: nearBillMates(all, trimmed, props.position) === true,
+    };
+  }, [props.containers, bill, props.position]);
   // Nearly everything is required, on the owner's rule: a gate record with
   // holes in it is one somebody has to chase down later. The exceptions are
   // the notes, the driver's NAME and the weight — the scale ticket does not
@@ -228,7 +256,25 @@ export function GateInSheet(props: {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Field label={AR.bill} hint={<span className="text-faint">{AR.billHint}</span>}>
+          <Field
+            label={AR.bill}
+            hint={
+              billMates !== null ? (
+                <span
+                  className={
+                    'font-semibold ' +
+                    (billMates.near ? 'text-emerald-600' : 'text-amber-600')
+                  }
+                >
+                  {billMates.near
+                    ? AR.billNearHint(billMates.line)
+                    : AR.billFarHint(billMates.line)}
+                </span>
+              ) : (
+                <span className="text-faint">{AR.billHint}</span>
+              )
+            }
+          >
             <input
               dir="ltr"
               className={`${inputClass} text-start font-mono`}

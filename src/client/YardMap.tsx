@@ -35,6 +35,7 @@ const C = {
   targetFill: 'var(--yard-target)',
   targetBorder: 'var(--yard-target-border)',
   match: 'var(--yard-match)',
+  bill: 'var(--yard-bill)',
   selected: 'var(--yard-selected)',
   label: 'var(--yard-muted)',
   text: 'var(--yard-text)',
@@ -74,6 +75,13 @@ export interface MapProps {
   searchActive: boolean;
   /** While placing: the bays that hold at least one legal landing. */
   targets: ReadonlySet<string> | null;
+  /**
+   * «احنا محكومين فيه الي هو البوليصة»: while a container of a bill is
+   * being placed (or a bill is searched), the bays its group already
+   * stands in, with how many — worn as a gold count so the crane aims
+   * beside them. Null when no bill is in play.
+   */
+  billBays: ReadonlyMap<string, number> | null;
   movingId: number | null;
   onBayClick: (zone: Zone, bay: number) => void;
   /**
@@ -103,6 +111,7 @@ function BayCell(props: {
   const y = TITLE_H;
 
   const isTarget = view.targets !== null && view.targets.has(key);
+  const billCount = view.billBays?.get(key);
   const holdsMoving =
     view.movingId !== null && (load?.some((c) => c.id === view.movingId) ?? false);
   const holdsSelected =
@@ -111,9 +120,11 @@ function BayCell(props: {
 
   // While searching or placing, everything irrelevant steps back. It dims,
   // it never disappears — the map must stay a picture of the whole place.
+  // A bay holding the bill in play never dims: placing goes BESIDE the
+  // group, so its gold must stay readable even where nothing can land.
   let dimmed = false;
   if (view.searchActive) dimmed = !holdsMatch;
-  if (view.targets !== null) dimmed = !(isTarget || holdsMoving);
+  if (view.targets !== null) dimmed = !(isTarget || holdsMoving || billCount !== undefined);
 
   const empty = count.used === 0;
   const fill = isTarget ? C.targetFill : empty ? C.free : count.full ? C.full : C.partial;
@@ -179,6 +190,24 @@ function BayCell(props: {
         {`${String(count.used)} / ${String(count.total)}`}
       </text>
       {noted && <circle cx={x + cellW / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
+      {/* The bill in play stands here: a gold count in the corner, so the
+          crane sets the newcomer down beside its own group. */}
+      {billCount !== undefined && (
+        <g>
+          <circle cx={x + 12} cy={y + 12} r={8.5} fill={C.bill} />
+          <text
+            x={x + 12}
+            y={y + 15.5}
+            textAnchor="middle"
+            fontSize={10}
+            fontWeight={800}
+            fill="#ffffff"
+            direction="ltr"
+          >
+            {billCount}
+          </text>
+        </g>
+      )}
     </g>
   );
 }
@@ -285,6 +314,7 @@ const ZonePanel = memo(
     prev.view.matches === next.view.matches &&
     prev.view.searchActive === next.view.searchActive &&
     prev.view.targets === next.view.targets &&
+    prev.view.billBays === next.view.billBays &&
     prev.view.movingId === next.view.movingId &&
     prev.view.onBayClick === next.view.onBayClick &&
     prev.view.dragZones === next.view.dragZones,

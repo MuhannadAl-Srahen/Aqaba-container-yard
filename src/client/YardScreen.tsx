@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ContainerDto, Permission, PermitDto, Position, Zone } from '../shared/types';
 import { composeLayout, yardSlice, yardsOf } from '../shared/layout';
 import { bayLabel, positionLabel, yardOf } from '../shared/address';
+import { ltrCode } from '../shared/bidi';
 import { freeNow, zoneOf } from '../shared/rules';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
@@ -16,8 +17,11 @@ import { FillSheet } from './FillSheet';
 import {
   addressMatch,
   bayKey,
+  billBays,
   billMatches,
+  billSpread,
   buildBayLoads,
+  nearBillMates,
   searchMatches,
   targetBays,
   toStanding,
@@ -53,6 +57,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [openBay, setOpenBay] = useState<{ zone: Zone; bay: number } | null>(null);
   const [gateInAt, setGateInAt] = useState<Position | null>(null);
   const [moving, setMoving] = useState<ContainerDto | null>(null);
+  /**
+   * طابور النقل — «اذا ضغطت على حاوية ثانية بحط الحاوية الاولى والثانية
+   * بقلي وين بدي احطها»: while a move is placing, tapping other standing
+   * containers lines them up here; as each move lands, the next steps up
+   * and the map lights its own places. Cancel drops the whole line.
+   */
+  const [moveQueue, setMoveQueue] = useState<readonly ContainerDto[]>([]);
   /** When set, the placing flow CORRECTS this movement instead of moving. */
   const [correcting, setCorrecting] = useState<number | null>(null);
   /**
@@ -244,6 +255,38 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     return targetBays(yardLayout, containers, moving.size, moving.id);
   }, [yardLayout, containers, moving]);
 
+  /**
+   * The bill in play — «احنا محكومين فيه الي هو البوليصة»: the bill of the
+   * container being placed, or the one bill the search query names (their
+   * own flow: the bill is searched BEFORE the box is put down). Its bays
+   * wear a gold count on the map so the newcomer lands beside its group.
+   */
+  const activeBill = useMemo((): string | null => {
+    if (moving !== null) return moving.bill === '' ? null : moving.bill;
+    return billRows.length === 1 ? (billRows[0]?.bill ?? null) : null;
+  }, [moving, billRows]);
+  const billMap = useMemo(
+    () => (activeBill === null ? null : billBays(containers, activeBill, moving?.id)),
+    [activeBill, containers, moving],
+  );
+  /** «بوليصتها واقفة في: …» — the gold, told in words under the banner. */
+  const billPlaces = useMemo(() => {
+    if (billMap === null || billMap.size === 0) return '';
+    return [...billMap.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([key, count]) => {
+        const [zone, bay] = key.split('|');
+        return AR.billPlace(bayLabel((zone ?? 'A') as Zone, Number(bay ?? 0)), count);
+      })
+      .join(' · ');
+  }, [billMap]);
+  /** Zone-level spread for the scatter warning: «زون A: 8 · زون B: 17». */
+  const billZoneLine = (bill: string, excludeId?: number): string =>
+    billSpread(containers, bill, excludeId)
+      .map((stop) => AR.billSpreadStop(stop.zone, stop.count))
+      .join(' · ');
+
   // «قديش باقي» — legal landings for each size, per yard, right now.
   const free = useMemo(
     () => freeNow(yardLayout, toStanding(containers)),
@@ -283,6 +326,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setOpenBay(null);
     setGateInAt(null);
     setMoving(null);
+    setMoveQueue([]);
     setCorrecting(null);
     setConfirmMove(null);
     setBusy(false);
@@ -316,10 +360,21 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         });
       return;
     }
+    // Whoever is lined up steps up the moment this move lands: the flow
+    // stays open, and the map lights the next container's own places.
+    const next = moveQueue[0];
+    const rest = moveQueue.slice(1);
     api
       .move(confirmMove.container.id, confirmMove.to)
       .then((moved) => {
-        refresh(AR.moveDone(confirmMove.container.number, positionLabel(confirmMove.to)));
+        refresh(
+          AR.moveDone(confirmMove.container.number, positionLabel(confirmMove.to)) +
+            (next === undefined ? '' : ` ${AR.moveQueueNext(next.number)}`),
+        );
+        if (next !== undefined) {
+          setMoving(next);
+          setMoveQueue(rest);
+        }
         // The paper the crane is handed, without anybody asking for it: it
         // names the slot it left and the slot it is going to.
         setPrintCard({ kind: 'move', container: moved.container, move: moved.move });
@@ -376,11 +431,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       matches,
       searchActive,
       targets,
+      billBays: billMap !== null && billMap.size > 0 ? billMap : null,
       movingId: moving?.id ?? null,
       onBayClick,
       dragZones,
     }),
-    [loads, selected, matches, searchActive, targets, moving, onBayClick, dragZones],
+    [loads, selected, matches, searchActive, targets, billMap, moving, onBayClick, dragZones],
   );
 
   const openZone = openBay === null ? null : zoneOf(yardLayout, openBay.zone);
@@ -561,19 +617,46 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                     </p>
                   )}
                   {may('REPORTS') &&
-                    billRows.map((row) => (
-                      <button
-                        key={row.bill}
-                        type="button"
-                        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-sunken dark:text-blue-300"
-                        onClick={() => {
-                          setReporting(row.bill);
-                        }}
-                      >
-                        <span>{AR.searchBillRow(row.bill, row.count)}</span>
-                        <span className="text-xs text-faint">←</span>
-                      </button>
-                    ))}
+                    billRows.map((row) => {
+                      // «بدي تحكيلي اذا في حاويات بنفس البوليصة منفصلات»:
+                      // one zone reads calm, more than one reads amber.
+                      const spread = billSpread(containers, row.bill);
+                      const spreadLine =
+                        spread.length === 0
+                          ? AR.billSpreadNone
+                          : spread.length === 1
+                            ? AR.billSpreadOne(spread[0]?.zone ?? '', spread[0]?.count ?? 0)
+                            : AR.billSpreadMany(
+                                spread
+                                  .map((stop) => AR.billSpreadStop(stop.zone, stop.count))
+                                  .join(' · '),
+                              );
+                      return (
+                        <button
+                          key={row.bill}
+                          type="button"
+                          className="flex w-full flex-col gap-0.5 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-sunken dark:text-blue-300"
+                          onClick={() => {
+                            setReporting(row.bill);
+                          }}
+                        >
+                          <span className="flex w-full items-center justify-between gap-2">
+                            <span>{AR.searchBillRow(row.bill, row.count)}</span>
+                            <span className="text-xs text-faint">←</span>
+                          </span>
+                          <span
+                            className={
+                              'text-xs font-semibold ' +
+                              (spread.length > 1
+                                ? 'text-amber-600 dark:text-amber-400'
+                                : 'text-faint')
+                            }
+                          >
+                            {spreadLine}
+                          </span>
+                        </button>
+                      );
+                    })}
                   {standingResults.length > 0 && (
                     <p className="bg-sunken px-3 py-1.5 text-xs font-bold text-muted">
                       {AR.searchInTitle}
@@ -774,6 +857,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           {containers.some((c) => c.notes !== '') && (
             <LegendChip color="var(--yard-match)" label={AR.legendNoted} dot />
           )}
+          {billMap !== null && billMap.size > 0 && (
+            <LegendChip color="var(--yard-bill)" label={AR.legendBill} dot />
+          )}
 
           {/* How much room is left, per yard the plan actually holds: one
               chip today, since the whole drawing is one yard. It counts the
@@ -795,16 +881,38 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
       {moving !== null && (
         <div className="z-10 flex items-center justify-between gap-3 bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white">
-          <span>
-            {correcting !== null
-              ? AR.correctingBanner(moving.number)
-              : AR.movingBanner(moving.number)}
+          <span className="min-w-0">
+            <span className="block">
+              {correcting !== null
+                ? AR.correctingBanner(moving.number)
+                : AR.movingBanner(moving.number)}
+            </span>
+            {/* Where the bill already stands — the crane aims beside it,
+                because the whole bill leaves in one batch. */}
+            {moving.bill !== '' && billPlaces !== '' && (
+              <span className="mt-0.5 block truncate text-xs font-semibold text-amber-200">
+                {AR.billStandsAt(moving.bill, billPlaces)}
+              </span>
+            )}
+            {/* Who is lined up behind this one — the queue in words. */}
+            {moveQueue.length > 0 && (
+              <span className="mt-0.5 block truncate text-xs font-semibold text-emerald-100">
+                {AR.moveQueueLine(
+                  moveQueue.length,
+                  moveQueue
+                    .slice(0, 3)
+                    .map((queued) => ltrCode(queued.number))
+                    .join('، ') + (moveQueue.length > 3 ? ' …' : ''),
+                )}
+              </span>
+            )}
           </span>
           <button
             type="button"
             className="rounded-lg bg-emerald-800 px-3 py-1 hover:bg-emerald-900"
             onClick={() => {
               setMoving(null);
+              setMoveQueue([]);
               setCorrecting(null);
             }}
           >
@@ -915,6 +1023,21 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           canGateIn={may('GATE_IN')}
           canMove={may('MOVE')}
           placing={moving}
+          onAddToMove={
+            moving !== null && correcting === null
+              ? (container): void => {
+                  if (
+                    container.id === moving.id ||
+                    moveQueue.some((queued) => queued.id === container.id)
+                  ) {
+                    setToast(AR.moveAlreadyQueued(container.number));
+                    return;
+                  }
+                  setMoveQueue([...moveQueue, container]);
+                  setToast(AR.moveQueued(container.number, moveQueue.length + 1));
+                }
+              : undefined
+          }
           onPick={(container) => {
             setOpenBay(null);
             setSelected(container);
@@ -937,6 +1060,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {gateInAt !== null && state.data !== undefined && (
         <GateInSheet
           position={gateInAt}
+          // Their own flow: the bill is searched BEFORE the box is put
+          // down — so a search naming exactly one bill fills the form's
+          // bill box by itself. The clerk still sees it and can change it.
+          initialBill={moving === null ? (activeBill ?? '') : ''}
+          containers={containers}
           // The entry card is what the gate is doing this for, so it comes up
           // by itself — no hunting the container down to press a button.
           onDone={(container, message) => {
@@ -952,7 +1080,21 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {confirmMove !== null && (
         <Confirm
           title={AR.confirmMoveTitle}
-          body={AR.confirmMoveBody(confirmMove.container.number, positionLabel(confirmMove.to))}
+          body={
+            AR.confirmMoveBody(confirmMove.container.number, positionLabel(confirmMove.to)) +
+            // Landing away from the bill's own block gets a warning, never a
+            // refusal — the batch exits by bill, but the crane decides.
+            (correcting === null &&
+            confirmMove.container.bill !== '' &&
+            nearBillMates(
+              containers,
+              confirmMove.container.bill,
+              confirmMove.to,
+              confirmMove.container.id,
+            ) === false
+              ? ` ${AR.billFarWarning(confirmMove.container.bill, billZoneLine(confirmMove.container.bill, confirmMove.container.id))}`
+              : '')
+          }
           confirmLabel={correcting !== null ? AR.correctMoveAction : AR.actionMove}
           busy={busy}
           onConfirm={commitMove}

@@ -244,6 +244,46 @@ export const AR = {
   legendFull: 'ممتلئ',
   legendTarget: 'صالح للوضع',
   legendNoted: 'عليه ملاحظة',
+  legendBill: 'فيه نفس البوليصة',
+
+  // ---- البوليصة تحكم الرصف — الإخراج يتم بالبوليصة دفعة واحدة ----
+  /** Under the moving banner: where the bill already stands, so the crane aims there. */
+  billStandsAt: (bill: string, places: string): string =>
+    `بوليصتها ${ltrCode(bill)} واقفة في: ${places}`,
+  /** One stop on that line: «2-B-13 (4)». */
+  billPlace: (label: string, count: number): string => `${ltrCode(label)} (${String(count)})`,
+  /**
+   * The scatter warning, on the confirm and beside the gate-in form. A
+   * warning only — the crane still goes where the yard needs it: «بنحاول
+   * الي فيه بوليصة عدد كبير بنحطهم بمكان واحد لانو بنخرجها دفعة وحده».
+   */
+  billFarWarning: (bill: string, places: string): string =>
+    `تنبيه: حاويات البوليصة ${ltrCode(bill)} واقفة في ${places} والموقع المختار بعيد عنها، ` +
+    'والإخراج يتم بالبوليصة دفعة واحدة.',
+  /** The bill search row's second line: where the group stands. */
+  billSpreadOne: (zone: string, count: number): string =>
+    `كلها في زون ${zone} (${String(count)})`,
+  billSpreadMany: (places: string): string => `متفرقة: ${places}`,
+  billSpreadStop: (zone: string, count: number): string => `زون ${zone}: ${String(count)}`,
+  billSpreadNone: 'لا شيء منها واقف في الساحة',
+  /** Under the gate-in form's bill box: beside the group, or away from it. */
+  billNearHint: (places: string): string =>
+    `حاويات هذه البوليصة واقفة في: ${places} — الموقع المختار بجانبها.`,
+  billFarHint: (places: string): string =>
+    `حاويات هذه البوليصة واقفة في: ${places} — الموقع المختار بعيد عنها، والإخراج يتم ` +
+    'بالبوليصة دفعة واحدة.',
+
+  // ---- طابور النقل — «اذا ضغطت على حاوية ثانية بحط الاولى والثانية» ----
+  moveQueued: (number: string, waiting: number): string =>
+    `تمت إضافة الحاوية ${ltrCode(number)} إلى النقل، وستُنقل بعد الحالية` +
+    (waiting > 1 ? ` (في الانتظار ${String(waiting)})` : '') +
+    '.',
+  moveAlreadyQueued: (number: string): string =>
+    `الحاوية ${ltrCode(number)} قيد النقل أصلاً.`,
+  moveQueueLine: (count: number, names: string): string =>
+    `وبانتظار النقل ${String(count)}: ${names}`,
+  moveQueueNext: (number: string): string =>
+    `والآن اختر مكان الحاوية ${ltrCode(number)}.`,
 
   // ---- zones and bays ----
   zoneTitle: (zone: string, yard: number): string => `زون ${zone} · ساحة ${String(yard)}`,

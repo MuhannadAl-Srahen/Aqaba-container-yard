@@ -3,9 +3,12 @@ import {
   addressMatch,
   bayKey,
   bayLandings,
+  billBays,
+  billSpread,
   buildBayLoads,
   countBay,
   maxStackOf,
+  nearBillMates,
   searchMatches,
   slotView,
   summarizeZone,
@@ -263,6 +266,64 @@ describe('target bays while placing', () => {
       box(`K${String(level)}5`, at(5, 2, tier)),
     ]);
     expect(targetBays(layout, containers, 20).size).toBe(0);
+  });
+});
+
+describe('bill helpers — «احنا محكومين فيه الي هو البوليصة»', () => {
+  /** The merchant takes the whole bill out in one batch, so placement aims
+   *  beside the group and scatter is worth a warning. */
+  const billed = (
+    number: string,
+    position: Position | null,
+    bill: string,
+    size: Size = 20,
+  ): ContainerDto => ({ ...box(number, position, size), bill });
+
+  it('billBays: a spanning forty is present in both its bays, once each', () => {
+    const group = [
+      billed('F', at(2, 1, 'A'), 'JO-9', 40),
+      billed('T', at(5, 2, 'A'), 'JO-9'),
+      billed('OTHER', at(3, 2, 'A'), 'JO-1'),
+    ];
+    const bays = billBays(group, 'JO-9');
+    expect(bays.get(bayKey('A', 1))).toBe(1);
+    expect(bays.get(bayKey('A', 3))).toBe(1);
+    expect(bays.get(bayKey('A', 5))).toBe(1);
+    expect(bays.size).toBe(3);
+    // The container being moved is not its own neighbour.
+    const t = group[1];
+    expect(billBays(group, 'JO-9', t?.id).has(bayKey('A', 5))).toBe(false);
+    expect(billBays(group, '').size).toBe(0);
+  });
+
+  it('billSpread: zones biggest first, the mover excluded, departed ignored', () => {
+    const group = [
+      billed('A1', { zone: 'B', bay: 1, stack: 1, tier: 'A' }, 'JO-9'),
+      billed('A2', { zone: 'B', bay: 3, stack: 1, tier: 'A' }, 'JO-9'),
+      billed('A3', at(1, 1, 'A'), 'JO-9'),
+      billed('GONE', null, 'JO-9'),
+    ];
+    expect(billSpread(group, 'JO-9')).toEqual([
+      { zone: 'B', count: 2 },
+      { zone: 'A', count: 1 },
+    ]);
+    const mover = group[2];
+    expect(billSpread(group, 'JO-9', mover?.id)).toEqual([{ zone: 'B', count: 2 }]);
+  });
+
+  it('nearBillMates: beside is the same or the next odd bay, in the same zone', () => {
+    const mates = [billed('M', at(3, 1, 'A'), 'JO-9')];
+    const landing = (zone: 'A' | 'B', bay: number): Position =>
+      ({ zone, bay, stack: 1, tier: 'A' }) as Position;
+    expect(nearBillMates(mates, 'JO-9', landing('A', 3))).toBe(true);
+    expect(nearBillMates(mates, 'JO-9', landing('A', 5))).toBe(true);
+    // A forty landing at even 04 covers 03 — right on the mate.
+    expect(nearBillMates(mates, 'JO-9', landing('A', 4))).toBe(true);
+    expect(nearBillMates(mates, 'JO-9', landing('A', 9))).toBe(false);
+    expect(nearBillMates(mates, 'JO-9', landing('B', 3))).toBe(false);
+    // No mates standing — the question does not arise.
+    expect(nearBillMates(mates, 'JO-1', landing('A', 3))).toBeNull();
+    expect(nearBillMates([billed('G', null, 'JO-9')], 'JO-9', landing('A', 3))).toBeNull();
   });
 });
 

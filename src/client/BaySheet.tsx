@@ -32,6 +32,13 @@ export function BaySheet(props: {
   canMove: boolean;
   /** Set while a move is placing: the container looking for its new slot. */
   placing: ContainerDto | null;
+  /**
+   * طابور النقل — «اذا ضغطت على حاوية ثانية بحط الحاوية الاولى والثانية»:
+   * while a move is placing, tapping a STANDING container queues it to be
+   * moved right after, instead of opening its card. Absent when queueing
+   * is not available (no move in flight, or a correction).
+   */
+  onAddToMove?: ((container: ContainerDto) => void) | undefined;
   onPick: (container: ContainerDto) => void;
   onGateIn: (position: Position) => void;
   onMoveTo: (position: Position) => void;
@@ -154,6 +161,12 @@ export function BaySheet(props: {
           key={`${String(stack)}${tier}`}
           type="button"
           onClick={() => {
+            // Mid-move, a standing container joins the move instead of
+            // opening its card — the queue, exactly as the owner asked.
+            if (placing !== null && props.onAddToMove !== undefined && container.id !== placing.id) {
+              props.onAddToMove(container);
+              return;
+            }
             props.onPick(container);
           }}
           className={
