@@ -2416,3 +2416,18 @@ reads forties: 0 exactly as the rule promises.
 fillPlan tests rewritten to the rule, each expectation worked by hand —
 including the case where my first arithmetic was wrong and the test
 caught it. 361 tests, gates green.
+
+## المرحلة 45 — لمسات الهاتف — 2026-08-31
+
+«MAKE IT RESPONSIVE FOR THE MOBILE TOO.» Audited first: the app was
+built responsive from the start — the viewport meta is set, the header
+wraps with the search taking its own full-width row on phones, every
+Sheet is a bottom sheet under lg, the registers scroll sideways inside
+their own glass, and the map pans and pinch-zooms by touch in
+usePanZoom's own hand-rolled pointer logic. What actually cramped on a
+phone was the two-column input grids: the gate-in form squeezed paired
+Arabic fields (and the new bill hints under them) into ~150px halves,
+and the permissions grid clipped its labels. Those now collapse to one
+column below `sm` and pair up from there. The bay sheet keeps its
+deliberate sideways scroll on phones — the one thing the owner already
+ruled on. 361 tests, gates green.

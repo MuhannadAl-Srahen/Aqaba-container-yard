@@ -26,7 +26,7 @@ function PermissionBoxes(props: {
   onChange: (next: Permission[]) => void;
 }): ReactElement {
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+    <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
       {PERMISSIONS.map((code) => {
         const on = props.value.includes(code);
         return (
