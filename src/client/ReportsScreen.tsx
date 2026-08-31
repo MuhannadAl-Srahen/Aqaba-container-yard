@@ -647,7 +647,9 @@ export function ReportsScreen(props: {
         },
       }}
       tabs={
-        <div className="flex flex-wrap gap-1">
+        // One sliding row on a phone — seven tabs stacked two deep were half
+        // the screen; on a desk they wrap as before.
+        <div className="flex flex-nowrap gap-1 lg:flex-wrap">
           {TABS.map(([key, tabLabel]) => (
             <button
               key={key}
@@ -656,7 +658,7 @@ export function ReportsScreen(props: {
                 setTab(key);
               }}
               className={
-                'rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ' +
+                'shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ' +
                 (tab === key
                   ? 'bg-slate-800 text-white shadow-sm dark:bg-slate-200 dark:text-slate-900'
                   : 'bg-sunken text-muted hover:bg-line')

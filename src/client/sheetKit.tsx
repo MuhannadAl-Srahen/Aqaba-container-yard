@@ -285,6 +285,12 @@ export function SheetScreen(props: {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
   const [pdfBusy, setPdfBusy] = useState(false);
+  /**
+   * «الخيارات التي في الأعلى تأخذ حيزا كبيرا»: on a phone the filter and
+   * tool rows hide behind one button so the register owns the screen.
+   * Desktop ignores this entirely — lg shows everything, always.
+   */
+  const [mobileTools, setMobileTools] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   /**
@@ -433,16 +439,39 @@ export function SheetScreen(props: {
       <header className="print-hidden z-10 space-y-2.5 border-b border-line bg-surface px-3 py-2.5 shadow-sm lg:px-5">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-base font-extrabold text-ink">{props.screenTitle}</h1>
-          {props.tabs}
-          <div className="ms-auto flex items-center gap-2">
+          <div className="ms-auto flex items-center gap-2 lg:order-last">
             <ThemePicker />
+            {/* «الخيارات التي في الأعلى تأخذ حيزا كبيرا»: on a phone the
+                filters and tools fold away behind this one button, and the
+                register itself gets the screen. The desktop never folds. */}
+            <button
+              type="button"
+              onClick={() => {
+                setMobileTools((value) => !value);
+              }}
+              className={
+                'rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors lg:hidden ' +
+                (mobileTools
+                  ? 'bg-blue-700 text-white hover:bg-blue-800'
+                  : 'bg-sunken text-muted hover:bg-line')
+              }
+            >
+              {AR.sheetTools}
+            </button>
             <Button kind="quiet" onClick={props.onBack}>
               {AR.backToMap}
             </Button>
           </div>
+          {/* The tabs take a sliding line of their own on a phone instead of
+              stacking three rows deep; on a desk they sit inline as ever. */}
+          <div className="w-full overflow-x-auto lg:w-auto lg:flex-1 lg:overflow-visible">
+            {props.tabs}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div
+          className={`${mobileTools ? 'flex' : 'hidden'} flex-wrap items-center gap-2.5 lg:flex`}
+        >
           {props.rangeless === undefined ? (
             <>
               {props.allRange?.on !== true && (
@@ -509,7 +538,9 @@ export function SheetScreen(props: {
         {/* The second line is always its own: the search box gets real room,
             and the page-size and print actions keep their end of the row
             instead of wrapping into whatever the filters above left over. */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div
+          className={`${mobileTools ? 'flex' : 'hidden'} flex-wrap items-center gap-2.5 lg:flex`}
+        >
           {/* Every register, one box, every column. It reads what the sheet
               itself says — so a date, a plate, a bill, a slot, a note or the
               employee's own name all answer, without a filter per column. */}

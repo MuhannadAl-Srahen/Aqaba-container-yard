@@ -862,6 +862,8 @@ export const AR = {
    * page does — nothing dropped, nothing hidden.
    */
   fitWidth: 'ملاءمة العرض',
+  /** The phone's one button hiding the register's filter and tool rows. */
+  sheetTools: 'الخيارات',
 
   // ---- owner training tools (temporary, for the training period) ----
   toolsButton: 'أدوات التدريب',

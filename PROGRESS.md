@@ -2431,3 +2431,17 @@ and the permissions grid clipped its labels. Those now collapse to one
 column below `sm` and pair up from there. The bay sheet keeps its
 deliberate sideways scroll on phones — the one thing the owner already
 ruled on. 361 tests, gates green.
+
+## المرحلة 46 — ترويسة الكشوفات تفسح للهاتف — 2026-08-31
+
+«عند الدخول الى الكشوفات فأن الخيارات التي في الأعلى تأخذ حيزيا كبيرا.»
+On a phone the register header piled three control rows into six or
+seven: seven wrapping tabs, two date pickers, the fit and range toggles,
+the search, the page size, four export buttons — half the screen before
+the first row of the sheet. Now, below lg only: the tabs take ONE
+sliding row (flex-nowrap in ReportsScreen, a w-full overflow-x wrapper
+in SheetScreen), and every filter and tool row folds behind a single
+«الخيارات» button beside the theme picker — off by default, so the
+register owns the screen the moment it opens. The desktop never folds.
+LogScreen inherits all of it through SheetScreen. 361 tests, gates
+green.
