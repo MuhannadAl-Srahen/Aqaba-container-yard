@@ -401,12 +401,19 @@ export interface ZoneFill extends FillPlan {
  * `bays` scopes the walk: the whole zone for the fill calculator, or one
  * forty block of the map, whose cell shows how many forties the block holds
  * when it is completed as what it is.
+ *
+ * `noNewGround` names odd bays that may not START a forty column on bare
+ * ground — «في حال تم وضع 20 قدم في البلوك سوف يتم تعبئتها كاملا ب 20»: a
+ * bay holding a twenty is a twenty block, so no fresh forty pair plants a
+ * foot on it. Stacking ABOVE a forty already standing there stays counted:
+ * that column is the forty's own.
  */
 export function fortyRoom(
   zone: ZoneDef,
   bays: readonly number[],
   taken: ReadonlyMap<string, Standing>,
   tiers: readonly Tier[],
+  noNewGround?: ReadonlySet<number>,
 ): number {
   let total = 0;
   const stacks = new Set<number>();
@@ -440,7 +447,13 @@ export function fortyRoom(
         if (planned.has(index - 1)) continue; // its left neighbour is taken
         // A forty rests on forties: above the ground it needs one below.
         const supported = tier === tiers[0] || below.has(index);
-        if (onLeft === undefined && onRight === undefined && supported) {
+        // A twenty block takes no fresh forty foot; only a column already
+        // standing on a forty may keep climbing there.
+        const rootable =
+          noNewGround === undefined ||
+          (!noNewGround.has(left) && !noNewGround.has(right)) ||
+          below.has(index);
+        if (onLeft === undefined && onRight === undefined && supported && rootable) {
           planned.add(index);
           total += 1;
         }
@@ -459,17 +472,53 @@ export function fillPlan(
   const tiers = TIERS.slice(0, Math.max(1, Math.min(height, TIERS.length)));
   const taken = buildOccupancy(standing);
 
+  /**
+   * البلوك يُكمَل من فئته — «في حال تم وضع 20 قدم في البلوك ف هذه يعني انه
+   * سوف يتم تعبئتها كاملا ب 20، اما اربعين ف سوف يتم وضع اربعين»: a bay
+   * holding a twenty is a twenty block, a bay under a forty (its own or a
+   * neighbour's reach) is forty ground, and empty ground is free to be
+   * either — each figure completes it as its own kind. A bay carrying both
+   * (a twenty beside another block's overhang) stays a twenty bay; only
+   * its forty-covered lanes are spent.
+   */
+  const twentyBays = new Set<string>();
+  const fortyBays = new Set<string>();
+  for (const container of standing) {
+    for (const oddBay of baySpan(container.position.bay)) {
+      const key = `${container.position.zone}|${String(oddBay)}`;
+      if (container.size === 20) twentyBays.add(key);
+      else fortyBays.add(key);
+    }
+  }
+
   const zones = layout.zones.map((zone): ZoneFill => {
     let slots = 0;
     let used = 0;
+    let twenties = 0;
+    const noNewGround = new Set<number>();
     for (const bay of zone.bays) {
+      const key = `${zone.zone}|${String(bay)}`;
+      if (twentyBays.has(key)) noNewGround.add(bay);
+      // A forty bay with no twenty of its own fills with forties alone.
+      const fortyGround = fortyBays.has(key) && !twentyBays.has(key);
       for (const stack of zone.stacks[String(bay)] ?? []) {
+        let lane = 0;
+        let laneForty = false;
         for (const tier of tiers) {
           slots += 1;
           // The occupancy map already spreads a forty over both its odd bays,
           // so counting cells counts a forty as the two slots it fills.
-          if (taken.get(cellKey(zone.zone, bay, stack, tier)) !== undefined) used += 1;
+          const holder = taken.get(cellKey(zone.zone, bay, stack, tier));
+          if (holder !== undefined) {
+            used += 1;
+            lane += 1;
+            if (holder.size === 40) laneForty = true;
+          }
         }
+        // Twenties climb only their own kind: a lane a forty touches offers
+        // them nothing (a twenty never stands on a forty), and a forty bay
+        // is not theirs at all.
+        if (!fortyGround && !laneForty) twenties += tiers.length - lane;
       }
     }
     return {
@@ -478,10 +527,8 @@ export function fillPlan(
       capacity: slots,
       used,
       freeSlots: slots - used,
-      // Every empty slot can be reached by filling its stack from the ground
-      // up, so what is free IS what still fits.
-      twenties: slots - used,
-      forties: fortyRoom(zone, zone.bays, taken, tiers),
+      twenties,
+      forties: fortyRoom(zone, zone.bays, taken, tiers, noNewGround),
     };
   });
 

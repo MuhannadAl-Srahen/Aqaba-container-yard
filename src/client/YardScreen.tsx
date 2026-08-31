@@ -4,7 +4,8 @@ import type { ContainerDto, Permission, PermitDto, Position, Zone } from '../sha
 import { composeLayout, yardSlice, yardsOf } from '../shared/layout';
 import { bayLabel, positionLabel, yardOf } from '../shared/address';
 import { ltrCode } from '../shared/bidi';
-import { freeNow, zoneOf } from '../shared/rules';
+import { fillPlan, zoneOf } from '../shared/rules';
+import { TIERS } from '../shared/types';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
 import { YardMap, computeLayout } from './YardMap';
@@ -298,11 +299,25 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     [paint, containers],
   );
 
-  // «قديش باقي» — legal landings for each size, per yard, right now.
-  const free = useMemo(
-    () => freeNow(yardLayout, toStanding(containers)),
-    [yardLayout, containers],
-  );
+  /**
+   * «قديش باقي» — بقاعدة البلوك: «في حال تم وضع 20 قدم في البلوك سوف يتم
+   * تعبئتها كاملا ب 20، اما اربعين ف أربعين». The header chip and the fill
+   * calculator answer with the same arithmetic: each figure completes every
+   * committed block as its own kind, and empty ground as the figure's kind.
+   */
+  const free = useMemo(() => {
+    const { zones } = fillPlan(yardLayout, toStanding(containers), TIERS.length);
+    const byYard = new Map<number, { t20: number; t40: number }>();
+    for (const zone of zones) {
+      const room = byYard.get(zone.yard) ?? { t20: 0, t40: 0 };
+      room.t20 += zone.twenties;
+      room.t40 += zone.forties;
+      byYard.set(zone.yard, room);
+    }
+    return [...byYard.entries()]
+      .sort((a, b) => a[0] - b[0])
+      .map(([yard, room]) => ({ yard, ...room }));
+  }, [yardLayout, containers]);
 
   // Out-of-yard hits come from the server: the map query only carries who is standing.
   const remote = useQuery({

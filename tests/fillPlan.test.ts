@@ -50,12 +50,16 @@ describe('how much room is left', () => {
     expect(fillPlan(layout, [], 1).total).toMatchObject({ capacity: 6, twenties: 6 });
   });
 
-  it('counts a forty as the TWO slots it actually occupies', () => {
+  it('counts a forty as the TWO slots it occupies — and claims its block', () => {
     const layout = layoutOf(zoneOf([1, 3, 5], [1, 2]));
-    // One forty at the even bay 02 covers bays 01 and 03 of stack 1.
+    // One forty at the even bay 02 covers bays 01 and 03 of stack 1 — and
+    // by the block rule those two bays now fill with forties, so their free
+    // stack-2 ground is no twenty's: «اما اربعين ف سوف يتم وضع اربعين قدم».
     const plan = fillPlan(layout, [box(at(2, 1, 'A'), 40)], 1).total;
     expect(plan.used).toBe(2);
-    expect(plan.twenties).toBe(4);
+    expect(plan.twenties).toBe(2);
+    // The forties figure keeps that ground: the block grows at stack 2.
+    expect(plan.forties).toBe(1);
   });
 
   it('pairs adjacent bays for forties instead of dividing by two', () => {
@@ -78,6 +82,44 @@ describe('how much room is left', () => {
     expect(fillPlan(layout, [box(at(1, 1, 'A'))], 3).total.forties).toBe(0);
     // A forty on the ground carries two more above it.
     expect(fillPlan(layout, [box(at(2, 1, 'A'), 40)], 3).total.forties).toBe(2);
+  });
+
+  /**
+   * قاعدة البلوك، بجملة المالك: «في حال تم وضع 20 قدم في البلوك ف هذه يعني
+   * انه سوف يتم تعبئتها كاملا ب 20، اما اربعين ف سوف يتم وضع اربعين قدم».
+   */
+  it('a block continues as its own kind', () => {
+    const layout = layoutOf(zoneOf([1, 3, 5], [1, 2]));
+
+    // A twenty at bay 01: the bay is a twenty block. Its free cells stay in
+    // the twenties figure (2 above the box, 3 at stack 2, 12 in the empty
+    // bays) — and no forty pair may plant a foot on bay 01, its empty
+    // stack 2 included: the forties keep only the (3,5) pair, a column of
+    // three on each of its two stacks.
+    const twenty = fillPlan(layout, [box(at(1, 1, 'A'))], 3);
+    expect(twenty.total.twenties).toBe(17);
+    expect(twenty.total.forties).toBe(6);
+
+    // A forty at 02: bays 01 and 03 are forty ground now. Their free cells
+    // vanish from the twenties figure (bay 05 alone remains), and the
+    // forties figure keeps the block's room: two more on the standing
+    // column, a fresh column at stack 2 of (1,3).
+    const forty = fillPlan(layout, [box(at(2, 1, 'A'), 40)], 3);
+    expect(forty.total.twenties).toBe(6);
+    expect(forty.total.forties).toBe(5);
+
+    // A twenty standing beside another block's overhang keeps its bay a
+    // twenty bay: its clean lane still counts for twenties, the standing
+    // forty's own column still climbs — but no FRESH forty ground opens on
+    // the twenty's bay.
+    const mixed = fillPlan(layout, [box(at(2, 1, 'A'), 40), box(at(1, 2, 'A'))], 3);
+    // Bay 01: the forty lane offers twenties nothing, the twenty lane has
+    // room for 2. Bay 03 is forty ground (0). Bay 05 is free (6).
+    expect(mixed.total.twenties).toBe(8);
+    // Above the standing forty: 2. Fresh ground only at (3,5) stack 2 — a
+    // column of 3; (3,5) stack 1 never plants, its bay-03 half being under
+    // the standing forty with no column of its own below.
+    expect(mixed.total.forties).toBe(2 + 3);
   });
 
   it('answers for the real yard, and the two heights differ by a third', () => {

@@ -2382,3 +2382,37 @@ paperwork, move slots), the owner-only guards (a clerk with every
 permission refused on both routes), the book builder (page per card,
 escaping, drops, data-URI photos and never a session URL), and
 billBands. 360 tests, gates green.
+
+## المرحلة 44 — البلوك يُكمَل من فئته — 2026-08-31
+
+«اريد شيئ واحد منك بالنسبة لحساب الأرض وكم باقي لأتساع الساحة: في حال تم
+وضع 20 قدم في البلوك ف هذه يعني انه سوف يتم تعبئتها كاملا ب 20، اما
+اربعين ف سوف يتم وضع اربعين قدم.»
+
+The fill arithmetic now completes every committed block as its own kind.
+A bay holding a twenty is a twenty block: no fresh forty pair plants a
+foot on it, its empty stacks included (`fortyRoom` gained a
+`noNewGround` set — climbing an EXISTING forty column there still
+counts, the column being the forty's own). A bay under a forty — its
+own or a neighbour's overhang — is forty ground: its free cells leave
+the twenties figure entirely. And the twenties figure stopped counting
+cells a twenty can never reach anyway: lanes a forty touches offered it
+nothing even before practice was consulted (a twenty never stands on a
+forty), yet they were counted — in his forty-heavy yard that alone
+inflated «المتاح للعشرين» by hundreds. A mixed bay (a twenty beside an
+overhang) stays a twenty bay, spending only its forty lanes. Empty
+ground still counts for BOTH figures — they are two futures, each
+completing it as its own kind.
+
+The header chip stopped answering a different question: it read
+`freeNow` (legal landings this minute) while the calculator read
+`fillPlan` — two numbers, one word «المتاح». Both now read the same
+block-rule fillPlan at three tiers.
+
+On his live yard the honest figures came out: 596 free slots, but by
+practice **174 twenties or 211 forties** — and zone D, all twenties,
+reads forties: 0 exactly as the rule promises.
+
+fillPlan tests rewritten to the rule, each expectation worked by hand —
+including the case where my first arithmetic was wrong and the test
+caught it. 361 tests, gates green.
