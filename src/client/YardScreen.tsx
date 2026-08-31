@@ -900,7 +900,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               <LegendChip color="var(--yard-band-2)" label={AR.legendBand2} />
               <LegendChip color="var(--yard-band-3)" label={AR.legendBand3} />
               <LegendChip color="var(--yard-band-4)" label={AR.legendBand4} />
-              <LegendChip color="#ffffff" border="#334155" label={AR.legendMixed} dot />
             </>
           ) : (
             <>

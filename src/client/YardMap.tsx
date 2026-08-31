@@ -205,44 +205,24 @@ function BayCell(props: {
       >
         {String(bay).padStart(2, '0')}
       </text>
+      {/* In the bills paint the second line answers the bills question —
+          «لو كان عدد البوليصات في المكان لكانت افضل» — and the stray single
+          inside a block is a «2» instead of an invisible guest. Everywhere
+          else it stays the slot count it always was. */}
       <text
         x={x + cellW / 2}
         y={y + 50}
         textAnchor="middle"
-        fontSize={12}
-        fontWeight={600}
+        fontSize={bayBand !== null ? 11 : 12}
+        fontWeight={bayBand !== null ? 700 : 600}
         fill={textColor}
-        direction="ltr"
+        direction={bayBand !== null ? undefined : 'ltr'}
       >
-        {`${String(count.used)} / ${String(count.total)}`}
+        {bayBand !== null
+          ? AR.billCountCell(bayBand.bills)
+          : `${String(count.used)} / ${String(count.total)}`}
       </text>
       {noted && <circle cx={x + cellW / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
-      {/* «يتم وضع فردي مع عدد من البوليصات»: in the bills paint, a bay whose
-          ground carries MORE than one bill wears the count of the extras —
-          the stray inside a block stops hiding under the block's colour. */}
-      {bayBand !== null && bayBand.mixed > 0 && (
-        <g>
-          <circle
-            cx={x + cellW - 12}
-            cy={y + 12}
-            r={8.5}
-            fill="#ffffff"
-            stroke="#334155"
-            strokeWidth={1.2}
-          />
-          <text
-            x={x + cellW - 12}
-            y={y + 15.5}
-            textAnchor="middle"
-            fontSize={10}
-            fontWeight={800}
-            fill="#0f172a"
-            direction="ltr"
-          >
-            {`+${String(bayBand.mixed)}`}
-          </text>
-        </g>
-      )}
       {/* The bill in play stands here: a gold count in the corner, so the
           crane sets the newcomer down beside its own group. */}
       {billCount !== undefined && (

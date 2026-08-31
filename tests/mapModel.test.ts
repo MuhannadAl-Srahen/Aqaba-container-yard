@@ -12,6 +12,7 @@ import {
   nearBillMates,
   searchMatches,
   slotView,
+  suggestedCells,
   summarizeZone,
   targetBays,
 } from '../src/client/mapModel';
@@ -351,11 +352,12 @@ describe('billBands — «تلون الخريطة بناءا على عدد ال�
     ];
     const bands = billBands(containers);
     // Bay 1 holds an over-ten bill (band 1) beside a 6–10 one — the big wins,
-    // and the bay wears the count of the OTHER bills sharing its ground.
-    expect(bands.get(bayKey('A', 1))).toEqual({ band: 1, mixed: 1 });
-    expect(bands.get(bayKey('A', 3))).toEqual({ band: 2, mixed: 0 });
-    // A pair (2–5) outranks the single beside it — and the stray shows.
-    expect(bands.get(bayKey('A', 5))).toEqual({ band: 3, mixed: 1 });
+    // and the tile says HOW MANY bills share the ground: «لو كان عدد
+    // البوليصات في المكان لكانت افضل».
+    expect(bands.get(bayKey('A', 1))).toEqual({ band: 1, bills: 2 });
+    expect(bands.get(bayKey('A', 3))).toEqual({ band: 2, bills: 1 });
+    // A pair (2–5) outranks the single beside it — and both are counted.
+    expect(bands.get(bayKey('A', 5))).toEqual({ band: 3, bills: 2 });
   });
 
   it('a spanning forty carries its bill onto both bays; singles read 4', () => {
@@ -374,8 +376,8 @@ describe('billBands — «تلون الخريطة بناءا على عدد ال�
       ...Array.from({ length: 3 }, (_, i) => billed(`B${String(i)}`, at(3, 1, 'A'), 'JO-6')),
     ];
     const bands = billBands(spread);
-    expect(bands.get(bayKey('A', 1))).toEqual({ band: 2, mixed: 0 });
-    expect(bands.get(bayKey('A', 3))).toEqual({ band: 2, mixed: 0 });
+    expect(bands.get(bayKey('A', 1))).toEqual({ band: 2, bills: 1 });
+    expect(bands.get(bayKey('A', 3))).toEqual({ band: 2, bills: 1 });
   });
 
   /**
@@ -390,6 +392,78 @@ describe('billBands — «تلون الخريطة بناءا على عدد ال�
     expect(billBands([single]).get(bayKey('A', 3))?.band).toBe(4);
     // Undeclared (records from before the question) stays a single by count.
     expect(billBands([billed('U1', at(5, 2, 'A'), 'JO-OLD')]).get(bayKey('A', 5))?.band).toBe(4);
+  });
+});
+
+describe('مقترحات المكان — «تقدمله اقتراحات على المكان»', () => {
+  /** bays [1,3,5], stacks 1..3 each — stack 3 is the face of every bay. */
+  const zoneS: ZoneDef = {
+    zone: 'A',
+    yard: 1,
+    x: 0, y: 0, w: 100, h: 100,
+    bays: [1, 3, 5],
+    stacks: { '1': [1, 2, 3], '3': [1, 2, 3], '5': [1, 2, 3] },
+  };
+  const layoutS: YardLayout = { zones: [zoneS], landmarks: [] };
+  const billed = (
+    number: string,
+    position: Position | null,
+    bill: string,
+    over: Partial<ContainerDto> = {},
+  ): ContainerDto => ({ ...box(number, position), bill, ...over });
+  const cellsOf = (mover: ContainerDto, bay: number): Set<string> =>
+    suggestedCells(layoutS, zoneS, bay, [
+      mover,
+      ...standingSet,
+    ], mover);
+  let standingSet: ContainerDto[] = [];
+
+  it('a single is advised beside singles, not into a group block', () => {
+    standingSet = [
+      billed('LONE0001', at(1, 1, 'A'), 'JO-L1'),
+      billed('GRP00001', at(5, 1, 'A'), 'JO-G'),
+      billed('GRP00002', at(5, 2, 'A'), 'JO-G'),
+    ];
+    const mover = billed('MOVE0001', at(3, 1, 'A'), 'JO-ME', { billKind: 'SINGLE' });
+    // Bay 01 holds a single: its free ground is advised.
+    expect(cellsOf(mover, 1).has('2|A')).toBe(true);
+    // Bay 05 is a group block: legal, never advised.
+    expect(cellsOf(mover, 5).size).toBe(0);
+  });
+
+  it('a container with standing mates is advised beside them', () => {
+    standingSet = [billed('MATE0001', at(1, 1, 'A'), 'JO-G')];
+    const mover = billed('MOVE0002', at(5, 1, 'A'), 'JO-G');
+    expect(cellsOf(mover, 1).has('2|A')).toBe(true);
+    // Far from the mates: nothing advised (bay 5 is two bays away).
+    expect(cellsOf(mover, 5).size).toBe(0);
+  });
+
+  it('the third tier is advised only light, on the face, on its own bill', () => {
+    const column = (bill: string): ContainerDto[] => [
+      billed('BASE0001', at(1, 3, 'A'), bill),
+      billed('BASE0002', at(1, 3, 'B'), bill),
+    ];
+    // Light box of the same bill: the face column's C is advised.
+    standingSet = column('JO-G');
+    const light = billed('MOVE0003', at(5, 1, 'A'), 'JO-G', { weight: '18000' });
+    expect(cellsOf(light, 1).has('3|C')).toBe(true);
+    // Heavy: legal, not advised.
+    const heavy = billed('MOVE0004', at(5, 1, 'A'), 'JO-G', { weight: '26000' });
+    expect(cellsOf(heavy, 1).has('3|C')).toBe(false);
+    // No recorded weight reads heavy.
+    const unknown = billed('MOVE0005', at(5, 1, 'A'), 'JO-G', { weight: '' });
+    expect(cellsOf(unknown, 1).has('3|C')).toBe(false);
+    // Another bill's column: never advised, even light — «خذ بعين الاعتبار
+    // البوليصة».
+    standingSet = column('JO-OTHER');
+    expect(cellsOf(light, 1).has('3|C')).toBe(false);
+    // Off the face (stack 1), same bill, light: not advised either.
+    standingSet = [
+      billed('BASE0003', at(1, 1, 'A'), 'JO-G'),
+      billed('BASE0004', at(1, 1, 'B'), 'JO-G'),
+    ];
+    expect(cellsOf(light, 1).has('1|C')).toBe(false);
   });
 });
 

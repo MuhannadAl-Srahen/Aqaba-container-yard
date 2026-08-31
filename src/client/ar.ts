@@ -357,6 +357,11 @@ export const AR = {
   /** While a container is being placed, the slots that accept it glow. */
   landingHint: 'الخانات التي تقبل هذه الحاوية مضيئة بالأخضر.',
   landingNoneInBay: 'لا توجد في هذا الباي خانة تقبل هذه الحاوية.',
+  /** مقترحات المكان — the yard's own habits, worn darker. Advice, not a bar. */
+  slotSuggested: 'مقترَح',
+  suggestedCellTitle:
+    'خانة مقترحة: الفردية عند الفرديات، والحاوية قرب بوليصتها، والطابق الثالث للخفيفة في وجه الرصة.',
+  suggestionHint: 'والأغمق منها مقترَح بحسب البوليصة والوزن.',
   size40Chip: '40',
   size20Chip: '20',
   /** «40 قدم» — the container's class, spelt the same everywhere it appears. */
@@ -867,7 +872,9 @@ export const AR = {
   /** «أسأل الموظف عند الإدخال»: فردية أم على كشف. */
   billKindSingle: 'فردية',
   billKindManifest: 'على كشف',
-  legendMixed: 'فيه أكثر من بوليصة',
+  /** The bills-paint tile: how many bills stand on this bay. */
+  billCountCell: (count: number): string =>
+    count === 1 ? 'بوليصة واحدة' : count === 2 ? 'بوليصتان' : count <= 10 ? `${String(count)} بوالص` : `${String(count)} بوليصة`,
 
   // ---- owner training tools (temporary, for the training period) ----
   toolsButton: 'أدوات التدريب',

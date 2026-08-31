@@ -188,11 +188,11 @@ export interface BayBand {
   /** The size class of the biggest bill standing on the bay. */
   readonly band: BillBand;
   /**
-   * How many OTHER bills share this bay's ground — «في بعض الأحيان يتم وضع
-   * فردي مع عدد من البوليصات»: a stray sitting inside a block is invisible
-   * under the block's own colour, so a mixed bay wears a count.
+   * How many bills stand on this bay's ground — «لو كان عدد البوليصات في
+   * المكان لكانت افضل»: in the bills paint the tile SAYS this count, so a
+   * stray single inside a block is a «2» instead of an invisible guest.
    */
-  readonly mixed: number;
+  readonly bills: number;
 }
 
 export function billBands(containers: readonly ContainerDto[]): Map<string, BayBand> {
@@ -233,9 +233,92 @@ export function billBands(containers: readonly ContainerDto[]): Map<string, BayB
   return new Map(
     [...bands.entries()].map(([key, value]) => [
       key,
-      { band: value.band, mixed: value.bills.size - 1 },
+      { band: value.band, bills: value.bills.size },
     ]),
   );
+}
+
+/**
+ * مقترحات المكان — «تقدمله اقتراحات على المكان»: among the LEGAL landings of
+ * one bay sheet, the ones the yard's own practice prefers, worn darker:
+ *
+ *  - a SINGLE goes where singles already are («الحاويات الفردية ضمن مكان
+ *    موجود فيه فردي») — its bay holds another lone bill;
+ *  - a container with standing bill-mates goes beside them (the same rule
+ *    the gold already points at);
+ *  - the THIRD tier is advised only for a light box — under 20 tonnes as
+ *    the clerks type it, in kilograms — and only on «الوجه», the outermost
+ *    رصة the machines reach (the bay's last stack), and only on its own
+ *    bill's column: «خذ بعين الاعتبار البوليصة».
+ *
+ * Advice, never a bar: everything legal stays green; these glow darker.
+ */
+export function suggestedCells(
+  layout: YardLayout,
+  zone: ZoneDef,
+  oddBay: number,
+  containers: readonly ContainerDto[],
+  mover: ContainerDto,
+): Set<string> {
+  const suggested = new Set<string>();
+  const landings = bayLandings(layout, zone, oddBay, containers, mover.size, mover.id);
+  if (landings.length === 0) return suggested;
+
+  const standing = containers.filter(
+    (container) => container.position !== null && container.id !== mover.id,
+  );
+  const mates = standing.filter((container) => container.bill === mover.bill);
+  const groupCount = new Map<string, number>();
+  for (const container of standing) {
+    if (container.bill === '') continue;
+    groupCount.set(container.bill, (groupCount.get(container.bill) ?? 0) + 1);
+  }
+  const isSingleBill = (container: ContainerDto): boolean =>
+    container.billKind === 'SINGLE' ||
+    (container.billKind !== 'MANIFEST' && (groupCount.get(container.bill) ?? 1) === 1);
+  const moverSingle =
+    mover.billKind === 'SINGLE' || (mover.billKind !== 'MANIFEST' && mates.length === 0);
+
+  // «ضمن مكان موجود فيه فردي»: does THIS bay's ground hold another single?
+  const bayHoldsSingle = standing.some(
+    (container) =>
+      container.position !== null &&
+      container.position.zone === zone.zone &&
+      baySpan(container.position.bay).includes(oddBay) &&
+      container.bill !== mover.bill &&
+      isSingleBill(container),
+  );
+
+  // «تحت الـ20»: kilograms as the gate types them; unreadable means heavy.
+  const kilos = Number.parseInt(mover.weight, 10);
+  const light = Number.isFinite(kilos) && kilos > 0 && kilos < 20_000;
+  // «الوجه» — رصة 10: the bay's outermost stack, the one the machines reach.
+  const face = Math.max(...(zone.stacks[String(oddBay)] ?? [0]));
+  const occupancy = buildOccupancy(toStanding(standing));
+
+  for (const landing of landings) {
+    const cell = `${String(landing.stack)}|${landing.tier}`;
+    if (landing.tier === 'C') {
+      // The third tier: light, on the face, on its own bill's column.
+      if (!light || landing.stack !== face) continue;
+      const ownColumn = baySpan(landing.bay).every((covered) => {
+        const below = occupancy.get(
+          `${zone.zone}|${String(covered)}|${String(landing.stack)}|B`,
+        );
+        if (below === undefined) return false;
+        const carrier = containers.find((container) => container.id === below.id);
+        return carrier !== undefined && carrier.bill === mover.bill;
+      });
+      if (ownColumn) suggested.add(cell);
+      continue;
+    }
+    if (moverSingle) {
+      if (bayHoldsSingle) suggested.add(cell);
+    } else if (mates.length > 0 && nearBillMates(containers, mover.bill, landing, mover.id) === true) {
+      suggested.add(cell);
+    }
+  }
+  return suggested;
 }
 
 /** The tallest stack this zone reaches anywhere — the bay sheet's grid width. */

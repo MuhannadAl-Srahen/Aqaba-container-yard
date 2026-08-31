@@ -2475,3 +2475,35 @@ beside singles, under-20-ton boxes allowed a third tier but only on
 and next-to-last رصة of an otherwise-full section. Definitions his to
 give («الوجه»، الرصة, where the weight figure comes from) — asked, not
 guessed. 362 tests, gates green.
+
+## المرحلة 48 — مقترحات المكان، والبلاطة تقول كم بوليصة — 2026-08-31
+
+He answered the advisor's three definitions and kept testing live.
+«الوجه» is the outermost رصة — stack 10 and its like, the row the
+machines reach — a third tier goes there for a light box, «تحت الـ20 او
+الـ23 احيانا», weights being kilograms as the clerks type them, and
+«خذ بعين الاعتبار البوليصة».
+
+**مقترحات المكان** (suggestedCells in mapModel, worn by the bay sheet
+while placing): among the LEGAL green cells, the yard's own habits glow
+darker with «مقترَح» written on them — a single-bill container where
+another single already stands; a container with standing mates beside
+its own bill (the nearBillMates rule); and the third tier only light
+(< 20,000 kg — no recorded weight reads heavy), only on the bay's last
+stack (the face), and only on its own bill's column. Advice, never a
+bar; a title on the cell says the reasons, and the hint line under the
+grid grows a clause when suggestions exist.
+
+**And the tile spoke TEU in the bills paint** — his live screenshots
+showed «16/30» beside a «+10» badge and he asked plainly: «لو كان عدد
+البوليصات في المكان لكانت افضل». So in the bills paint the tile's
+second line now SAYS the bill count — «بوليصتان»، «7 بوالص»، «11
+بوليصة» — the badge is gone, and billBands hands the full count
+instead of an extras figure. His A-53 sheet (twenty forties across
+eleven bills) reads «11 بوليصة» at a glance now.
+
+His flow question — «عند الأدخال كيف يستطيع النظام الأقتراح اذا انه
+يختار المكان اولا ثم يضع البوليصة؟» — is answered in the reply, not in
+code: the bill-search-first habit feeds the gold and the prefill
+today; cell-level advice at entry would need the form-first flow, his
+to order. 365 tests, gates green.

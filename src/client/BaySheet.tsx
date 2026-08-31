@@ -5,7 +5,7 @@ import type { YardLayout } from '../shared/types';
 import { positionLabel, bayLabel } from '../shared/address';
 import { canPlace } from '../shared/rules';
 import { AR } from './ar';
-import { bayLandings, maxStackOf, slotView, toStanding } from './mapModel';
+import { bayLandings, maxStackOf, slotView, suggestedCells, toStanding } from './mapModel';
 import { Button, useEscape } from './ui';
 
 /**
@@ -68,6 +68,16 @@ export function BaySheet(props: {
     if (placing === null) return null;
     const spots = bayLandings(props.layout, zone, bay, props.containers, placing.size, placing.id);
     return new Set(spots.map((spot) => `${String(spot.stack)}|${spot.tier}`));
+  }, [placing, props.layout, props.containers, zone, bay]);
+
+  /**
+   * مقترحات المكان: the darker cells among the legal ones — singles beside
+   * singles, a group beside its own bill, the third tier for the light box
+   * on the face of the رصة. Advice; the crane still decides.
+   */
+  const suggested = useMemo((): ReadonlySet<string> => {
+    if (placing === null) return new Set<string>();
+    return suggestedCells(props.layout, zone, bay, props.containers, placing);
   }, [placing, props.layout, props.containers, zone, bay]);
 
   /**
@@ -215,13 +225,17 @@ export function BaySheet(props: {
     }
     // While placing, the cells that actually take the container glow — the
     // rest stay plain, so «فارغ» stops promising ground a forty's partner
-    // bay has already spent.
-    const lands = landable !== null && landable.has(`${String(stack)}|${tier}`);
+    // bay has already spent. The SUGGESTED cells among them glow darker:
+    // the yard's own habits, offered, never imposed.
+    const key = `${String(stack)}|${tier}`;
+    const lands = landable !== null && landable.has(key);
+    const advised = lands && suggested.has(key);
     return (
       <button
         key={`${String(stack)}${tier}`}
         type="button"
         disabled={!mayPlace}
+        title={advised ? AR.suggestedCellTitle : undefined}
         onClick={() => {
           setPicked(isPicked ? null : { stack, tier });
         }}
@@ -229,12 +243,14 @@ export function BaySheet(props: {
           'h-14 rounded-lg border text-[10px] font-semibold transition-colors ' +
           (isPicked
             ? 'border-emerald-600 bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
-            : lands
-              ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:border-emerald-600 dark:bg-emerald-950 dark:text-emerald-300'
-              : 'border-dashed border-line-strong bg-sunken text-faint hover:border-blue-400 disabled:hover:border-line-strong')
+            : advised
+              ? 'border-emerald-600 bg-emerald-200 font-bold text-emerald-900 ring-1 ring-emerald-500 hover:border-emerald-700 dark:bg-emerald-900 dark:text-emerald-100'
+              : lands
+                ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:border-emerald-600 dark:bg-emerald-950 dark:text-emerald-300'
+                : 'border-dashed border-line-strong bg-sunken text-faint hover:border-blue-400 disabled:hover:border-line-strong')
         }
       >
-        {AR.slotEmpty}
+        {advised ? AR.slotSuggested : AR.slotEmpty}
       </button>
     );
   };
@@ -312,7 +328,11 @@ export function BaySheet(props: {
             }
             dir="rtl"
           >
-            {landable.size === 0 ? AR.landingNoneInBay : AR.landingHint}
+            {landable.size === 0
+              ? AR.landingNoneInBay
+              : suggested.size > 0
+                ? `${AR.landingHint} ${AR.suggestionHint}`
+                : AR.landingHint}
           </p>
         )}
 
