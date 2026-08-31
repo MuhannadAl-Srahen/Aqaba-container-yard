@@ -2507,3 +2507,25 @@ His flow question — «عند الأدخال كيف يستطيع النظام �
 code: the bill-search-first habit feeds the gold and the prefill
 today; cell-level advice at entry would need the form-first flow, his
 to order. 365 tests, gates green.
+
+## المرحلة 49 — الأربعين تلحم مربعيها، بطلبه هو — 2026-08-31
+
+«بدي تعمل شغلة اخيرة تعدل فيها ع شكل الخريطة بحيث اذا ما كان فيها شي
+تبين بلوك عادي مثل كأنه عشرين بس في حال وضعت فيها حاوية اربعين قدم
+تدمج المربعين بحيث يصير اطول.»
+
+The merge came back — asked for by name, which is exactly the explicit
+request stage 41's SPEC clause reserved it for. He lived with both
+drawings and chose: empty ground and twenties are single squares; where
+a forty stands, its two squares are ONE longer block.
+
+Restored from stage 38/39's history and adapted to everything built
+since: zoneCells (pairs at most, heaviest block claims, the stray
+counts once in the lower cell) and the unified RunCell — now carrying
+the gold bill badge (the larger of its halves' counts), the bills paint
+(a welded block wears its strongest member's band and the larger bill
+count), the note dot, target lighting, and the per-bay tap that opens
+the exact sheet clicked. The numbers stay the ones he reads today: a
+full forty pair says «27/27» once instead of twice, and a lone twenty
+bay is unchanged to the digit. Four pair tests returned from history
+with the same hand-worked capacities. 369 tests, gates green.

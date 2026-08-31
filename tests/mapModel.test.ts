@@ -15,6 +15,7 @@ import {
   suggestedCells,
   summarizeZone,
   targetBays,
+  zoneCells,
 } from '../src/client/mapModel';
 import { ASEZA } from '../src/shared/asezaLayout';
 import { canPlace } from '../src/shared/rules';
@@ -160,6 +161,86 @@ describe('bay loads', () => {
     const loads = buildBayLoads([box('A', at(1, 1, 'A'))]);
     expect(summarizeZone(zoneA, loads)).toEqual({ usedTeu: 1, totalTeu: 15 });
     expect(maxStackOf(zoneA)).toBe(2);
+  });
+});
+
+describe('zone cells — a forty welds its two squares into one longer block', () => {
+  /**
+   * «اذا ما كان فيها شي تبين بلوك عادي مثل كأنه عشرين، بس في حال وضعت فيها
+   * حاوية اربعين قدم تدمج المربعين بحيث يصير اطول» — the owner asked the
+   * merge back by name, so the SPEC's explicit-request clause is satisfied.
+   * Cells are a pair at most, anchored on the heaviest block; every box
+   * counts once; a full forty pair reads the same figure its twin tiles
+   * used to repeat, said once.
+   */
+  const zoneWide: ZoneDef = {
+    zone: 'A',
+    yard: 1,
+    x: 0, y: 0, w: 100, h: 100,
+    bays: [1, 3, 5, 7, 9, 11],
+    stacks: {
+      '1': [1, 2, 3], '3': [1, 2, 3], '5': [1, 2, 3],
+      '7': [1, 2, 3], '9': [1, 2, 3], '11': [1, 2, 3],
+    },
+  };
+
+  it('the heavier block anchors the pair; the dribble keeps to the margin', () => {
+    const loads = buildBayLoads([
+      box('T1', at(1, 1, 'A')),
+      box('T2', at(1, 1, 'B')),
+      box('F2', at(2, 2, 'A'), 40),
+      box('F4A', at(4, 3, 'A'), 40),
+      box('F4B', at(4, 3, 'B'), 40),
+      box('F8A', at(8, 1, 'A'), 40),
+      box('F8B', at(8, 1, 'B'), 40),
+      box('F8C', at(8, 2, 'A'), 40),
+    ]);
+    const cells = zoneCells(zoneWide, loads);
+    expect(cells.map((cell) => cell.bays)).toEqual([[1], [3, 5], [7, 9], [11]]);
+    expect(cells.map((cell) => cell.boxes)).toEqual([3, 2, 3, 0]);
+    expect(cells[1]?.capacity).toBe(6);
+    expect(cells[2]?.capacity).toBe(9);
+    expect(cells[3]).toEqual({ bays: [11], boxes: 0, capacity: 9, full: false, empty: true });
+  });
+
+  it('a bay with nothing — or only twenties — stays a single square', () => {
+    const loads = buildBayLoads([box('T1', at(1, 1, 'A')), box('T3', at(3, 1, 'A'))]);
+    const cells = zoneCells(zoneWide, loads);
+    expect(cells.map((cell) => cell.bays)).toEqual([[1], [3], [5], [7], [9], [11]]);
+    expect(cells[0]?.boxes).toBe(1);
+    expect(cells[0]?.capacity).toBe(9);
+  });
+
+  it('a full forty pair reads once what its twin tiles used to repeat', () => {
+    const forties = [1, 2, 3].flatMap((stack) =>
+      (['A', 'B', 'C'] as const).map((tier) => box(`F${String(stack)}${tier}`, at(8, stack, tier), 40)),
+    );
+    const cells = zoneCells(zoneWide, buildBayLoads(forties));
+    const pair = cells.find((cell) => cell.bays.length === 2);
+    expect(pair?.bays).toEqual([7, 9]);
+    expect(pair?.boxes).toBe(9);
+    expect(pair?.capacity).toBe(9);
+    expect(pair?.full).toBe(true);
+  });
+
+  it('the owner’s own case: 19–25 never chains — pairs at most', () => {
+    const zoneB: ZoneDef = {
+      zone: 'A',
+      yard: 1,
+      x: 0, y: 0, w: 100, h: 100,
+      bays: [19, 21, 23, 25],
+      stacks: { '19': [1, 2, 3], '21': [1, 2, 3], '23': [1, 2, 3], '25': [1, 2, 3] },
+    };
+    const loads = buildBayLoads([
+      box('F20A', at(20, 1, 'A'), 40),
+      box('F20B', at(20, 2, 'A'), 40),
+      box('F22', at(22, 3, 'A'), 40),
+      box('F24A', at(24, 1, 'A'), 40),
+      box('F24B', at(24, 2, 'A'), 40),
+    ]);
+    const cells = zoneCells(zoneB, loads);
+    expect(cells.map((cell) => cell.bays)).toEqual([[19, 21], [23, 25]]);
+    expect(cells.map((cell) => cell.boxes)).toEqual([3, 2]);
   });
 });
 

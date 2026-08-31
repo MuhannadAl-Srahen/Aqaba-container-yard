@@ -1,7 +1,7 @@
 import { memo, useState, type ReactElement } from 'react';
 import type { ContainerDto, Landmark, YardLayout, Zone, ZoneDef } from '../shared/types';
 import { AR } from './ar';
-import { bayKey, countBay, maxStackOf, summarizeZone, type BayBand } from './mapModel';
+import { bayKey, maxStackOf, summarizeZone, zoneCells, type BayBand, type ZoneCell } from './mapModel';
 
 /**
  * The official ASEZA yard drawn to scale as SVG: zone strips with their bays
@@ -101,59 +101,90 @@ export interface MapProps {
   } | null;
 }
 
-function BayCell(props: {
+/**
+ * One cell of the strip — a lone square, or the PAIR a forty has welded into
+ * one long block: «اذا ما كان فيها شي تبين بلوك عادي مثل كأنه عشرين، بس في
+ * حال وضعت فيها حاوية اربعين قدم تدمج المربعين بحيث يصير اطول». The owner's
+ * final wording, at last: the drawing matches the steel. Empty ground and
+ * twenties are single squares; where a forty lies, its two squares are one.
+ * Each bay of a welded block still answers its own tap.
+ */
+function RunCell(props: {
   zone: ZoneDef;
-  bay: number;
+  cell: ZoneCell;
+  /** Index of the cell's first bay within `zone.bays` — its column. */
   index: number;
   cellW: number;
   view: MapProps;
 }): ReactElement {
-  const { zone, bay, index, cellW, view } = props;
-  const key = bayKey(zone.zone, bay);
-  const load = view.loads.get(key);
-  const count = countBay(zone, bay, load);
+  const { zone, cell, index, cellW, view } = props;
+  const keys = cell.bays.map((bay) => bayKey(zone.zone, bay));
 
-  const x = PAD + index * cellW;
-  const y = TITLE_H;
+  const seen = new Set<number>();
+  const load: ContainerDto[] = [];
+  for (const key of keys) {
+    for (const container of view.loads.get(key) ?? []) {
+      if (!seen.has(container.id)) {
+        seen.add(container.id);
+        load.push(container);
+      }
+    }
+  }
 
-  const isTarget = view.targets !== null && view.targets.has(key);
-  const billCount = view.billBays?.get(key);
-  const holdsMoving =
-    view.movingId !== null && (load?.some((c) => c.id === view.movingId) ?? false);
-  const holdsSelected =
-    view.selectedId !== null && (load?.some((c) => c.id === view.selectedId) ?? false);
-  const holdsMatch = load?.some((container) => view.matches.has(container.id)) ?? false;
+  const isTarget = view.targets !== null && keys.some((key) => view.targets?.has(key) ?? false);
+  const billCounts = keys
+    .map((key) => view.billBays?.get(key))
+    .filter((value): value is number => value !== undefined);
+  const billCount = billCounts.length > 0 ? Math.max(...billCounts) : undefined;
+  const holdsMoving = view.movingId !== null && load.some((c) => c.id === view.movingId);
+  const holdsSelected = view.selectedId !== null && load.some((c) => c.id === view.selectedId);
+  const holdsMatch = load.some((container) => view.matches.has(container.id));
 
   // While searching or placing, everything irrelevant steps back. It dims,
   // it never disappears — the map must stay a picture of the whole place.
-  // A bay holding the bill in play never dims: placing goes BESIDE the
+  // A cell holding the bill in play never dims: placing goes BESIDE the
   // group, so its gold must stay readable even where nothing can land.
   let dimmed = false;
   if (view.searchActive) dimmed = !holdsMatch;
   if (view.targets !== null) dimmed = !(isTarget || holdsMoving || billCount !== undefined);
 
-  const empty = count.used === 0;
   // The bill bands paint only while READING: a placement's targets must keep
-  // their own colours, or the person placing loses the map's answer.
-  const bayBand = view.targets === null && view.billPaint !== null && !empty
-    ? (view.billPaint.get(key) ?? null)
-    : null;
+  // their own colours. A welded block wears its strongest member's band and
+  // the larger of its halves' bill counts.
+  const bands =
+    view.targets === null && view.billPaint !== null && !cell.empty
+      ? keys
+          .map((key) => view.billPaint?.get(key))
+          .filter((value): value is NonNullable<typeof value> => value !== undefined && value !== null)
+      : [];
+  const bayBand =
+    bands.length === 0
+      ? null
+      : {
+          band: Math.min(...bands.map((entry) => entry.band)),
+          bills: Math.max(...bands.map((entry) => entry.bills)),
+        };
+
+  const x = PAD + index * cellW;
+  const y = TITLE_H;
+  const width = cellW * cell.bays.length - 4;
+
   const fill =
     bayBand !== null
       ? `var(--yard-band-${String(bayBand.band)})`
       : isTarget
         ? C.targetFill
-        : empty
+        : cell.empty
           ? C.free
-          : count.full
+          : cell.full
             ? C.full
             : C.partial;
   const textColor =
     bayBand !== null
       ? `var(--yard-band-${String(bayBand.band)}-text)`
-      : count.full && !isTarget
+      : cell.full && !isTarget
         ? C.fullText
-        : empty
+        : cell.empty
           ? C.label
           : C.text;
   const stroke =
@@ -163,39 +194,41 @@ function BayCell(props: {
         ? C.match
         : isTarget
           ? C.targetBorder
-          : count.full
+          : cell.full
             ? C.full
-            : empty
+            : cell.empty
               ? C.freeBorder
               : C.partialBorder;
   const strong = holdsSelected || holdsMoving || holdsMatch || isTarget;
   // A note on any container here earns a dot: the crew writes the dents, the
   // opened locks and the customs holds there, and the map must not hide it.
-  const noted = load?.some((container) => container.notes !== '') ?? false;
+  const noted = load.some((container) => container.notes !== '');
+
+  const pad2 = (bay: number): string => String(bay).padStart(2, '0');
+  const first = cell.bays[0];
+  const last = cell.bays[cell.bays.length - 1];
+  const label =
+    cell.bays.length === 1 || first === undefined || last === undefined
+      ? pad2(first ?? 0)
+      : `${pad2(first)}–${pad2(last)}`;
 
   return (
-    <g
-      className="map-cell"
-      opacity={dimmed ? 0.22 : undefined}
-      onClick={() => {
-        view.onBayClick(zone.zone, bay);
-      }}
-    >
+    <g className="map-cell" opacity={dimmed ? 0.22 : undefined}>
       <rect
         className="cell-frame"
         x={x + 2}
         y={y}
-        width={cellW - 4}
+        width={width}
         height={CELL_H}
         rx={5}
         fill={fill}
         stroke={stroke}
         strokeWidth={strong ? 2.5 : 1.2}
-        strokeDasharray={empty && !strong ? '4 3' : undefined}
+        strokeDasharray={cell.empty && !strong ? '4 3' : undefined}
       />
-      {/* The bay's own number, exactly as the plan paints it on the ground. */}
+      {/* The ground's own numbers, exactly as the plan paints them. */}
       <text
-        x={x + cellW / 2}
+        x={x + (width + 4) / 2}
         y={y + 25}
         textAnchor="middle"
         fontSize={15}
@@ -203,14 +236,15 @@ function BayCell(props: {
         fill={textColor}
         direction="ltr"
       >
-        {String(bay).padStart(2, '0')}
+        {label}
       </text>
       {/* In the bills paint the second line answers the bills question —
-          «لو كان عدد البوليصات في المكان لكانت افضل» — and the stray single
-          inside a block is a «2» instead of an invisible guest. Everywhere
-          else it stays the slot count it always was. */}
+          «لو كان عدد البوليصات في المكان لكانت افضل». Everywhere else, the
+          count of boxes over what the block holds completed as its kind —
+          for a full forty pair, the same «27/27» the twin tiles used to
+          repeat, said once. */}
       <text
-        x={x + cellW / 2}
+        x={x + (width + 4) / 2}
         y={y + 50}
         textAnchor="middle"
         fontSize={bayBand !== null ? 11 : 12}
@@ -220,9 +254,9 @@ function BayCell(props: {
       >
         {bayBand !== null
           ? AR.billCountCell(bayBand.bills)
-          : `${String(count.used)} / ${String(count.total)}`}
+          : `${String(cell.boxes)} / ${String(cell.capacity)}`}
       </text>
-      {noted && <circle cx={x + cellW / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
+      {noted && <circle cx={x + (width + 4) / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
       {/* The bill in play stands here: a gold count in the corner, so the
           crane sets the newcomer down beside its own group. */}
       {billCount !== undefined && (
@@ -241,6 +275,20 @@ function BayCell(props: {
           </text>
         </g>
       )}
+      {/* Every bay of a welded block still answers its own tap. */}
+      {cell.bays.map((bay, at) => (
+        <rect
+          key={bay}
+          x={x + at * cellW}
+          y={y}
+          width={cellW}
+          height={CELL_H}
+          fill="transparent"
+          onClick={() => {
+            view.onBayClick(zone.zone, bay);
+          }}
+        />
+      ))}
     </g>
   );
 }
@@ -290,8 +338,15 @@ const ZonePanel = memo(
         <text x={PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={700} fill={C.label}>
           {AR.fullAndFree(summary.usedTeu, summary.totalTeu - summary.usedTeu)}
         </text>
-        {zone.bays.map((bay, index) => (
-          <BayCell key={bay} zone={zone} bay={bay} index={index} cellW={cellW} view={view} />
+        {zoneCells(zone, view.loads).map((cell) => (
+          <RunCell
+            key={cell.bays[0]}
+            zone={zone}
+            cell={cell}
+            index={zone.bays.indexOf(cell.bays[0] ?? -1)}
+            cellW={cellW}
+            view={view}
+          />
         ))}
         {draggable && (
           <rect
