@@ -1,5 +1,6 @@
 import type {
   ApiError,
+  BillKind,
   CardSheetRow,
   CarrierDto,
   ContainerDto,
@@ -97,6 +98,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export interface ContainerEditInput {
   number: string;
   bill: string;
+  billKind: BillKind | null;
   size: 20 | 40;
   notes: string;
   weight: string;
@@ -115,6 +117,7 @@ export function editPayloadOf(container: ContainerDto): ContainerEditInput {
   return {
     number: container.number,
     bill: container.bill,
+    billKind: container.billKind,
     size: container.size,
     notes: container.notes,
     weight: container.weight,
@@ -181,6 +184,7 @@ export const api = {
     number: string;
     size: 20 | 40;
     bill: string;
+    billKind: BillKind | null;
     notes: string;
     position: Position;
     truck: string;

@@ -2445,3 +2445,33 @@ in SheetScreen), and every filter and tool row folds behind a single
 register owns the screen the moment it opens. The desktop never folds.
 LogScreen inherits all of it through SheetScreen. 361 tests, gates
 green.
+
+## المرحلة 47 — الفردية لا تختبئ تحت لون البلوك، والبوابة تسأل — 2026-08-31
+
+«في بعض الأحيان يتم وضع فردي مع عدد من البوليصات اريد ايضا حل» — meaning,
+he clarified, in the bills paint: a stray single standing inside a
+block vanishes under the block's colour. And to the question of how the
+system could ever tell a single from the first box of a big manifest,
+he chose: «أسأل الموظف عند الإدخال».
+
+**الشارة**: billBands now returns, per bay, the band AND how many other
+bills share its ground; in the bills paint a mixed bay wears a white
+count badge («+1») at its far corner, with its own legend line. The
+stray inside a block stops hiding.
+
+**السؤال**: schema v25 adds `containers.bill_kind`
+('SINGLE'|'MANIFEST', null for records from before the question). The
+gate-in form insists on the answer — two chips under the bill box —
+and the edit form corrects it. The wire stays lenient (old payloads
+break nothing), and an edit that never mentions the field keeps what
+the record says instead of wiping it. The paint uses the answer to
+settle the ambiguous case: one standing box declared «على كشف» paints
+as a small group (band 3), declared «فردية» or undeclared paints as
+the single it is.
+
+He then widened the road while I built: placement SUGGESTIONS — singles
+beside singles, under-20-ton boxes allowed a third tier but only on
+«الوجه» for the machines' reach, and a third tier advised on the last
+and next-to-last رصة of an otherwise-full section. Definitions his to
+give («الوجه»، الرصة, where the weight figure comes from) — asked, not
+guessed. 362 tests, gates green.

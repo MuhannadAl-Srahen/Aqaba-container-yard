@@ -243,6 +243,11 @@ export function migrate(db: DatabaseSync, file: string): void {
       exited_at     TEXT,
       -- رقم البوليصة: the bill of lading that gathers a group of containers.
       bill          TEXT    NOT NULL DEFAULT '',
+      -- v25: «أسأل الموظف عند الإدخال» — is this bill a lone container or a
+      -- manifest with more coming? The gate asks; the first container of a
+      -- big bill would otherwise be indistinguishable from a single. NULL on
+      -- records from before the question existed.
+      bill_kind     TEXT    CHECK (bill_kind IN ('SINGLE', 'MANIFEST')),
       -- The exact official slot (1-A-03-01-A), present exactly while it
       -- stands in the yard. The bay's parity repeats the size on purpose:
       -- odd bay = 20, even bay = a 40 across the two odd bays around it.
@@ -439,8 +444,19 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_wages_live
       ON wages (container_id, direction) WHERE deleted_at IS NULL;
 
-    PRAGMA user_version = 24;
+    PRAGMA user_version = 25;
   `);
+
+  // v25 upgrade: the gate now asks whether a bill is a lone container or a
+  // manifest. Old records keep NULL — unknown then, unknown honestly.
+  const containerColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('containers') as unknown as Array<{ name: string }>;
+  if (!containerColumns.some((column) => column.name === 'bill_kind')) {
+    db.exec(
+      `ALTER TABLE containers ADD COLUMN bill_kind TEXT CHECK (bill_kind IN ('SINGLE', 'MANIFEST'))`,
+    );
+  }
 
   // v24 upgrade: a permit_items born before الفئة could be corrected reads it
   // live off the container. Pin what each stamped paper actually said, taken

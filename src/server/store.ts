@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  BillKind,
   CardSheetRow,
   CarrierDto,
   ContainerDto,
@@ -43,6 +44,7 @@ interface ContainerRow {
   number_valid: number;
   size: number;
   bill: string;
+  bill_kind: string | null;
   notes: string;
   entered_at: string;
   exited_at: string | null;
@@ -82,6 +84,7 @@ function toDto(row: ContainerRow): ContainerDto {
     numberValid: row.number_valid === 1,
     size: row.size as Size,
     bill: row.bill,
+    billKind: (row.bill_kind ?? null) as ContainerDto['billKind'],
     enteredAt: row.entered_at,
     exitedAt: row.exited_at,
     position: slotOf(row.zone, row.bay, row.stack, row.tier),
@@ -296,6 +299,8 @@ export interface NewContainer {
   numberValid: boolean;
   size: Size;
   bill: string;
+  /** فردية أو على كشف — what the gate was told; null when it was not asked. */
+  billKind: BillKind | null;
   notes: string;
   position: Position;
   at: string;
@@ -313,15 +318,16 @@ export function insertContainer(db: DatabaseSync, container: NewContainer): numb
   const result = db
     .prepare(
       `INSERT INTO containers
-         (number, number_valid, size, bill, notes, entered_at, zone, bay, stack, tier,
+         (number, number_valid, size, bill, bill_kind, notes, entered_at, zone, bay, stack, tier,
           weight, handling, truck_in, driver_in, seal_in, card_in, card_in_year)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       container.number,
       container.numberValid ? 1 : 0,
       container.size,
       container.bill,
+      container.billKind,
       container.notes,
       container.at,
       container.position.zone,
@@ -385,6 +391,7 @@ export interface ContainerEdit {
   number: string;
   numberValid: boolean;
   bill: string;
+  billKind: BillKind | null;
   size: Size;
   notes: string;
   weight: string;
@@ -400,7 +407,7 @@ export interface ContainerEdit {
 
 export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdit): void {
   db.prepare(
-    `UPDATE containers SET number = ?, number_valid = ?, bill = ?, size = ?,
+    `UPDATE containers SET number = ?, number_valid = ?, bill = ?, bill_kind = ?, size = ?,
        notes = ?, weight = ?, handling = ?,
        truck_in = ?, driver_in = ?, seal_in = ?,
        truck_out = ?, driver_out = ?,
@@ -410,6 +417,7 @@ export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdi
     edit.number,
     edit.numberValid ? 1 : 0,
     edit.bill,
+    edit.billKind,
     edit.size,
     edit.notes,
     edit.weight,

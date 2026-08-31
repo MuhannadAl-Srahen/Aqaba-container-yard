@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ContainerDto, Handling, Position } from '../shared/types';
+import type { BillKind, ContainerDto, Handling, Position } from '../shared/types';
 import { HANDLING, sizeOfBay } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
@@ -34,6 +34,8 @@ export function GateInSheet(props: {
 }): ReactElement {
   const [number, setNumber] = useState('');
   const [bill, setBill] = useState(props.initialBill ?? '');
+  /** «أسأل الموظف عند الإدخال»: فردية أم على كشف — nothing chosen yet. */
+  const [billKind, setBillKind] = useState<BillKind | null>(null);
   const [truck, setTruck] = useState('');
   const [seal, setSeal] = useState('');
   const [driver, setDriver] = useState('');
@@ -119,6 +121,7 @@ export function GateInSheet(props: {
   const ready =
     [number, bill, truck, seal].every((value) => value.trim() !== '') &&
     handling !== null &&
+    billKind !== null &&
     !busy;
 
   const submit = (): void => {
@@ -130,6 +133,7 @@ export function GateInSheet(props: {
         number,
         size,
         bill: bill.trim(),
+        billKind,
         notes: notes.trim(),
         position: props.position,
         truck: truck.trim(),
@@ -284,6 +288,28 @@ export function GateInSheet(props: {
                 setBill(event.target.value);
               }}
             />
+            {/* «أسأل الموظف عند الإدخال»: the first box of a big manifest
+                would otherwise be indistinguishable from a single, and the
+                bills paint on the map depends on the answer. */}
+            <div className="mt-1.5 grid grid-cols-2 gap-2">
+              {(['SINGLE', 'MANIFEST'] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  onClick={() => {
+                    setBillKind(option);
+                  }}
+                  className={
+                    'rounded-xl border-2 px-2 py-1.5 text-sm font-bold transition ' +
+                    (billKind === option
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-line bg-surface text-muted hover:border-blue-400')
+                  }
+                >
+                  {option === 'SINGLE' ? AR.billKindSingle : AR.billKindManifest}
+                </button>
+              ))}
+            </div>
           </Field>
           <Field
             label={AR.weight}

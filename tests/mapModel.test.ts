@@ -36,6 +36,7 @@ function box(number: string, position: Position | null, size: Size = 20): Contai
     numberValid: true,
     size,
     bill: '',
+    billKind: null,
     enteredAt: '2026-08-01T08:00:00.000Z',
     exitedAt: null,
     position,
@@ -349,19 +350,20 @@ describe('billBands — «تلون الخريطة بناءا على عدد ال�
       billed('LONE', at(5, 2, 'C'), 'JO-LONE'),
     ];
     const bands = billBands(containers);
-    // Bay 1 holds an over-ten bill (band 1) beside a 6–10 one — the big wins.
-    expect(bands.get(bayKey('A', 1))).toBe(1);
-    expect(bands.get(bayKey('A', 3))).toBe(2);
-    // A pair (2–5) outranks the single beside it.
-    expect(bands.get(bayKey('A', 5))).toBe(3);
+    // Bay 1 holds an over-ten bill (band 1) beside a 6–10 one — the big wins,
+    // and the bay wears the count of the OTHER bills sharing its ground.
+    expect(bands.get(bayKey('A', 1))).toEqual({ band: 1, mixed: 1 });
+    expect(bands.get(bayKey('A', 3))).toEqual({ band: 2, mixed: 0 });
+    // A pair (2–5) outranks the single beside it — and the stray shows.
+    expect(bands.get(bayKey('A', 5))).toEqual({ band: 3, mixed: 1 });
   });
 
   it('a spanning forty carries its bill onto both bays; singles read 4', () => {
     const bands = billBands([
       billed('F1', { zone: 'A', bay: 2, stack: 1, tier: 'A' } as Position, 'JO-ONE', 40),
     ]);
-    expect(bands.get(bayKey('A', 1))).toBe(4);
-    expect(bands.get(bayKey('A', 3))).toBe(4);
+    expect(bands.get(bayKey('A', 1))?.band).toBe(4);
+    expect(bands.get(bayKey('A', 3))?.band).toBe(4);
     expect(bands.get(bayKey('A', 5))).toBeUndefined();
   });
 
@@ -372,8 +374,22 @@ describe('billBands — «تلون الخريطة بناءا على عدد ال�
       ...Array.from({ length: 3 }, (_, i) => billed(`B${String(i)}`, at(3, 1, 'A'), 'JO-6')),
     ];
     const bands = billBands(spread);
-    expect(bands.get(bayKey('A', 1))).toBe(2);
-    expect(bands.get(bayKey('A', 3))).toBe(2);
+    expect(bands.get(bayKey('A', 1))).toEqual({ band: 2, mixed: 0 });
+    expect(bands.get(bayKey('A', 3))).toEqual({ band: 2, mixed: 0 });
+  });
+
+  /**
+   * «أسأل الموظف عند الإدخال»: the gate's answer settles the one ambiguous
+   * case — a bill with a single standing box that was DECLARED a manifest
+   * is a small group arriving, not a single.
+   */
+  it('the gate declaration decides the lone first box of a manifest', () => {
+    const declared = { ...billed('M1', at(1, 1, 'A'), 'JO-NEW'), billKind: 'MANIFEST' as const };
+    expect(billBands([declared]).get(bayKey('A', 1))?.band).toBe(3);
+    const single = { ...billed('S1', at(3, 1, 'A'), 'JO-ONE'), billKind: 'SINGLE' as const };
+    expect(billBands([single]).get(bayKey('A', 3))?.band).toBe(4);
+    // Undeclared (records from before the question) stays a single by count.
+    expect(billBands([billed('U1', at(5, 2, 'A'), 'JO-OLD')]).get(bayKey('A', 5))?.band).toBe(4);
   });
 });
 

@@ -1,7 +1,7 @@
 import { memo, useState, type ReactElement } from 'react';
 import type { ContainerDto, Landmark, YardLayout, Zone, ZoneDef } from '../shared/types';
 import { AR } from './ar';
-import { bayKey, countBay, maxStackOf, summarizeZone } from './mapModel';
+import { bayKey, countBay, maxStackOf, summarizeZone, type BayBand } from './mapModel';
 
 /**
  * The official ASEZA yard drawn to scale as SVG: zone strips with their bays
@@ -87,7 +87,7 @@ export interface MapProps {
    * biggest bill standing on it (1 = فوق 10 … 4 = فردية) instead of by
    * fullness. A reading mode — while placing, the target colours return.
    */
-  billPaint: ReadonlyMap<string, 1 | 2 | 3 | 4> | null;
+  billPaint: ReadonlyMap<string, BayBand> | null;
   movingId: number | null;
   onBayClick: (zone: Zone, bay: number) => void;
   /**
@@ -135,12 +135,12 @@ function BayCell(props: {
   const empty = count.used === 0;
   // The bill bands paint only while READING: a placement's targets must keep
   // their own colours, or the person placing loses the map's answer.
-  const band = view.targets === null && view.billPaint !== null && !empty
+  const bayBand = view.targets === null && view.billPaint !== null && !empty
     ? (view.billPaint.get(key) ?? null)
     : null;
   const fill =
-    band !== null
-      ? `var(--yard-band-${String(band)})`
+    bayBand !== null
+      ? `var(--yard-band-${String(bayBand.band)})`
       : isTarget
         ? C.targetFill
         : empty
@@ -149,8 +149,8 @@ function BayCell(props: {
             ? C.full
             : C.partial;
   const textColor =
-    band !== null
-      ? `var(--yard-band-${String(band)}-text)`
+    bayBand !== null
+      ? `var(--yard-band-${String(bayBand.band)}-text)`
       : count.full && !isTarget
         ? C.fullText
         : empty
@@ -217,6 +217,32 @@ function BayCell(props: {
         {`${String(count.used)} / ${String(count.total)}`}
       </text>
       {noted && <circle cx={x + cellW / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
+      {/* «يتم وضع فردي مع عدد من البوليصات»: in the bills paint, a bay whose
+          ground carries MORE than one bill wears the count of the extras —
+          the stray inside a block stops hiding under the block's colour. */}
+      {bayBand !== null && bayBand.mixed > 0 && (
+        <g>
+          <circle
+            cx={x + cellW - 12}
+            cy={y + 12}
+            r={8.5}
+            fill="#ffffff"
+            stroke="#334155"
+            strokeWidth={1.2}
+          />
+          <text
+            x={x + cellW - 12}
+            y={y + 15.5}
+            textAnchor="middle"
+            fontSize={10}
+            fontWeight={800}
+            fill="#0f172a"
+            direction="ltr"
+          >
+            {`+${String(bayBand.mixed)}`}
+          </text>
+        </g>
+      )}
       {/* The bill in play stands here: a gold count in the corner, so the
           crane sets the newcomer down beside its own group. */}
       {billCount !== undefined && (

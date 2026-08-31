@@ -184,25 +184,58 @@ export function nearBillMates(
  */
 export type BillBand = 1 | 2 | 3 | 4;
 
-export function billBands(containers: readonly ContainerDto[]): Map<string, BillBand> {
+export interface BayBand {
+  /** The size class of the biggest bill standing on the bay. */
+  readonly band: BillBand;
+  /**
+   * How many OTHER bills share this bay's ground — «في بعض الأحيان يتم وضع
+   * فردي مع عدد من البوليصات»: a stray sitting inside a block is invisible
+   * under the block's own colour, so a mixed bay wears a count.
+   */
+  readonly mixed: number;
+}
+
+export function billBands(containers: readonly ContainerDto[]): Map<string, BayBand> {
   const groupSize = new Map<string, number>();
+  /** «أسأل الموظف عند الإدخال»: any MANIFEST answer marks the whole bill. */
+  const manifest = new Set<string>();
   for (const container of containers) {
     if (container.position === null || container.bill === '') continue;
     groupSize.set(container.bill, (groupSize.get(container.bill) ?? 0) + 1);
+    if (container.billKind === 'MANIFEST') manifest.add(container.bill);
   }
-  const bandOf = (size: number): BillBand => (size > 10 ? 1 : size > 5 ? 2 : size > 1 ? 3 : 4);
+  // The declaration settles the one ambiguous case: a bill with a single
+  // standing box that the gate was TOLD has a manifest behind it is a small
+  // group arriving, not a single.
+  const bandOf = (bill: string): BillBand => {
+    const size = groupSize.get(bill) ?? 1;
+    if (size > 10) return 1;
+    if (size > 5) return 2;
+    if (size > 1) return 3;
+    return manifest.has(bill) ? 3 : 4;
+  };
 
-  const bands = new Map<string, BillBand>();
+  const bands = new Map<string, { band: BillBand; bills: Set<string> }>();
   for (const container of containers) {
     if (container.position === null) continue;
-    const band = container.bill === '' ? 4 : bandOf(groupSize.get(container.bill) ?? 1);
+    const band = container.bill === '' ? 4 : bandOf(container.bill);
     for (const oddBay of baySpan(container.position.bay)) {
       const key = bayKey(container.position.zone, oddBay);
       const held = bands.get(key);
-      if (held === undefined || band < held) bands.set(key, band);
+      if (held === undefined) {
+        bands.set(key, { band, bills: new Set([container.bill]) });
+      } else {
+        held.bills.add(container.bill);
+        if (band < held.band) bands.set(key, { band, bills: held.bills });
+      }
     }
   }
-  return bands;
+  return new Map(
+    [...bands.entries()].map(([key, value]) => [
+      key,
+      { band: value.band, mixed: value.bills.size - 1 },
+    ]),
+  );
 }
 
 /** The tallest stack this zone reaches anywhere — the bay sheet's grid width. */

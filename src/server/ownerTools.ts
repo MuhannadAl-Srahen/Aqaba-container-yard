@@ -399,6 +399,7 @@ export function seedDemoYard(db: DatabaseSync): {
     const id = store.insertContainer(db, {
       number,
       numberValid: checkNumber(number).valid,
+      billKind: null,
       size,
       // The mandatory fields are all filled: a half-filled example teaches the
       // wrong habit at the gate.

@@ -112,6 +112,12 @@ const gateInSchema = z.object({
    * the crew always knows, and the entry card is meant to carry the answer.
    */
   handling: z.enum(HANDLING),
+  /**
+   * «أسأل الموظف عند الإدخال»: فردية أم على كشف. The FORM insists on an
+   * answer; the wire stays lenient so nothing older than the question
+   * breaks against it.
+   */
+  billKind: z.enum(['SINGLE', 'MANIFEST']).nullable().default(null),
 });
 
 /**
@@ -139,6 +145,12 @@ const editSchema = z.object({
   weight: z.string().trim().max(20).default(''),
   /** Nullable here, and only here: records from before the field existed. */
   handling: z.enum(HANDLING).nullable().default(null),
+  /**
+   * Correctable like the rest — the gate may have answered wrong. OPTIONAL,
+   * not defaulted: a payload that never mentions it must keep what the
+   * record already says, not wipe it to null.
+   */
+  billKind: z.enum(['SINGLE', 'MANIFEST']).nullable().optional(),
   truckIn: z.string().trim().min(1).max(30),
   driverIn: z.string().trim().max(60).default(''),
   sealIn: z.string().trim().min(1).max(30),
@@ -865,6 +877,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         numberValid: check.valid,
         size: body.size,
         bill: body.bill,
+        billKind: body.billKind,
         notes: body.notes,
         position: body.position,
         at,
@@ -1062,6 +1075,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       diff('number', check.normalized, existing.number);
       diff('bill', body.bill, existing.bill);
+      // Unmentioned means untouched — never wiped.
+      const billKind = body.billKind === undefined ? existing.billKind : body.billKind;
+      diff('billKind', billKind ?? '', existing.billKind ?? '');
       diff('notes', body.notes, existing.notes);
       diff('weight', body.weight, existing.weight);
       diff('handling', body.handling ?? '', existing.handling ?? '');
@@ -1091,6 +1107,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           number: check.normalized,
           numberValid: check.valid,
           bill: body.bill,
+          billKind,
           size: body.size,
           notes: body.notes,
           weight: body.weight,

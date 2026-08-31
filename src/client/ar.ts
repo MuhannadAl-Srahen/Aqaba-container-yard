@@ -864,6 +864,10 @@ export const AR = {
   fitWidth: 'ملاءمة العرض',
   /** The phone's one button hiding the register's filter and tool rows. */
   sheetTools: 'الخيارات',
+  /** «أسأل الموظف عند الإدخال»: فردية أم على كشف. */
+  billKindSingle: 'فردية',
+  billKindManifest: 'على كشف',
+  legendMixed: 'فيه أكثر من بوليصة',
 
   // ---- owner training tools (temporary, for the training period) ----
   toolsButton: 'أدوات التدريب',

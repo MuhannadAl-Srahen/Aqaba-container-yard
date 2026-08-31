@@ -239,6 +239,9 @@ export interface UnassignedPlateRow {
   readonly driver: string;
 }
 
+/** فردية أو على كشف — what the gate was told about the bill. */
+export type BillKind = 'SINGLE' | 'MANIFEST';
+
 export interface ContainerDto {
   readonly id: number;
   readonly number: string;
@@ -251,6 +254,13 @@ export interface ContainerDto {
    * none was recorded.
    */
   readonly bill: string;
+  /**
+   * «أسأل الموظف عند الإدخال»: is this bill a lone container (فردية) or a
+   * manifest with more coming (على كشف)? The gate asks, so the first box of
+   * a big bill is never mistaken for a single. Null on records from before
+   * the question existed.
+   */
+  readonly billKind: BillKind | null;
   /** ISO timestamps, UTC. */
   readonly enteredAt: string;
   readonly exitedAt: string | null;
