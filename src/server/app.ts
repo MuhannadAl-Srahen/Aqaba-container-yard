@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { Browser, BrowserType } from 'playwright-core';
 import type {
   ApiError,
+  CardSheetRow,
   ContainerDto,
   DailyReportRow,
   ErrorCode,
@@ -1811,6 +1812,80 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       await browser.close();
     }
   });
+
+  /**
+   * الطباعة الكلية للبطاقات — للمالك وحده: the DATA of every card of the
+   * range, by kind, ordered as the bound book reads (serial within year).
+   * Facts only cross the wire; the Arabic card is written client-side,
+   * where Arabic lives.
+   */
+  app.get('/api/reports/cards', (request): { rows: CardSheetRow[] } => {
+    requireOwner(request);
+    const query = request.query as { kind?: string; from?: string; to?: string };
+    if (query.kind !== 'in' && query.kind !== 'out' && query.kind !== 'move') {
+      refuse(400, 'VALIDATION');
+    }
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+    const rows =
+      query.kind === 'move'
+        ? store.bulkMoveCards(db, range.from, range.to)
+        : store.bulkGateCards(db, query.kind === 'in' ? 'IN' : 'OUT', range.from, range.to);
+    return { rows };
+  });
+
+  /**
+   * The bulk file itself: hundreds of cards, one PDF, upright. Its own route
+   * because the register PDF's guard and ceiling do not fit it — this one is
+   * the OWNER's alone, and a whole year of cards (photos ridden along as
+   * data URIs) is far past the default 1MiB body.
+   */
+  app.post(
+    '/api/reports/cards-pdf',
+    { bodyLimit: 64 * 1024 * 1024 },
+    async (request, reply) => {
+      requireOwner(request);
+      const body = parseOrRefuse(
+        z.object({
+          title: z.string().trim().min(1).max(100),
+          html: z.string().min(1).max(60_000_000),
+        }),
+        request.body,
+      );
+
+      const { chromium } = await import('playwright-core');
+      const browser = await launchSystemBrowser(chromium);
+      try {
+        const page = await browser.newPage();
+        // A book of hundreds of pages takes longer than a sheet — the
+        // default 30s would cut the year's register off mid-render.
+        page.setDefaultTimeout(120_000);
+        await page.setContent(body.html, { waitUntil: 'load', timeout: 120_000 });
+        const pdf = await page.pdf({
+          format: 'A4',
+          landscape: false,
+          printBackground: true,
+          displayHeaderFooter: true,
+          headerTemplate: '<div></div>',
+          footerTemplate:
+            `<div style="width:100%;font-family:'Noto Naskh Arabic','Noto Sans Arabic','Segoe UI',Tahoma,sans-serif;font-size:8px;` +
+            `color:#64748b;padding:0 9mm;display:flex;justify-content:space-between;direction:rtl">` +
+            `<span>${escapeHtml(body.title)}</span>` +
+            `<span>صفحة <span class="pageNumber"></span> من <span class="totalPages"></span></span>` +
+            `</div>`,
+          margin: { top: '10mm', bottom: '13mm', left: '10mm', right: '10mm' },
+        });
+        void reply
+          .type('application/pdf')
+          .header(
+            'content-disposition',
+            `attachment; filename*=UTF-8''${encodeURIComponent(plainCode(body.title))}.pdf`,
+          );
+        return pdf;
+      } finally {
+        await browser.close();
+      }
+    },
+  );
 
   /**
    * كشف التقرير اليومي: دخول وخروج وواقف، يوم بيوم.

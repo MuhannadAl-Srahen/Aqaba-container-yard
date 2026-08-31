@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  CardSheetRow,
   CarrierDto,
   ContainerDto,
   CustomZoneDto,
@@ -824,6 +825,140 @@ export interface GateReportRowInternal {
   position: Position | null;
   user: string;
   enteredAt: string;
+}
+
+/**
+ * الطباعة الكلية للبطاقات — the DATA of every entry or exit card of the
+ * range, in the order a bound book reads: by card serial within its year.
+ * Facts only; the Arabic card around them is the client's to write.
+ *
+ * The slot repeats the single card's own rule (PrintCard): where the
+ * container IS — and once it has left, the slot it stood in as it went.
+ */
+export function bulkGateCards(
+  db: DatabaseSync,
+  type: 'IN' | 'OUT',
+  fromIso: string,
+  toIso: string,
+): CardSheetRow[] {
+  const positionColumns =
+    type === 'IN'
+      ? 'm.to_zone AS z, m.to_bay AS b, m.to_stack AS s, m.to_tier AS t'
+      : 'm.from_zone AS z, m.from_bay AS b, m.from_stack AS s, m.from_tier AS t';
+  const serial = type === 'IN' ? 'k.card_in' : 'k.card_out';
+  const serialYear = type === 'IN' ? 'k.card_in_year' : 'k.card_out_year';
+  const rows = db
+    .prepare(
+      `SELECT m.container_id, m.at, ${positionColumns},
+              k.zone AS live_zone, k.bay AS live_bay, k.stack AS live_stack, k.tier AS live_tier,
+              k.number, k.size, k.bill, k.weight, k.notes, k.handling,
+              k.truck_in, k.driver_in, k.seal_in, k.card_in, k.card_in_year,
+              k.truck_out, k.driver_out, k.card_out, k.card_out_year,
+              k.entered_at
+       FROM movements m
+       JOIN containers k ON k.id = m.container_id
+       WHERE m.type = ? AND m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
+       ORDER BY (${serial} IS NULL), ${serialYear}, ${serial}, m.at`,
+    )
+    .all(type, fromIso, toIso) as unknown as Array<
+    GateRow & { handling: string | null; container_id: number; at: string }
+  >;
+
+  // Which photos each entry card can carry as pages. The whole yard holds a
+  // few dozen photos, so the map is read whole rather than by an IN(...)
+  // list that would trip SQLite's parameter ceiling on a long register.
+  const photoIds = new Map<number, number[]>();
+  if (type === 'IN') {
+    const photos = db
+      .prepare('SELECT id, container_id FROM photos WHERE deleted_at IS NULL ORDER BY id')
+      .all() as unknown as Array<{ id: number; container_id: number }>;
+    for (const photo of photos) {
+      const list = photoIds.get(photo.container_id);
+      if (list === undefined) photoIds.set(photo.container_id, [photo.id]);
+      else list.push(photo.id);
+    }
+  }
+
+  return rows.map(
+    (row): CardSheetRow => ({
+      containerId: row.container_id,
+      number: row.number,
+      serial: type === 'IN' ? row.card_in : row.card_out,
+      serialYear: type === 'IN' ? row.card_in_year : row.card_out_year,
+      at: row.at,
+      bill: row.bill,
+      size: row.size as Size,
+      weight: row.weight,
+      seal: row.seal_in,
+      notes: row.notes,
+      enteredAt: row.entered_at,
+      handling: type === 'IN' ? ((row.handling ?? null) as CardSheetRow['handling']) : null,
+      truck: type === 'IN' ? row.truck_in : row.truck_out,
+      driver: type === 'IN' ? row.driver_in : row.driver_out,
+      slot:
+        slotOf(row.live_zone, row.live_bay, row.live_stack, row.live_tier) ??
+        slotOf(row.z, row.b, row.s, row.t),
+      from: null,
+      to: null,
+      note: '',
+      photoIds: type === 'IN' ? (photoIds.get(row.container_id) ?? []) : [],
+    }),
+  );
+}
+
+/**
+ * بطاقات النقل للفترة: every numbered MOVE of the range, by its card serial.
+ * The note rides raw — its JSON lists the drops the lift brought down, and
+ * the client parses it exactly as the single card does.
+ */
+export function bulkMoveCards(db: DatabaseSync, fromIso: string, toIso: string): CardSheetRow[] {
+  const rows = db
+    .prepare(
+      `SELECT m.container_id, m.at, m.card, m.card_year, m.note,
+              m.from_zone, m.from_bay, m.from_stack, m.from_tier,
+              m.to_zone, m.to_bay, m.to_stack, m.to_tier,
+              k.number, k.size, k.bill, k.weight, k.notes, k.seal_in, k.entered_at
+       FROM movements m
+       JOIN containers k ON k.id = m.container_id
+       WHERE m.type = 'MOVE' AND m.card IS NOT NULL
+         AND m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
+       ORDER BY m.card_year, m.card`,
+    )
+    .all(fromIso, toIso) as unknown as Array<
+    MovementRow & {
+      container_id: number;
+      number: string;
+      size: number;
+      bill: string;
+      weight: string;
+      notes: string;
+      seal_in: string;
+      entered_at: string;
+    }
+  >;
+  return rows.map(
+    (row): CardSheetRow => ({
+      containerId: row.container_id,
+      number: row.number,
+      serial: row.card,
+      serialYear: row.card_year,
+      at: row.at,
+      bill: row.bill,
+      size: row.size as Size,
+      weight: row.weight,
+      seal: row.seal_in,
+      notes: row.notes,
+      enteredAt: row.entered_at,
+      handling: null,
+      truck: '',
+      driver: '',
+      slot: null,
+      from: slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier),
+      to: slotOf(row.to_zone, row.to_bay, row.to_stack, row.to_tier),
+      note: row.note,
+      photoIds: [],
+    }),
+  );
 }
 
 interface StandingRow extends ContainerRow {

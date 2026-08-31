@@ -2342,3 +2342,43 @@ correction flow takes no queue. The toast after each landing says whose
 turn is next.
 
 345 tests (three new for the bill helpers), gates green.
+
+## المرحلة 43 — كتاب البطاقات دفعة واحدة، والخريطة تتلون بالبوالص — 2026-08-31
+
+Two owner requests, planned and approved. «بس اول شي بدي اياك تعمله تحت
+صلاحية المالك بدي طريقة اطبع جميع بطاقات الدخول مره واحدة وجميع بطاقات
+الخروج مره واحدة مهما كان عددها» — then he widened it to move cards and,
+on photos, «دع لي الاختيار». And the map colouring he had asked about:
+«فئات بالعدد».
+
+**كتاب البطاقات.** The constraint that shaped it is CLAUDE.md's own rule:
+Arabic lives in ar.ts alone, so the server could not author the cards.
+The duties split: an owner-only `GET /api/reports/cards` hands the FACTS
+of every card of a range (bulkGateCards/bulkMoveCards in the store —
+serial order within year, struck-out records excluded, the slot by the
+single card's own rule), and the client's new `cardsPrint.ts` writes the
+Arabic book — a string twin of PrintCard: voucher strip, receipt
+statement on entry cards, hero number, labelled grid, signature boxes,
+drops on move cards — one section per page. An owner-only
+`POST /api/reports/cards-pdf` presses it (its own route because the
+register PDF's guard and 1MiB ceiling do not fit: bodyLimit 64MB,
+portrait, 120s timeouts, same Arabic footer). Photos, when the owner
+asks, are fetched with his session and folded in as data URIs — the
+server's browser has neither session nor origin, so a relative URL
+would print a broken square. Buttons: entry register (with/without
+photos), exit register, and the operations log for move cards — each
+printing exactly what the filter shows, «عرض الكل» making that the
+whole book. Reprinting touches no serial: the number is issued once.
+
+**تلوين البوالص.** A paint toggle above the map: «الامتلاء» as ever, or
+«البوالص» — each bay wearing the size class of the biggest bill standing
+on it (band 1 فوق 10, band 2 6–10, band 3 2–5, band 4 فردية), group size
+counted yard-wide, a spanning forty carrying its bill onto both bays.
+Four band colours in both themes, the legend follows the mode, and it is
+a READING paint: placing brings the target colours back.
+
+15 new tests: store queries (order, exclusions, range clip, exit
+paperwork, move slots), the owner-only guards (a clerk with every
+permission refused on both routes), the book builder (page per card,
+escaping, drops, data-URI photos and never a session URL), and
+billBands. 360 tests, gates green.

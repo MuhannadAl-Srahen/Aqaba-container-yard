@@ -174,6 +174,37 @@ export function nearBillMates(
   return any ? false : null;
 }
 
+/**
+ * وضع تلوين البوالص — «تلون الخريطة بناءا على انو عدد البوليصات يعني فوق
+ * ال 5 او فوق ال 10»: the band a bay wears is the size class of the BIGGEST
+ * bill standing on it. 1 = a bill of more than ten, 2 = six to ten,
+ * 3 = two to five, 4 = singles only. Group size is counted yard-wide (the
+ * bill is one batch wherever its boxes stand), and a spanning forty puts
+ * its bill on both bays it covers.
+ */
+export type BillBand = 1 | 2 | 3 | 4;
+
+export function billBands(containers: readonly ContainerDto[]): Map<string, BillBand> {
+  const groupSize = new Map<string, number>();
+  for (const container of containers) {
+    if (container.position === null || container.bill === '') continue;
+    groupSize.set(container.bill, (groupSize.get(container.bill) ?? 0) + 1);
+  }
+  const bandOf = (size: number): BillBand => (size > 10 ? 1 : size > 5 ? 2 : size > 1 ? 3 : 4);
+
+  const bands = new Map<string, BillBand>();
+  for (const container of containers) {
+    if (container.position === null) continue;
+    const band = container.bill === '' ? 4 : bandOf(groupSize.get(container.bill) ?? 1);
+    for (const oddBay of baySpan(container.position.bay)) {
+      const key = bayKey(container.position.zone, oddBay);
+      const held = bands.get(key);
+      if (held === undefined || band < held) bands.set(key, band);
+    }
+  }
+  return bands;
+}
+
 /** The tallest stack this zone reaches anywhere — the bay sheet's grid width. */
 export function maxStackOf(zone: ZoneDef): number {
   let max = 0;

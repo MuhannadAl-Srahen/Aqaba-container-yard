@@ -245,6 +245,13 @@ export const AR = {
   legendTarget: 'صالح للوضع',
   legendNoted: 'عليه ملاحظة',
   legendBill: 'فيه نفس البوليصة',
+  /** وضع تلوين البوالص — «تلون الخريطة بناءا على عدد البوليصات». */
+  paintByFill: 'الامتلاء',
+  paintByBills: 'البوالص',
+  legendBand1: 'بوليصة فوق 10',
+  legendBand2: 'بوليصة 6–10',
+  legendBand3: 'بوليصة 2–5',
+  legendBand4: 'فردية',
 
   // ---- البوليصة تحكم الرصف — الإخراج يتم بالبوليصة دفعة واحدة ----
   /** Under the moving banner: where the bill already stands, so the crane aims there. */
@@ -272,6 +279,22 @@ export const AR = {
   billFarHint: (places: string): string =>
     `حاويات هذه البوليصة واقفة في: ${places} — الموقع المختار بعيد عنها، والإخراج يتم ` +
     'بالبوليصة دفعة واحدة.',
+
+  // ---- الطباعة الكلية للبطاقات — للمالك وحده ----
+  /** «بدي طريقة اطبع جميع بطاقات الدخول مره واحدة مهما كان عددها». */
+  bulkCardsPlain: 'كل البطاقات (PDF)',
+  bulkCardsNoPhotos: 'كل البطاقات بلا صور (PDF)',
+  bulkCardsWithPhotos: 'كل البطاقات مع الصور (PDF)',
+  bulkCardsMove: 'كل بطاقات النقل (PDF)',
+  bulkCardsWorking: 'جارٍ تجهيز ملف البطاقات — قد يستغرق دقيقة لكشف طويل…',
+  bulkCardsNone: 'لا توجد بطاقات في هذه الفترة.',
+  bulkCardsDone: (count: number): string =>
+    `تم تجهيز الملف وفيه ${String(count)} بطاقة، صفحة لكل بطاقة وبترتيب رقمها.`,
+  bulkCardsTitle: (kind: 'in' | 'out' | 'move', period: string): string =>
+    `${kind === 'in' ? 'بطاقات الدخول' : kind === 'out' ? 'بطاقات الخروج' : 'بطاقات النقل'} ${period}`,
+  bulkCardsPeriod: (from: string, to: string): string =>
+    `من ${ltrCode(from)} إلى ${ltrCode(to)}`,
+  bulkCardsAllPeriod: 'كامل السجل',
 
   // ---- طابور النقل — «اذا ضغطت على حاوية ثانية بحط الاولى والثانية» ----
   moveQueued: (number: string, waiting: number): string =>

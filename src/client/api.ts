@@ -1,5 +1,6 @@
 import type {
   ApiError,
+  CardSheetRow,
   CarrierDto,
   ContainerDto,
   CustomZoneDto,
@@ -518,6 +519,31 @@ export const api = {
       zones: number;
       backup: string;
     };
+  },
+
+  /**
+   * الطباعة الكلية للبطاقات — للمالك: the card DATA of a range, ordered by
+   * serial. The Arabic card around it is written here on the client.
+   */
+  cardRows: (kind: 'in' | 'out' | 'move', fromIso: string, toIso: string): Promise<{ rows: CardSheetRow[] }> =>
+    request(
+      `/api/reports/cards?kind=${kind}&from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  /** The bulk card book as one server-printed PDF — the owner's route. */
+  cardsPdf: async (title: string, html: string): Promise<Blob> => {
+    let response: Response;
+    try {
+      response = await fetch('/api/reports/cards-pdf', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title, html }),
+      });
+    } catch {
+      throw new ApiFailure('NETWORK', AR.networkError);
+    }
+    if (!response.ok) throw new ApiFailure('NETWORK', AR.networkError);
+    return response.blob();
   },
 
   /** The sheet as a server-printed PDF file. */

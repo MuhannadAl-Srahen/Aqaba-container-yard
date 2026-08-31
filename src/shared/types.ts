@@ -318,6 +318,44 @@ export interface GateReportRow {
   readonly dwellDays: number | null;
 }
 
+/**
+ * One card's worth of DATA for the owner's bulk printing — «بدي طريقة اطبع
+ * جميع بطاقات الدخول مره واحدة». The server hands only facts; the client
+ * writes the Arabic card around them, because Arabic lives in ar.ts alone.
+ * One shape serves all three papers; fields a kind does not use are null
+ * or empty.
+ */
+export interface CardSheetRow {
+  readonly containerId: number;
+  readonly number: string;
+  /** The card's serial and its counting year — the sort order of the file. */
+  readonly serial: number | null;
+  readonly serialYear: number | null;
+  /** The moment the paper is about: the gate moment, or the lift itself. */
+  readonly at: string;
+  readonly bill: string;
+  readonly size: Size;
+  readonly weight: string;
+  readonly seal: string;
+  readonly notes: string;
+  /** Always the date it went INTO store — the exit card shows it too. */
+  readonly enteredAt: string;
+  /** Crane or straddle — the entry card alone carries it. */
+  readonly handling: Handling | null;
+  /** Empty on a move card: nothing left the yard. */
+  readonly truck: string;
+  readonly driver: string;
+  /** Entry/exit cards: where it stands — or the slot it left from. */
+  readonly slot: Position | null;
+  /** Move cards only: the two slots the paper exists to name. */
+  readonly from: Position | null;
+  readonly to: Position | null;
+  /** Move cards: the raw note whose JSON lists the drops that came down. */
+  readonly note: string;
+  /** Entry cards: the photos that can ride as pages, by id. */
+  readonly photoIds: readonly number[];
+}
+
 /** One row of كشف الحاويات بالساحة — a snapshot of what is standing now. */
 export interface StandingReportRow {
   readonly containerId: number;

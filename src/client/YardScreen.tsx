@@ -17,6 +17,7 @@ import { FillSheet } from './FillSheet';
 import {
   addressMatch,
   bayKey,
+  billBands,
   billBays,
   billMatches,
   billSpread,
@@ -287,6 +288,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       .map((stop) => AR.billSpreadStop(stop.zone, stop.count))
       .join(' · ');
 
+  /**
+   * تلوين الخريطة: بالامتلاء كما كانت دائماً، أو بفئات البوالص — «تلون
+   * الخريطة بناءا على انو عدد البوليصات يعني فوق ال 5 او فوق ال 10».
+   */
+  const [paint, setPaint] = useState<'fill' | 'bills'>('fill');
+  const billPaint = useMemo(
+    () => (paint === 'bills' ? billBands(containers) : null),
+    [paint, containers],
+  );
+
   // «قديش باقي» — legal landings for each size, per yard, right now.
   const free = useMemo(
     () => freeNow(yardLayout, toStanding(containers)),
@@ -432,11 +443,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       searchActive,
       targets,
       billBays: billMap !== null && billMap.size > 0 ? billMap : null,
+      billPaint,
       movingId: moving?.id ?? null,
       onBayClick,
       dragZones,
     }),
-    [loads, selected, matches, searchActive, targets, billMap, moving, onBayClick, dragZones],
+    [loads, selected, matches, searchActive, targets, billMap, billPaint, moving, onBayClick, dragZones],
   );
 
   const openZone = openBay === null ? null : zoneOf(yardLayout, openBay.zone);
@@ -840,13 +852,51 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-          <LegendChip color="var(--yard-free)" label={AR.legendFree} dashed />
-          <LegendChip
-            color="var(--yard-partial)"
-            label={AR.legendPartial}
-            border="var(--yard-partial-border)"
-          />
-          <LegendChip color="var(--yard-full)" label={AR.legendFull} />
+          {/* «تلون الخريطة بناءا على عدد البوليصات»: one map, two paints —
+              fullness as always, or the size class of each bay's biggest
+              bill. The legend follows whichever is on. */}
+          <div className="flex gap-1 rounded-xl border border-line bg-sunken p-0.5">
+            {(
+              [
+                ['fill', AR.paintByFill],
+                ['bills', AR.paintByBills],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setPaint(value);
+                }}
+                className={
+                  'rounded-lg px-2 py-0.5 text-xs font-bold transition-colors ' +
+                  (paint === value
+                    ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                    : 'text-muted hover:bg-line')
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {paint === 'bills' ? (
+            <>
+              <LegendChip color="var(--yard-band-1)" label={AR.legendBand1} />
+              <LegendChip color="var(--yard-band-2)" label={AR.legendBand2} />
+              <LegendChip color="var(--yard-band-3)" label={AR.legendBand3} />
+              <LegendChip color="var(--yard-band-4)" label={AR.legendBand4} />
+            </>
+          ) : (
+            <>
+              <LegendChip color="var(--yard-free)" label={AR.legendFree} dashed />
+              <LegendChip
+                color="var(--yard-partial)"
+                label={AR.legendPartial}
+                border="var(--yard-partial-border)"
+              />
+              <LegendChip color="var(--yard-full)" label={AR.legendFull} />
+            </>
+          )}
           {moving !== null && (
             <LegendChip
               color="var(--yard-target)"

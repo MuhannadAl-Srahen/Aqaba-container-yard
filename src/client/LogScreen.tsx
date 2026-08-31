@@ -5,7 +5,8 @@ import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import type { ContainerEditInput } from './api';
 import { ApiFailure, api, editPayloadOf } from './api';
-import { Toast } from './ui';
+import { downloadCardsBook } from './cardsPrint';
+import { Button, Toast } from './ui';
 import {
   SheetScreen,
   ammanToday,
@@ -132,6 +133,29 @@ export function LogScreen(props: {
   );
   const valid = all || (from !== '' && to !== '' && from <= to);
 
+  /**
+   * بطاقات النقل دفعة واحدة — the move papers live in this log, so their
+   * book is printed from here: every numbered MOVE of the shown period,
+   * one page per card, the owner's alone.
+   */
+  const [cardsBusy, setCardsBusy] = useState(false);
+  const printMoveCards = (): void => {
+    if (cardsBusy || !valid) return;
+    setCardsBusy(true);
+    setToast(AR.bulkCardsWorking);
+    const period = all ? AR.bulkCardsAllPeriod : AR.bulkCardsPeriod(from, to);
+    downloadCardsBook('move', fromIso, toIso, false, AR.bulkCardsTitle('move', period))
+      .then((count) => {
+        setToast(count === 0 ? AR.bulkCardsNone : AR.bulkCardsDone(count));
+      })
+      .catch((failure: unknown) => {
+        setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+      })
+      .finally(() => {
+        setCardsBusy(false);
+      });
+  };
+
   const log = useQuery({
     queryKey: ['report-log', fromIso, toIso],
     queryFn: () => api.reportLog(fromIso, toIso),
@@ -249,6 +273,19 @@ export function LogScreen(props: {
             setAll((value) => !value);
           },
         }}
+        extraFilters={
+          props.isOwner ? (
+            <Button
+              kind="quiet"
+              disabled={cardsBusy || !valid}
+              onClick={() => {
+                printMoveCards();
+              }}
+            >
+              {AR.bulkCardsMove}
+            </Button>
+          ) : undefined
+        }
         actions={{
           header: AR.actionColumn,
           render: (rowIndex) => {

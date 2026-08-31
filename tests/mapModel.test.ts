@@ -3,6 +3,7 @@ import {
   addressMatch,
   bayKey,
   bayLandings,
+  billBands,
   billBays,
   billSpread,
   buildBayLoads,
@@ -324,6 +325,55 @@ describe('bill helpers — «احنا محكومين فيه الي هو البو
     // No mates standing — the question does not arise.
     expect(nearBillMates(mates, 'JO-1', landing('A', 3))).toBeNull();
     expect(nearBillMates([billed('G', null, 'JO-9')], 'JO-9', landing('A', 3))).toBeNull();
+  });
+});
+
+describe('billBands — «تلون الخريطة بناءا على عدد البوليصات»', () => {
+  const billed = (
+    number: string,
+    position: Position | null,
+    bill: string,
+    size: Size = 20,
+  ): ContainerDto => ({ ...box(number, position, size), bill });
+
+  it('a bay wears the size class of the BIGGEST bill standing on it', () => {
+    const big = Array.from({ length: 11 }, (_, i) =>
+      billed(`BIG${String(i)}`, { zone: 'A', bay: 1, stack: 1, tier: 'A' } as Position, 'JO-BIG'),
+    );
+    const containers = [
+      ...big,
+      billed('MID1', at(1, 2, 'A'), 'JO-MID'),
+      ...Array.from({ length: 6 }, (_, i) => billed(`M${String(i)}`, at(3, 1, 'A'), 'JO-MID')),
+      billed('PAIR1', at(5, 2, 'A'), 'JO-PAIR'),
+      billed('PAIR2', at(5, 2, 'B'), 'JO-PAIR'),
+      billed('LONE', at(5, 2, 'C'), 'JO-LONE'),
+    ];
+    const bands = billBands(containers);
+    // Bay 1 holds an over-ten bill (band 1) beside a 6–10 one — the big wins.
+    expect(bands.get(bayKey('A', 1))).toBe(1);
+    expect(bands.get(bayKey('A', 3))).toBe(2);
+    // A pair (2–5) outranks the single beside it.
+    expect(bands.get(bayKey('A', 5))).toBe(3);
+  });
+
+  it('a spanning forty carries its bill onto both bays; singles read 4', () => {
+    const bands = billBands([
+      billed('F1', { zone: 'A', bay: 2, stack: 1, tier: 'A' } as Position, 'JO-ONE', 40),
+    ]);
+    expect(bands.get(bayKey('A', 1))).toBe(4);
+    expect(bands.get(bayKey('A', 3))).toBe(4);
+    expect(bands.get(bayKey('A', 5))).toBeUndefined();
+  });
+
+  it('group size counts the whole yard, not the one bay', () => {
+    // Six boxes of one bill split across two bays: each bay still reads 6–10.
+    const spread = [
+      ...Array.from({ length: 3 }, (_, i) => billed(`A${String(i)}`, at(1, 1, 'A'), 'JO-6')),
+      ...Array.from({ length: 3 }, (_, i) => billed(`B${String(i)}`, at(3, 1, 'A'), 'JO-6')),
+    ];
+    const bands = billBands(spread);
+    expect(bands.get(bayKey('A', 1))).toBe(2);
+    expect(bands.get(bayKey('A', 3))).toBe(2);
   });
 });
 

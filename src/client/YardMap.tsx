@@ -82,6 +82,12 @@ export interface MapProps {
    * beside them. Null when no bill is in play.
    */
   billBays: ReadonlyMap<string, number> | null;
+  /**
+   * وضع تلوين البوالص: when set, a bay is painted by the size class of the
+   * biggest bill standing on it (1 = فوق 10 … 4 = فردية) instead of by
+   * fullness. A reading mode — while placing, the target colours return.
+   */
+  billPaint: ReadonlyMap<string, 1 | 2 | 3 | 4> | null;
   movingId: number | null;
   onBayClick: (zone: Zone, bay: number) => void;
   /**
@@ -127,8 +133,29 @@ function BayCell(props: {
   if (view.targets !== null) dimmed = !(isTarget || holdsMoving || billCount !== undefined);
 
   const empty = count.used === 0;
-  const fill = isTarget ? C.targetFill : empty ? C.free : count.full ? C.full : C.partial;
-  const textColor = count.full && !isTarget ? C.fullText : empty ? C.label : C.text;
+  // The bill bands paint only while READING: a placement's targets must keep
+  // their own colours, or the person placing loses the map's answer.
+  const band = view.targets === null && view.billPaint !== null && !empty
+    ? (view.billPaint.get(key) ?? null)
+    : null;
+  const fill =
+    band !== null
+      ? `var(--yard-band-${String(band)})`
+      : isTarget
+        ? C.targetFill
+        : empty
+          ? C.free
+          : count.full
+            ? C.full
+            : C.partial;
+  const textColor =
+    band !== null
+      ? `var(--yard-band-${String(band)}-text)`
+      : count.full && !isTarget
+        ? C.fullText
+        : empty
+          ? C.label
+          : C.text;
   const stroke =
     holdsSelected || holdsMoving
       ? C.selected
@@ -315,6 +342,7 @@ const ZonePanel = memo(
     prev.view.searchActive === next.view.searchActive &&
     prev.view.targets === next.view.targets &&
     prev.view.billBays === next.view.billBays &&
+    prev.view.billPaint === next.view.billPaint &&
     prev.view.movingId === next.view.movingId &&
     prev.view.onBayClick === next.view.onBayClick &&
     prev.view.dragZones === next.view.dragZones,

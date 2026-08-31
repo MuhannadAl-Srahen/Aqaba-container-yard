@@ -11,6 +11,7 @@ import { cardSerial } from '../shared/types';
 import { carrierOfPlate } from '../shared/fleet';
 import { ltrCode } from '../shared/bidi';
 import { ApiFailure } from './api';
+import { downloadCardsBook } from './cardsPrint';
 import { Button, Confirm, Toast } from './ui';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
@@ -361,6 +362,8 @@ export function ReportsScreen(props: {
   const [removingPermit, setRemovingPermit] = useState<PermitReportRow | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** الطباعة الكلية للبطاقات — the owner's one-click book of the period. */
+  const [cardsBusy, setCardsBusy] = useState(false);
 
   useEffect(() => {
     if (toast === null) return;
@@ -378,9 +381,33 @@ export function ReportsScreen(props: {
     () => (all ? rangeInstants('2000-01-01', ammanToday()) : rangeInstants(from, to)),
     [all, from, to],
   );
+
   const valid = all || (from !== '' && to !== '' && from <= to);
   const truckReady = truck.trim() !== '';
   const billReady = bill.trim() !== '';
+
+  /**
+   * «بدي طريقة اطبع جميع بطاقات الدخول مره واحدة مهما كان عددها فقط تحت
+   * صلاحية المالك»: the whole period's cards as one PDF, a page per card in
+   * serial order — the register's own filter decides the period, and its
+   * «عرض الكل» button makes that the entire book.
+   */
+  const printCardsBook = (kind: 'in' | 'out', withPhotos: boolean): void => {
+    if (cardsBusy || !valid) return;
+    setCardsBusy(true);
+    setToast(AR.bulkCardsWorking);
+    const period = all ? AR.bulkCardsAllPeriod : AR.bulkCardsPeriod(from, to);
+    downloadCardsBook(kind, fromIso, toIso, withPhotos, AR.bulkCardsTitle(kind, period))
+      .then((count) => {
+        setToast(count === 0 ? AR.bulkCardsNone : AR.bulkCardsDone(count));
+      })
+      .catch((failure: unknown) => {
+        setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+      })
+      .finally(() => {
+        setCardsBusy(false);
+      });
+  };
 
   // The carriers, for the truck tab's filter and for naming a typed plate's
   // own carrier in the sheet title.
@@ -721,6 +748,19 @@ export function ReportsScreen(props: {
                 {AR.permitCreate}
               </Button>
             )}
+          </>
+        ) : (tab === 'in' || tab === 'out') && props.isOwner ? (
+          // الطباعة الكلية — the owner's alone; the server refuses everyone
+          // else regardless, this is just the door being where he stands.
+          <>
+            {tab === 'in' && (
+              <Button kind="quiet" disabled={cardsBusy || !valid} onClick={() => { printCardsBook('in', true); }}>
+                {AR.bulkCardsWithPhotos}
+              </Button>
+            )}
+            <Button kind="quiet" disabled={cardsBusy || !valid} onClick={() => { printCardsBook(tab, false); }}>
+              {tab === 'in' ? AR.bulkCardsNoPhotos : AR.bulkCardsPlain}
+            </Button>
           </>
         ) : undefined
       }
