@@ -29,6 +29,10 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
 
   const [newWord, setNewWord] = useState('');
   const [wipeWord, setWipeWord] = useState('');
+  /** تغيير كلمة سر المالك — typed by his own hand, never seen by anyone else. */
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordAgain, setNewPasswordAgain] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
   const [confirming, setConfirming] = useState<Pending>(null);
@@ -113,6 +117,77 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
           </span>
         </p>
         <ErrorLine message={error} />
+
+        <section className={panel}>
+          <h2 className="text-sm font-extrabold text-ink">{AR.toolsPasswordTitle}</h2>
+          <p className="text-sm text-muted">{AR.toolsPasswordBody}</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Field label={AR.toolsPasswordCurrent}>
+              <input
+                type="password"
+                className={inputClass}
+                value={currentPassword}
+                onChange={(event) => {
+                  setCurrentPassword(event.target.value);
+                }}
+              />
+            </Field>
+            <Field
+              label={AR.toolsPasswordNew}
+              hint={
+                newPassword !== '' && newPassword.length < 6 ? (
+                  <span className="text-red-600">{AR.setupPasswordShort}</span>
+                ) : undefined
+              }
+            >
+              <input
+                type="password"
+                className={inputClass}
+                value={newPassword}
+                onChange={(event) => {
+                  setNewPassword(event.target.value);
+                }}
+              />
+            </Field>
+            <Field
+              label={AR.setupPasswordAgain}
+              hint={
+                newPasswordAgain !== '' && newPassword !== newPasswordAgain ? (
+                  <span className="text-red-600">{AR.setupPasswordMismatch}</span>
+                ) : undefined
+              }
+            >
+              <input
+                type="password"
+                className={inputClass}
+                value={newPasswordAgain}
+                onChange={(event) => {
+                  setNewPasswordAgain(event.target.value);
+                }}
+              />
+            </Field>
+          </div>
+          <Button
+            disabled={
+              busy ||
+              currentPassword === '' ||
+              newPassword.length < 6 ||
+              newPassword !== newPasswordAgain
+            }
+            onClick={() => {
+              run(
+                api.changeOwnerPassword(currentPassword, newPassword).then(() => {
+                  setCurrentPassword('');
+                  setNewPassword('');
+                  setNewPasswordAgain('');
+                }),
+                () => AR.toolsPasswordDone,
+              );
+            }}
+          >
+            {AR.toolsPasswordChange}
+          </Button>
+        </section>
 
         <section className={panel}>
           <h2 className="text-sm font-extrabold text-ink">{AR.toolsSeedTitle}</h2>

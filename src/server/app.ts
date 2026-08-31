@@ -420,6 +420,24 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   });
 
   /**
+   * تغيير كلمة سر المالك — the owner's own hand, and his current word first:
+   * a session left open on an office machine must not be enough to take the
+   * master key. The new word keeps first-run's own floor of six.
+   */
+  app.post('/api/owner-password', (request) => {
+    requireOwner(request);
+    const body = parseOrRefuse(
+      z.object({ current: z.string().min(1).max(200), password: z.string().min(6).max(200) }),
+      request.body,
+    );
+    if (!verifyPassword(db, body.current)) refuse(403, 'BAD_PASSWORD');
+    transaction(db, () => {
+      setPassword(db, body.password);
+    });
+    return { ok: true };
+  });
+
+  /**
    * Two doors, one throttle: the owner's password, or an employee's id and
    * PIN. Both refuse with the same code so a wrong PIN never tells an
    * outsider which half of the pair was wrong.

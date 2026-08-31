@@ -2545,3 +2545,33 @@ branch stays inert for whatever few records answered during its one
 day alive. Bill class is the standing count alone again. SPEC records
 the removal with its own explicit-request clause, the same way the
 merge kept one. 369 tests, gates green.
+
+## المرحلة 51 — كلمة سر المالك تُغيَّر من الشاشة — 2026-08-31
+
+«اريد تغير كلمة سر المالك الى 0515». Two things stood in the way of
+doing it as asked: the app's own first-run floor of six characters, and
+the word itself — four digits guarding a public site that opens
+everything. And a third, quieter one: a password he tells ME is a
+password I know.
+
+So the feature, not the favour: a «كلمة سر المالك» section in owner
+tools — current word first (a session left open on an office machine
+must not be enough to take the master key), the new word twice, the
+same six-character floor as first run, `POST /api/owner-password`
+guarded by requireOwner and refusing a wrong current word as
+BAD_PASSWORD. He types the new word himself; nobody else ever sees it.
+Sessions stay valid across the change (the cookie is identity, not
+password). Tests: the doors follow the change (old word 401, new word
+in), wrong current refused by name, the four-digit floor holds, a clerk
+with every permission refused.
+
+**تحقيق بلاغ حساب السائقين** ran alongside: «يخبرني شخص انه يوجد خطأ
+عند حساب السائقين ممكن عند الأرقام او المجاميع». Audited the screen's
+arithmetic (group sums, the totals bar, pay-all) and cross-checked the
+live book read-only: 997 entries and 146 exits in August by BOTH
+reckonings (containers and movements), no duplicate gate movements, no
+unexit leftovers, no orphan wages, all 938 amounts whole numbers (no
+float artifacts possible), one wage on a struck-out record correctly
+hidden everywhere. Nothing reproducible found — the specific case
+(driver, period, expected vs shown) is asked of the owner. 371 tests,
+gates green.

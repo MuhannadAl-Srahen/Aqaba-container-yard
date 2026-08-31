@@ -525,6 +525,13 @@ export const api = {
     };
   },
 
+  /** تغيير كلمة سر المالك — his current word first, six letters at least. */
+  changeOwnerPassword: (current: string, password: string): Promise<{ ok: boolean }> =>
+    request('/api/owner-password', {
+      method: 'POST',
+      body: JSON.stringify({ current, password }),
+    }),
+
   /**
    * الطباعة الكلية للبطاقات — للمالك: the card DATA of a range, ordered by
    * serial. The Arabic card around it is written here on the client.

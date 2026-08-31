@@ -525,3 +525,72 @@ describe('استرجاع النسخة الاحتياطية', () => {
     expect(denied.status).toBe(401);
   });
 });
+
+describe('تغيير كلمة سر المالك', () => {
+  it('changes with the current word, and the doors follow', async () => {
+    const changed = await call({
+      method: 'POST',
+      url: '/api/owner-password',
+      payload: { current: 'yard-secret', password: 'yard-new-secret' },
+    });
+    expect(changed.status).toBe(200);
+
+    // The old word stops opening the door; the new one opens it.
+    const oldLogin = await call({
+      method: 'POST',
+      url: '/api/login',
+      payload: { password: 'yard-secret' },
+      noAuth: true,
+    });
+    expect(oldLogin.status).toBe(401);
+    const newLogin = await call({
+      method: 'POST',
+      url: '/api/login',
+      payload: { password: 'yard-new-secret' },
+      noAuth: true,
+    });
+    expect(newLogin.status).toBe(200);
+  });
+
+  it('refuses a wrong current word, a short new one, and anyone but the owner', async () => {
+    const wrong = await call({
+      method: 'POST',
+      url: '/api/owner-password',
+      payload: { current: 'not-it', password: 'yard-new-secret' },
+    });
+    expect(wrong.status).toBe(403);
+    expect((wrong.body as { code: string }).code).toBe('BAD_PASSWORD');
+
+    // The floor of six holds — «0515» alone cannot take the master key.
+    const short = await call({
+      method: 'POST',
+      url: '/api/owner-password',
+      payload: { current: 'yard-secret', password: '0515' },
+    });
+    expect(short.status).toBe(400);
+
+    await call({
+      method: 'POST',
+      url: '/api/users',
+      payload: { name: 'موظف', pin: '4321', permissions: ['REPORTS'] },
+    });
+    const users = await call({ method: 'GET', url: '/api/users' });
+    const clerk = (users.body as { users: Array<{ id: number; name: string }> }).users.find(
+      (user) => user.name === 'موظف',
+    );
+    const owner = cookie;
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/login',
+      payload: { userId: clerk?.id, pin: '4321' },
+    });
+    cookie = (Array.isArray(login.headers['set-cookie']) ? login.headers['set-cookie'][0] : login.headers['set-cookie'])?.split(';')[0] ?? '';
+    const refused = await call({
+      method: 'POST',
+      url: '/api/owner-password',
+      payload: { current: 'yard-secret', password: 'yard-new-secret' },
+    });
+    expect(refused.status).toBe(403);
+    cookie = owner;
+  });
+});
