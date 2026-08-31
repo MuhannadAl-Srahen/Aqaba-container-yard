@@ -2529,3 +2529,19 @@ the exact sheet clicked. The numbers stay the ones he reads today: a
 full forty pair says «27/27» once instead of twice, and a lone twenty
 bay is unchanged to the digit. Four pair tests returned from history
 with the same hand-worked capacities. 369 tests, gates green.
+
+## المرحلة 50 — سؤال البوابة يُرفع بكلمته — 2026-08-31
+
+Asked what the فردية/على كشف answer buys, I told him plainly: it
+resolves the first-box-of-a-manifest window, at the price of one extra
+tap per gate-in. He weighed it and said «ازلها لا مشكلة فقط».
+
+Removed from both asking points: the gate-in form (the chips are gone,
+the field no longer gates submission, the wire carries null) and the
+edit form (a correction now rides the record's stored value through
+untouched). The v25 column stays in the schema — production already
+migrated, and a column of nulls harms nothing; the paint's manifest
+branch stays inert for whatever few records answered during its one
+day alive. Bill class is the standing count alone again. SPEC records
+the removal with its own explicit-request clause, the same way the
+merge kept one. 369 tests, gates green.

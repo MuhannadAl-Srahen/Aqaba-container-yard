@@ -634,8 +634,6 @@ function EditForm(props: {
 }): ReactElement {
   const [number, setNumber] = useState(props.container.number);
   const [bill, setBill] = useState(props.container.bill);
-  /** فردية أم على كشف — correctable, because the gate may have answered wrong. */
-  const [billKind, setBillKind] = useState(props.container.billKind);
   const [notes, setNotes] = useState(props.container.notes);
   const [weight, setWeight] = useState(props.container.weight);
   const [handling, setHandling] = useState<Handling | null>(props.container.handling);
@@ -716,25 +714,6 @@ function EditForm(props: {
             setBill(event.target.value);
           }}
         />
-        <div className="mt-1.5 grid grid-cols-2 gap-2">
-          {(['SINGLE', 'MANIFEST'] as const).map((option) => (
-            <button
-              key={option}
-              type="button"
-              onClick={() => {
-                setBillKind(option);
-              }}
-              className={
-                'rounded-xl border-2 px-2 py-1.5 text-sm font-bold transition ' +
-                (billKind === option
-                  ? 'border-blue-600 bg-blue-600 text-white'
-                  : 'border-line bg-surface text-muted hover:border-blue-400')
-              }
-            >
-              {option === 'SINGLE' ? AR.billKindSingle : AR.billKindManifest}
-            </button>
-          ))}
-        </div>
       </Field>
       {/* The class is READ ONLY, standing or departed. A 40 occupies two
           slots and a 20 one, so a class corrected after the fact falsifies
@@ -928,7 +907,9 @@ function EditForm(props: {
             props.onSave({
               number: number.trim(),
               bill: bill.trim(),
-              billKind,
+              // The question was removed from the gate; what a record already
+              // says rides through a correction untouched.
+              billKind: props.container.billKind,
               size: props.container.size,
               notes: notes.trim(),
               weight: weight.trim(),
