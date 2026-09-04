@@ -352,12 +352,15 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   };
 
   const sendSession = (reply: FastifyReply, userId: number): void => {
+    // No maxAge ON PURPOSE — «واحد يدخل ع الموقع يطلب منه كل مره كلمة سر»:
+    // a cookie with no age dies with the browser, so opening the site anew
+    // starts at the password. The signed hour inside the token stands
+    // behind it for browsers that never truly close.
     reply.setCookie(SESSION_COOKIE, issueSession(db, userId, Date.now()), {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
       secure: 'auto',
-      maxAge: 60 * 60,
     });
   };
 

@@ -1160,6 +1160,27 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                 }
               : undefined
           }
+          onDragOut={
+            may('MOVE')
+              ? (container, target) => {
+                  // «اقدر اسحبها بره البلوكة»: dropped on a map bay, the
+                  // planner picks its first legal slot there and the usual
+                  // confirmation names it.
+                  const plan = planGroupMove(yardLayout, toStanding(containers), [container.id], target);
+                  const step = plan.ok ? plan.steps[0] : undefined;
+                  if (!plan.ok || step === undefined) {
+                    setToast(
+                      !plan.ok && plan.code === 'GROUP_NO_ROOM'
+                        ? AR.landingNoneInBay
+                        : ((!plan.ok ? AR.errors[plan.code] : undefined) ?? AR.networkError),
+                    );
+                    return;
+                  }
+                  setOpenBay(null);
+                  setConfirmMove({ container, to: step.to });
+                }
+              : undefined
+          }
           onPick={(container) => {
             setOpenBay(null);
             setSelected(container);

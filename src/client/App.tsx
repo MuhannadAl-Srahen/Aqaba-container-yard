@@ -31,29 +31,49 @@ export default function App(): ReactElement {
   }, [queryClient]);
 
   /**
-   * الجلسة ساعة تتجدد بلمسة إنسان — «واحد بفتح تلفونه بعدين بدو يجي يفتح
-   * بفتح مره ثانية دون ما يدخل كلمة السر»: a real touch or keystroke, at
-   * most once every five minutes, slides the hour along. The map's own
-   * automatic refreshes never do, so a device somebody walked away from
-   * goes quiet and asks for the password again.
+   * الجلسة بلمسة إنسان، والسكون يقفل — «اذا طول وهو مش محرك ماوس او مش
+   * كاتب اشي ع الكيبورد يطلب كلمة سر مره ثانية»: a real touch or keystroke
+   * slides the server's hour along (a throttled ping — the map's automatic
+   * refreshes never count). And TEN MINUTES with neither closes the door
+   * itself: the session is signed out and the password screen returns. A
+   * working clerk never sees it; a device walked away from locks.
    */
+  const IDLE_LOCK_MS = 10 * 60 * 1000;
   const lastRenewal = useRef(0);
+  const lastTouch = useRef(Date.now());
+  const authorizedRef = useRef(false);
+  authorizedRef.current = boot.data?.authorized === true && boot.data.firstRun !== true;
+  const locking = useRef(false);
   useEffect(() => {
     const renew = (): void => {
       const nowMs = Date.now();
-      if (nowMs - lastRenewal.current < 5 * 60 * 1000) return;
+      lastTouch.current = nowMs;
+      if (!authorizedRef.current || nowMs - lastRenewal.current < 5 * 60 * 1000) return;
       lastRenewal.current = nowMs;
       void api.refreshSession().catch(() => {
         // A dead session answers 401; the next query's own handling reboots.
       });
     };
+    const watch = window.setInterval(() => {
+      if (!authorizedRef.current || locking.current) return;
+      if (Date.now() - lastTouch.current < IDLE_LOCK_MS) return;
+      locking.current = true;
+      void api
+        .logout()
+        .catch(() => undefined)
+        .finally(() => {
+          locking.current = false;
+          reboot();
+        });
+    }, 30_000);
     window.addEventListener('pointerdown', renew);
     window.addEventListener('keydown', renew);
     return () => {
+      window.clearInterval(watch);
       window.removeEventListener('pointerdown', renew);
       window.removeEventListener('keydown', renew);
     };
-  }, []);
+  }, [reboot, IDLE_LOCK_MS]);
 
   if (boot.data === undefined) {
     return (

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import type { ContainerDto, Position, Tier, ZoneDef } from '../shared/types';
+import type { ContainerDto, Position, Tier, Zone, ZoneDef } from '../shared/types';
 import { TIERS } from '../shared/types';
 import type { YardLayout } from '../shared/types';
 import { positionLabel, bayLabel } from '../shared/address';
@@ -50,6 +50,12 @@ export function BaySheet(props: {
    * same sheet — the caller runs it through the usual move confirmation.
    */
   onDragMove?: ((container: ContainerDto, to: Position) => void) | undefined;
+  /**
+   * السحب خارج الورقة — «اقدر اسحبها بره البلوكة»: dragged past the card,
+   * the sheet steps aside and the map shows; dropped on a bay tile, the
+   * caller plans the landing there.
+   */
+  onDragOut?: ((container: ContainerDto, target: { zone: Zone; bay: number }) => void) | undefined;
   onPick: (container: ContainerDto) => void;
   onGateIn: (position: Position) => void;
   onMoveTo: (position: Position) => void;
@@ -85,6 +91,9 @@ export function BaySheet(props: {
     live: boolean;
   } | null>(null);
   const [hoverCell, setHoverCell] = useState<string | null>(null);
+  /** Dragged past the card: the sheet steps aside so the map shows through. */
+  const [peek, setPeek] = useState(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const holdTimer = useRef<number | null>(null);
   const downAt = useRef<{ x: number; y: number; container: ContainerDto } | null>(null);
   /** The click that trails a finished drag must not open a card. */
@@ -115,6 +124,7 @@ export function BaySheet(props: {
     downAt.current = null;
     setDrag(null);
     setHoverCell(null);
+    setPeek(false);
     window.setTimeout(() => {
       dragHappened.current = false;
     }, 80);
@@ -128,6 +138,8 @@ export function BaySheet(props: {
   targetsRef.current = dragTargets;
   const dropRef = useRef(props.onDragMove);
   dropRef.current = props.onDragMove;
+  const dragOutRef = useRef(props.onDragOut);
+  dragOutRef.current = props.onDragOut;
   const dragActive = drag !== null;
   useEffect(() => {
     if (!dragActive) return;
@@ -142,13 +154,52 @@ export function BaySheet(props: {
         current === null ? null : { ...current, x: event.clientX, y: event.clientY },
       );
       setHoverCell(cellUnder(event));
+      // «اقدر اسحبها بره البلوكة»: carried past the card, the sheet steps
+      // aside and the yard shows through — carried back in, it returns.
+      const card = cardRef.current?.getBoundingClientRect();
+      if (card !== undefined) {
+        const outside =
+          event.clientX < card.left ||
+          event.clientX > card.right ||
+          event.clientY < card.top ||
+          event.clientY > card.bottom;
+        setPeek(outside);
+      }
     };
     const onUp = (event: PointerEvent): void => {
-      const cell = cellUnder(event);
-      const landing = cell === null ? undefined : targetsRef.current.get(cell);
+      const under = document.elementFromPoint(event.clientX, event.clientY);
       const mover = dragRef.current?.container;
+      // Inside the sheet: an empty cell takes it — and dropping ON a
+      // standing container means the tier ABOVE it, exactly as the owner
+      // said it: «انقلها فوق الثانية، تصير الثانية طابق اول».
+      const cell = under?.closest('[data-drop-cell]')?.getAttribute('data-drop-cell') ?? null;
+      let landing = cell === null ? undefined : targetsRef.current.get(cell);
+      if (landing === undefined) {
+        const onTop = under?.closest('[data-stack-cell]')?.getAttribute('data-stack-cell') ?? null;
+        if (onTop !== null) {
+          const [stackText, tier] = onTop.split('|');
+          const above = tier === 'A' ? 'B' : tier === 'B' ? 'C' : null;
+          if (above !== null) landing = targetsRef.current.get(`${stackText ?? ''}|${above}`);
+        }
+      }
+      // Outside the sheet: a bay tile of the map names the destination.
+      const mapBay =
+        landing === undefined
+          ? (under?.closest('[data-map-bay]')?.getAttribute('data-map-bay') ?? null)
+          : null;
       endDrag();
-      if (landing !== undefined && mover !== undefined) dropRef.current?.(mover, landing);
+      if (mover === undefined) return;
+      if (landing !== undefined) {
+        dropRef.current?.(mover, landing);
+        return;
+      }
+      if (mapBay !== null) {
+        const [zoneText, bayText] = mapBay.split('|');
+        const bayNumber = Number(bayText);
+        if (zoneText !== undefined && Number.isInteger(bayNumber)) {
+          dragOutRef.current?.(mover, { zone: zoneText as Zone, bay: bayNumber });
+        }
+      }
     };
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
@@ -279,6 +330,7 @@ export function BaySheet(props: {
         <button
           key={`${String(stack)}${tier}`}
           type="button"
+          data-stack-cell={`${String(stack)}|${tier}`}
           onPointerDown={(event) => {
             if (!canDrag || props.onDragMove === undefined) return;
             downAt.current = { x: event.clientX, y: event.clientY, container };
@@ -424,15 +476,23 @@ export function BaySheet(props: {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-      onClick={props.onClose}
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 ${
+        peek ? 'pointer-events-none bg-transparent' : 'bg-slate-900/40'
+      }`}
+      onClick={() => {
+        if (dragHappened.current) return;
+        props.onClose();
+      }}
     >
       {/* Wide enough for the widest bay the plan has — ten stacks — at the
           size the numbers are now printed. The sheet was capped at 72rem and
           a ten-stack bay no longer fitted, which put a scrollbar under it and
           half a stack out of sight: «ما بدي يكون scroll بدي يبين كله». */}
       <div
-        className="max-h-[88dvh] w-full max-w-368 overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl"
+        ref={cardRef}
+        className={`max-h-[88dvh] w-full max-w-368 overflow-y-auto rounded-2xl bg-surface p-5 shadow-2xl${
+          peek ? ' invisible' : ''
+        }`}
         onClick={(event) => {
           event.stopPropagation();
         }}

@@ -2631,3 +2631,26 @@ pointer or key, throttled to once per five minutes, and the map's own
 signs itself out; a clerk mid-shift never notices. Everyone signs in
 once after this deploy (the old two-week cookies are past their new
 hour). 381 tests, gates green.
+
+## المرحلة 54 — الباب يسأل كل مرة، واليد تسحب أبعد — 2026-09-04
+
+He tightened the sessions further and stretched the drag, in the same
+breath.
+
+**الجلسات**: «بدي واحد يدخل ع الموقع يطلب منه كل مره كلمة سر، واذا طوّل
+مش محرك ماوس او كاتب اشي يطلبها مره ثانية». Three layers now: the
+cookie carries NO age, so it dies with the browser and every fresh
+visit starts at the password; TEN quiet minutes — no pointer, no key —
+and the client signs itself out (logout, then the login screen), which
+a working clerk never sees; and the token's signed hour stands behind
+both for browsers that never close. The renewal ping stays human-touch
+only.
+
+**السحب**: «اقدر اسحبها بره البلوكة» — carried past the sheet's card,
+the sheet turns invisible and the yard shows through; dropped on any
+bay tile (they now carry data-map-bay), the single-container group
+planner picks the first legal slot there and the usual confirmation
+names it. And «انقلها فوق الثانية، تصير الثانية طابق اول»: dropping ON
+a standing container now means the tier above it, when the law takes
+it. The failed drop cancels quietly; the sheet's close-click swallows
+the drag's echo. 381 tests, gates green.

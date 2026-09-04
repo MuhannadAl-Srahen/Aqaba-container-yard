@@ -275,10 +275,12 @@ function RunCell(props: {
           </text>
         </g>
       )}
-      {/* Every bay of a welded block still answers its own tap. */}
+      {/* Every bay of a welded block still answers its own tap — and names
+          itself for a container dragged OUT of a bay sheet onto the map. */}
       {cell.bays.map((bay, at) => (
         <rect
           key={bay}
+          data-map-bay={`${zone.zone}|${String(bay)}`}
           x={x + at * cellW}
           y={y}
           width={cellW}
