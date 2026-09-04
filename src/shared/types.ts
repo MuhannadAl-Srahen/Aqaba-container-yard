@@ -594,6 +594,10 @@ export const ERROR_CODES = [
   'NOT_LAST_MOVE',
   /** The record shows others resting on this box — a correction moves no steel. */
   'MOVE_BURIED',
+  /** النقل الجماعي: an outsider stands on one of the selected containers. */
+  'GROUP_BURIED',
+  /** النقل الجماعي: the destination bay takes only part of the group. */
+  'GROUP_NO_ROOM',
   /** A container carries at most 30 photos. */
   'PHOTO_LIMIT',
   /** A settled haul's wage is locked until the receipt confirmation is lifted. */

@@ -180,6 +180,110 @@ export function reclassOptionsGone(
     );
 }
 
+/**
+ * النقل الجماعي — «خط الباي احيانا بكون فيه 6 حاويات بمكان غير صحيح وبدي
+ * انقلهم»: a group of standing containers, one destination bay, and the
+ * system works out the rest. Lifting takes the top of a stack first, as a
+ * crane must; landing fills the destination from the ground up, stack by
+ * stack — so a source stack arrives inverted, exactly as one crane and one
+ * ground would leave it. Twenties land on the named odd bay; forties land
+ * across an even bay beside it. One step per container, each a MOVE with
+ * its own card.
+ */
+export interface GroupStep {
+  readonly id: number;
+  readonly to: Position;
+}
+
+export type GroupPlan =
+  | { readonly ok: true; readonly steps: readonly GroupStep[] }
+  | {
+      readonly ok: false;
+      readonly code: ErrorCode;
+      /** The outsider standing on a selected container, when one is. */
+      readonly other?: string;
+      /** How many of the group the destination takes, when it cannot take all. */
+      readonly fit?: number;
+      readonly total?: number;
+    };
+
+export function planGroupMove(
+  layout: YardLayout,
+  standing: readonly Standing[],
+  ids: readonly number[],
+  target: { readonly zone: Zone; readonly bay: number },
+): GroupPlan {
+  const zone = zoneOf(layout, target.zone);
+  const targetBay = target.bay % 2 === 1 ? target.bay : target.bay - 1;
+  if (zone === null || !zone.bays.includes(targetBay)) return { ok: false, code: 'BAD_SLOT' };
+
+  const wanted = new Set(ids);
+  const movers = standing.filter((container) => wanted.has(container.id));
+  if (movers.length !== wanted.size || movers.length === 0) {
+    return { ok: false, code: 'VALIDATION' };
+  }
+
+  let sim = standing.slice();
+  const remaining = new Map(movers.map((mover) => [mover.id, mover]));
+  const steps: GroupStep[] = [];
+
+  const landingBays = (size: Size): readonly number[] =>
+    size === 20
+      ? [targetBay]
+      : [targetBay + 1, targetBay - 1].filter((even) => even >= 2);
+
+  while (remaining.size > 0) {
+    // Whoever has a clear roof lifts next — the highest first, so a source
+    // stack peels from the top the way a crane actually takes it.
+    const liftable = [...remaining.values()]
+      .filter((mover) => restingOn(sim, mover).length === 0)
+      .sort(
+        (a, b) =>
+          b.position.tier.localeCompare(a.position.tier) ||
+          a.position.stack - b.position.stack ||
+          a.position.bay - b.position.bay,
+      );
+    const mover = liftable[0];
+    if (mover === undefined) {
+      // Every remaining one is buried — and since the group's own roofs
+      // lift first, the true blocker is somebody OUTSIDE the selection,
+      // standing on one of them.
+      let blocker = '';
+      for (const stuck of remaining.values()) {
+        const outsider = restingOn(sim, stuck).find((roof) => !remaining.has(roof.id));
+        if (outsider !== undefined) {
+          blocker = outsider.number;
+          break;
+        }
+      }
+      return { ok: false, code: 'GROUP_BURIED', other: blocker };
+    }
+
+    const lifted = sim.filter((container) => container.id !== mover.id);
+    let landed: Position | null = null;
+    // The destination fills stack by stack, ground first — «ستاكاً ستاكاً».
+    outer: for (const stack of zone.stacks[String(targetBay)] ?? []) {
+      for (const tier of TIERS) {
+        for (const bay of landingBays(mover.size)) {
+          const candidate: Position = { zone: zone.zone, bay, stack, tier };
+          if (canPlace(layout, lifted, mover.size, candidate) === null) {
+            landed = candidate;
+            break outer;
+          }
+        }
+      }
+    }
+    if (landed === null) {
+      return { ok: false, code: 'GROUP_NO_ROOM', fit: steps.length, total: movers.length };
+    }
+
+    steps.push({ id: mover.id, to: landed });
+    sim = [...lifted, { ...mover, position: landed }];
+    remaining.delete(mover.id);
+  }
+  return { ok: true, steps };
+}
+
 /** One container coming down a tier because what held it up has gone. */
 export interface Descent {
   readonly container: Standing;

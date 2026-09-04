@@ -2575,3 +2575,27 @@ float artifacts possible), one wage on a struck-out record correctly
 hidden everywhere. Nothing reproducible found — the specific case
 (driver, period, expected vs shown) is asked of the owner. 371 tests,
 gates green.
+
+## المرحلة 52 — النقل الجماعي: كتلة واحدة، وجهة واحدة — 2026-09-04
+
+«عملية النقل صعبة اذا كان بدي انقل كمية من الحاويات مره وحده … احيانا خط
+الباي بكون فيه 6 حاويات بمكان غير صحيح وبدي انقلهم». Shown the two
+roads (the existing queue, or a true group move), he chose: «نعم، ابنه».
+
+The planner is shared and pure (`planGroupMove` in rules.ts): it does
+what a crane does — takes the top of a stack first, lands ground-first,
+fills the destination stack by stack (so a source stack arrives
+inverted, as one crane and one ground must leave it); twenties land on
+the named odd bay, forties across an even bay beside it. All or
+nothing: an outsider standing on a selected container refuses by name
+(GROUP_BURIED), and a destination that takes only part refuses by the
+count (GROUP_NO_ROOM — «يتسع 3 من 4»). The server route
+(`POST /api/containers/move-many`, MOVE permission) replans inside its
+transaction and writes every container its own numbered MOVE.
+
+On the screen: «تحديد للنقل» in the bay sheet — tap to check containers
+(or «تحديد الكل» for the whole line), «نقل المحدد (N)», then ONE tap on
+the destination bay; the client runs the same planner for the instant
+answer, a confirm names the count and the bay, and the indigo banner
+carries the mode. Cards wait in the operations log, where «كل بطاقات
+النقل (PDF)» already prints them in one file. 380 tests, gates green.

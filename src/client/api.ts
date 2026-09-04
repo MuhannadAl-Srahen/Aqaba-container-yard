@@ -26,6 +26,7 @@ import type {
   UnassignedPlateRow,
   UserDto,
   YardStateDto,
+  Zone,
 } from '../shared/types';
 import { daysBetween } from '../shared/dates';
 import { AR } from './ar';
@@ -76,12 +77,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       // A rejected field names itself, when the server could say which one.
       const field = body.details?.['field'];
       const named = typeof field === 'string' ? AR.fieldName[field] : undefined;
+      const fit = body.details?.['fit'];
+      const total = body.details?.['total'];
       const arabic =
         (body.code === 'BLOCKED_DESCENT' || body.code === 'OCCUPIED') && typeof other === 'string'
           ? AR.errorWith(body.code, other)
-          : body.code === 'VALIDATION' && named !== undefined
-            ? AR.validationField(named)
-            : (AR.errors[body.code] ?? AR.networkError);
+          : body.code === 'GROUP_BURIED' && typeof other === 'string'
+            ? AR.groupBuried(other)
+            : body.code === 'GROUP_NO_ROOM' && typeof fit === 'number' && typeof total === 'number'
+              ? AR.groupNoRoom(fit, total)
+              : body.code === 'VALIDATION' && named !== undefined
+                ? AR.validationField(named)
+                : (AR.errors[body.code] ?? AR.networkError);
       throw new ApiFailure(body.code, arabic, body.details);
     }
     throw new ApiFailure('NETWORK', AR.networkError);
@@ -524,6 +531,13 @@ export const api = {
       backup: string;
     };
   },
+
+  /** النقل الجماعي: a group of ids and one destination bay — the server plans. */
+  moveMany: (ids: readonly number[], to: { zone: Zone; bay: number }): Promise<{ moved: number }> =>
+    request('/api/containers/move-many', {
+      method: 'POST',
+      body: JSON.stringify({ ids, to }),
+    }),
 
   /** تغيير كلمة سر المالك — his current word first, six letters at least. */
   changeOwnerPassword: (current: string, password: string): Promise<{ ok: boolean }> =>

@@ -33,9 +33,9 @@ import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates'
 import { checkNumber } from '../shared/iso6346';
 import { baySpan, positionLabel, samePosition, yardOf } from '../shared/address';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
-import { canMove, canPlace, planRemoval, restingOn, slotUsable } from '../shared/rules';
+import { canMove, canPlace, planGroupMove, planRemoval, restingOn, slotUsable } from '../shared/rules';
 import { composeLayout, zoneDefOf } from '../shared/layout';
-import type { YardLayout } from '../shared/types';
+import type { YardLayout, Zone } from '../shared/types';
 import {
   SESSION_COOKIE,
   hasPassword,
@@ -1003,6 +1003,62 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // The card is handed back with the container: its serial is minted here,
       // so nothing on the screen could know it otherwise.
       return { container: store.getContainer(db, id), move: store.getMovement(db, movementId) };
+    });
+  });
+
+  /**
+   * النقل الجماعي — «بدي انقل كمية من الحاويات مره وحده»: a group and one
+   * destination bay; the shared planner works out the lift order (roofs
+   * first, as a crane must) and the landings (ground up, stack by stack),
+   * and every container still gets a numbered MOVE of its own. All or
+   * nothing: a destination that takes only part refuses by the count.
+   */
+  app.post('/api/containers/move-many', (request) => {
+    const actor = requirePerm(request, 'MOVE');
+    const body = parseOrRefuse(
+      z.object({
+        ids: z.array(z.number().int().min(1)).min(1).max(60),
+        to: z.object({
+          zone: z.string().regex(/^[A-Z]{1,2}$/),
+          bay: z.number().int().min(1).max(99),
+        }),
+      }),
+      request.body,
+    );
+    if (new Set(body.ids).size !== body.ids.length) refuse(400, 'VALIDATION');
+
+    return transaction(db, () => {
+      // Each id must be a standing container — refused one by one, by name.
+      const before = new Map(body.ids.map((id) => [id, standingContainer(id)]));
+      const standing = store.listStanding(db);
+      const plan = planGroupMove(layoutNow(), standing, body.ids, {
+        zone: body.to.zone as Zone,
+        bay: body.to.bay,
+      });
+      if (!plan.ok) {
+        refuse(
+          409,
+          plan.code,
+          plan.other !== undefined && plan.other !== ''
+            ? { other: plan.other }
+            : plan.fit !== undefined
+              ? { fit: plan.fit, total: plan.total ?? body.ids.length }
+              : undefined,
+        );
+      }
+      if (!plan.ok) throw new Error('unreachable');
+
+      const at = now();
+      const year = ammanYear(at);
+      for (const step of plan.steps) {
+        const from = before.get(step.id)?.position ?? null;
+        store.setPosition(db, step.id, step.to);
+        store.recordMovement(db, step.id, 'MOVE', at, from, step.to, '', actorId(actor), {
+          serial: store.nextMoveCardNumber(db, year),
+          year,
+        });
+      }
+      return { moved: plan.steps.length };
     });
   });
 

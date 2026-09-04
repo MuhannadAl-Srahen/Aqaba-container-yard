@@ -4,7 +4,7 @@ import type { ContainerDto, Permission, PermitDto, Position, Zone } from '../sha
 import { composeLayout, yardSlice, yardsOf } from '../shared/layout';
 import { bayLabel, positionLabel, yardOf } from '../shared/address';
 import { ltrCode } from '../shared/bidi';
-import { fillPlan, zoneOf } from '../shared/rules';
+import { fillPlan, planGroupMove, zoneOf } from '../shared/rules';
 import { TIERS } from '../shared/types';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
@@ -66,6 +66,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * and the map lights its own places. Cancel drops the whole line.
    */
   const [moveQueue, setMoveQueue] = useState<readonly ContainerDto[]>([]);
+  /**
+   * النقل الجماعي — «بدي انقل كمية من الحاويات مره وحده»: the checked group
+   * waiting for ONE destination bay. While set, tapping a bay asks the
+   * planner instead of opening the sheet.
+   */
+  const [groupMove, setGroupMove] = useState<readonly ContainerDto[] | null>(null);
+  const [confirmGroup, setConfirmGroup] = useState<{ zone: Zone; bay: number } | null>(null);
   /** When set, the placing flow CORRECTS this movement instead of moving. */
   const [correcting, setCorrecting] = useState<number | null>(null);
   /**
@@ -353,12 +360,36 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setGateInAt(null);
     setMoving(null);
     setMoveQueue([]);
+    setGroupMove(null);
+    setConfirmGroup(null);
     setCorrecting(null);
     setConfirmMove(null);
     setBusy(false);
   };
 
   const handleBay = (zone: Zone, bay: number): void => {
+    // النقل الجماعي: while a group waits, a bay tap NAMES THE DESTINATION —
+    // the planner answers on the spot, and only a workable bay confirms.
+    if (groupMove !== null) {
+      const plan = planGroupMove(
+        yardLayout,
+        toStanding(containers),
+        groupMove.map((container) => container.id),
+        { zone, bay },
+      );
+      if (!plan.ok) {
+        setToast(
+          plan.code === 'GROUP_BURIED' && plan.other !== undefined && plan.other !== ''
+            ? AR.groupBuried(plan.other)
+            : plan.code === 'GROUP_NO_ROOM'
+              ? AR.groupNoRoom(plan.fit ?? 0, plan.total ?? groupMove.length)
+              : (AR.errors[plan.code] ?? AR.networkError),
+        );
+        return;
+      }
+      setConfirmGroup({ zone, bay });
+      return;
+    }
     // One overlay at a time: tapping a bay closes whatever was open. While a
     // move is placing, the sheet opens in placing mode and the exact slot is
     // picked inside it — the map only says WHICH bay.
@@ -944,6 +975,21 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         </div>
       </header>
 
+      {groupMove !== null && (
+        <div className="z-10 flex items-center justify-between gap-3 bg-indigo-700 px-4 py-2.5 text-sm font-semibold text-white">
+          <span>{AR.groupBanner(groupMove.length)}</span>
+          <button
+            type="button"
+            className="rounded-lg bg-indigo-800 px-3 py-1 hover:bg-indigo-900"
+            onClick={() => {
+              setGroupMove(null);
+              setConfirmGroup(null);
+            }}
+          >
+            {AR.movingCancel}
+          </button>
+        </div>
+      )}
       {moving !== null && (
         <div className="z-10 flex items-center justify-between gap-3 bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white">
           <span className="min-w-0">
@@ -1103,6 +1149,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                 }
               : undefined
           }
+          onGroupMove={(group) => {
+            setOpenBay(null);
+            setGroupMove(group);
+          }}
           onPick={(container) => {
             setOpenBay(null);
             setSelected(container);
@@ -1138,6 +1188,34 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
           onClose={() => {
             setGateInAt(null);
+          }}
+        />
+      )}
+
+      {confirmGroup !== null && groupMove !== null && (
+        <Confirm
+          title={AR.confirmGroupTitle}
+          body={AR.confirmGroupBody(groupMove.length, bayLabel(confirmGroup.zone, confirmGroup.bay))}
+          confirmLabel={AR.actionMove}
+          busy={busy}
+          onConfirm={() => {
+            setBusy(true);
+            api
+              .moveMany(
+                groupMove.map((container) => container.id),
+                confirmGroup,
+              )
+              .then(({ moved }) => {
+                refresh(AR.groupMoveDone(moved));
+              })
+              .catch((failure: unknown) => {
+                setBusy(false);
+                setConfirmGroup(null);
+                setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+              });
+          }}
+          onCancel={() => {
+            setConfirmGroup(null);
           }}
         />
       )}

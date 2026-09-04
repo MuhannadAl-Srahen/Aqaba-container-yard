@@ -39,6 +39,12 @@ export function BaySheet(props: {
    * is not available (no move in flight, or a correction).
    */
   onAddToMove?: ((container: ContainerDto) => void) | undefined;
+  /**
+   * النقل الجماعي — «بدي انقل كمية من الحاويات مره وحده»: hand the checked
+   * containers up; the map then takes ONE destination bay and the planner
+   * does the rest. Absent while a single move is already placing.
+   */
+  onGroupMove?: ((containers: readonly ContainerDto[]) => void) | undefined;
   onPick: (container: ContainerDto) => void;
   onGateIn: (position: Position) => void;
   onMoveTo: (position: Position) => void;
@@ -52,6 +58,10 @@ export function BaySheet(props: {
     [maxStack],
   );
   const [picked, setPicked] = useState<{ stack: number; tier: Tier } | null>(null);
+  /** تحديد للنقل: which of this bay's containers ride the group move. */
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const canGroup = props.onGroupMove !== undefined && placing === null && props.canMove;
 
   const standing = useMemo(() => {
     const all = toStanding(props.containers);
@@ -166,11 +176,23 @@ export function BaySheet(props: {
     }
     if (view.kind === 'taken') {
       const container = view.container;
+      const checked = selecting && selected.has(container.id);
       return (
         <button
           key={`${String(stack)}${tier}`}
           type="button"
           onClick={() => {
+            // تحديد للنقل: a tap marks the container for the group instead
+            // of opening its card.
+            if (selecting) {
+              setSelected((current) => {
+                const next = new Set(current);
+                if (next.has(container.id)) next.delete(container.id);
+                else next.add(container.id);
+                return next;
+              });
+              return;
+            }
             // Mid-move, a standing container joins the move instead of
             // opening its card — the queue, exactly as the owner asked.
             if (placing !== null && props.onAddToMove !== undefined && container.id !== placing.id) {
@@ -183,7 +205,8 @@ export function BaySheet(props: {
             'flex h-14 flex-col items-center justify-center gap-0.5 rounded-lg border px-1 text-center ' +
             (container.size === 40
               ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
-              : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950')
+              : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950') +
+            (checked ? ' ring-2 ring-emerald-600' : '')
           }
           title={
             container.bill === ''
@@ -286,6 +309,54 @@ export function BaySheet(props: {
             {used >= capacity && capacity > 0 ? AR.bayFull : AR.bayHas(used, capacity)}
           </span>
         </div>
+
+        {/* النقل الجماعي: mark the group here, name the destination on the
+            map — «خط الباي احيانا بكون فيه 6 حاويات بمكان غير صحيح». */}
+        {canGroup && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {!selecting ? (
+              <Button
+                kind="quiet"
+                disabled={props.load.length === 0}
+                onClick={() => {
+                  setSelecting(true);
+                }}
+              >
+                {AR.selectForMove}
+              </Button>
+            ) : (
+              <>
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setSelected(new Set(props.load.map((container) => container.id)));
+                  }}
+                >
+                  {AR.selectAllBay}
+                </Button>
+                <Button
+                  disabled={selected.size === 0}
+                  onClick={() => {
+                    props.onGroupMove?.(
+                      props.load.filter((container) => selected.has(container.id)),
+                    );
+                  }}
+                >
+                  {AR.moveSelected(selected.size)}
+                </Button>
+                <Button
+                  kind="quiet"
+                  onClick={() => {
+                    setSelecting(false);
+                    setSelected(new Set());
+                  }}
+                >
+                  {AR.selectCancel}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
 
         {/* The grid, LTR like the plan: stack 01 first, tier B over tier A.
             A cell is never narrower than a full container number AT THE SIZE
