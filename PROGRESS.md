@@ -2654,3 +2654,21 @@ names it. And «انقلها فوق الثانية، تصير الثانية ط�
 a standing container now means the tier above it, when the law takes
 it. The failed drop cancels quietly; the sheet's close-click swallows
 the drag's echo. 381 tests, gates green.
+
+## المرحلة 55 — الباي الممتلئ يعود للتمرير — 2026-09-04
+
+«في مشكلة انو انا ما بقدر احرك الـscroll بالتلفون اذا كان الحاويات
+ماكنهم فلل». Stage 53's own documented trade bit exactly where
+predicted: the taken cells carried touch-action:none so a drag never
+turned into a scroll, and the grid "still scrolls from its empty
+ground" — but a FULL bay has no empty ground, so the phone's finger had
+nowhere to scroll from at all.
+
+The trade is undone the right way round: the cells scroll freely again
+(touch-none removed), and scrolling is suppressed only from the instant
+a hold actually becomes a drag — a non-passive window touchmove guard
+armed inside the hold timer's own callback and torn down with the drag
+(endDrag and unmount both). Before the hold completes, a moving finger
+still reads as a scroll and cancels the lift; a pointercancel from the
+browser taking the gesture does the same; and Android's long-press
+context menu yields to the drag. 381 tests, gates green.

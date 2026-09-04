@@ -79,10 +79,10 @@ export function BaySheet(props: {
    * and «النقل بعمله ع التلفون اغلب الوقت»: hold a container ~0.4s and it
    * comes off the grid under the finger; the cells that take it glow; let
    * go over one and the usual confirmation moves it — card and all. A
-   * quick tap stays a tap. Pointer events serve mouse and touch alike,
-   * and the taken cells carry touch-action:none so the browser never
-   * turns the drag into a scroll (the grid still scrolls from its empty
-   * ground and edges).
+   * quick tap stays a tap. Pointer events serve mouse and touch alike;
+   * scrolling stays free everywhere (a FULL bay taught us why) and is
+   * suppressed only for the lifetime of an actual drag, by the touchmove
+   * guard below.
    */
   const [drag, setDrag] = useState<{
     container: ContainerDto;
@@ -118,7 +118,34 @@ export function BaySheet(props: {
     return map;
   }, [drag, props.layout, props.containers, zone, bay]);
 
+  /**
+   * «ما بقدر احرك الـscroll بالتلفون اذا كان الحاويات ماكنهم فلل»: the
+   * cells used to carry touch-action:none, and a FULL bay left no empty
+   * ground to scroll from. The cells scroll freely again now; the browser
+   * is barred from scrolling only from the moment a hold actually becomes
+   * a drag — a non-passive touchmove guard armed right then, torn down
+   * with the drag. Before the hold completes, a moving finger is a scroll
+   * and cancels the lift, exactly as before.
+   */
+  const touchGuard = useRef<((event: TouchEvent) => void) | null>(null);
+  const armTouchGuard = (): void => {
+    if (touchGuard.current !== null) return;
+    const guard = (event: TouchEvent): void => {
+      event.preventDefault();
+    };
+    touchGuard.current = guard;
+    window.addEventListener('touchmove', guard, { passive: false });
+  };
+  const disarmTouchGuard = (): void => {
+    if (touchGuard.current !== null) {
+      window.removeEventListener('touchmove', touchGuard.current);
+      touchGuard.current = null;
+    }
+  };
+  useEffect(() => disarmTouchGuard, []);
+
   const endDrag = (): void => {
+    disarmTouchGuard();
     if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
     holdTimer.current = null;
     downAt.current = null;
@@ -339,9 +366,26 @@ export function BaySheet(props: {
               const held = downAt.current;
               if (held !== null && held.container.id === container.id) {
                 dragHappened.current = true;
+                // From this instant the finger's movement is a DRAG, never
+                // a scroll — the guard comes off with the drag.
+                armTouchGuard();
                 setDrag({ container, x: held.x, y: held.y, live: true });
               }
             }, 400);
+          }}
+          onPointerCancel={() => {
+            // The browser took the gesture for a scroll before the hold
+            // completed — no lift, then.
+            if (drag === null && holdTimer.current !== null) {
+              window.clearTimeout(holdTimer.current);
+              holdTimer.current = null;
+              downAt.current = null;
+            }
+          }}
+          onContextMenu={(event) => {
+            // Android's long-press menu and the drag start from the same
+            // gesture; the drag wins.
+            if (canDrag) event.preventDefault();
           }}
           onPointerMove={(event) => {
             const held = downAt.current;
@@ -391,7 +435,7 @@ export function BaySheet(props: {
               ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
               : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950') +
             (checked ? ' ring-2 ring-emerald-600' : '') +
-            (canDrag ? ' touch-none select-none' : '') +
+            (canDrag ? ' select-none' : '') +
             (beingDragged ? ' opacity-40' : '')
           }
           title={
