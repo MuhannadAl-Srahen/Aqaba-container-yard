@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from './api';
 import { AR } from './ar';
@@ -29,6 +29,31 @@ export default function App(): ReactElement {
     void queryClient.resetQueries();
     setEpoch((n) => n + 1);
   }, [queryClient]);
+
+  /**
+   * الجلسة ساعة تتجدد بلمسة إنسان — «واحد بفتح تلفونه بعدين بدو يجي يفتح
+   * بفتح مره ثانية دون ما يدخل كلمة السر»: a real touch or keystroke, at
+   * most once every five minutes, slides the hour along. The map's own
+   * automatic refreshes never do, so a device somebody walked away from
+   * goes quiet and asks for the password again.
+   */
+  const lastRenewal = useRef(0);
+  useEffect(() => {
+    const renew = (): void => {
+      const nowMs = Date.now();
+      if (nowMs - lastRenewal.current < 5 * 60 * 1000) return;
+      lastRenewal.current = nowMs;
+      void api.refreshSession().catch(() => {
+        // A dead session answers 401; the next query's own handling reboots.
+      });
+    };
+    window.addEventListener('pointerdown', renew);
+    window.addEventListener('keydown', renew);
+    return () => {
+      window.removeEventListener('pointerdown', renew);
+      window.removeEventListener('keydown', renew);
+    };
+  }, []);
 
   if (boot.data === undefined) {
     return (

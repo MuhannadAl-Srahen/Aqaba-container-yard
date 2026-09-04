@@ -1,4 +1,7 @@
 import {
+  memo,
+  useCallback,
+  useDeferredValue,
   useEffect,
   useMemo,
   useState,
@@ -241,6 +244,160 @@ const cellBase = 'border border-rule px-2 py-1.5 text-[13px] align-middle';
  * through the middle of a word.
  */
 const cellFree = ' break-words leading-6';
+
+/**
+ * The table itself, memoized whole — «بصير تعليق ع النظام وقت اعرض كل
+ * الكشف»: on «الكشف كامل» a long register is fifteen thousand cells, and
+ * every keystroke in the search box or press of a toolbar button used to
+ * rebuild all of them. Behind memo they rebuild only when the arranged
+ * sheet itself changes; typing pays for an input, not a register.
+ */
+const SheetTable = memo(function SheetTable(props: {
+  sheet: {
+    head: readonly string[];
+    body: readonly (readonly TableCell[])[];
+    footer: readonly TableCell[] | null;
+  };
+  metrics: ReturnType<typeof sheetMetrics>;
+  fitZoom: number;
+  /** The line counter stays a plain heading — it renumbers, orders nothing. */
+  counted: boolean | undefined;
+  sort: SortState | null;
+  onSort: (column: number) => void;
+  current: number;
+  rowsPerPage: number;
+  seats: readonly number[] | undefined;
+  actions: { header: string; render: (rowIndex: number) => ReactNode } | undefined;
+  onGlass: (element: HTMLDivElement | null) => void;
+}): ReactElement {
+  const { sheet, metrics, sort } = props;
+  const footer = sheet.footer;
+  return (
+    <div ref={props.onGlass} className="sheet-scroll overflow-x-auto">
+      <table
+        className="w-full table-fixed border-collapse border-2 border-rule-strong"
+        style={{ minWidth: `${String(metrics.minWidth)}px`, zoom: props.fitZoom }}
+      >
+        <colgroup>
+          {metrics.shares.map((share, index) => {
+            const colStyle: StyleVars = {
+              width: share,
+              '--print-w': metrics.printShares[index] ?? share,
+            };
+            return <col key={index} style={colStyle} />;
+          })}
+        </colgroup>
+        <thead>
+          <tr>
+            {/* Every heading orders the register by its own column — press
+                once for تصاعدي, again for تنازلي, a third time to put the
+                register back in its own order. */}
+            {sheet.head.map((heading, column) => {
+              const active = sort !== null && sort.column === column;
+              const orderable = column > 0 || props.counted !== true;
+              const headClass = `${cellBase} border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`;
+              if (!orderable) {
+                return (
+                  <th key={heading} className={headClass}>
+                    {heading}
+                  </th>
+                );
+              }
+              return (
+                <th
+                  key={heading}
+                  aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                  className={`${headClass} px-0! py-0!`}
+                >
+                  <button
+                    type="button"
+                    title={!active ? AR.sortAsc : sort.dir === 'asc' ? AR.sortDesc : AR.sortClear}
+                    onClick={() => {
+                      props.onSort(column);
+                    }}
+                    className={`flex w-full items-center justify-center gap-1 px-2 py-1.5 text-center transition-colors hover:bg-line${
+                      active ? ' text-blue-800 dark:text-blue-300' : ''
+                    }`}
+                  >
+                    <span>{heading}</span>
+                    <span className="print-hidden text-[10px] leading-none opacity-70">
+                      {active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}
+                    </span>
+                  </button>
+                </th>
+              );
+            })}
+            {props.actions !== undefined && (
+              <th
+                className={`${cellBase} print-hidden border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`}
+              >
+                {props.actions.header}
+              </th>
+            )}
+          </tr>
+        </thead>
+        <tbody>
+          {/* Every row is in the DOM: the screen shows one page, the
+              printer un-hides the rest. */}
+          {sheet.body.map((row, rowIndex) => {
+            const onPage =
+              rowIndex >= props.current * props.rowsPerPage &&
+              rowIndex < (props.current + 1) * props.rowsPerPage;
+            return (
+              <tr
+                key={rowIndex}
+                className={
+                  (onPage ? '' : 'row-off hidden print:table-row ') +
+                  (isTallRow(row) ? 'row-tall ' : '') +
+                  'odd:bg-surface even:bg-sunken'
+                }
+              >
+                {row.map((cell, cellIndex) => (
+                  <td
+                    key={cellIndex}
+                    className={
+                      cellBase +
+                      (cell.ltr === true ? ' whitespace-nowrap' : '') +
+                      (cell.wrap === true ? cellFree : '') +
+                      (cell.onClick !== undefined
+                        ? ' cursor-pointer font-semibold text-blue-700 underline decoration-dotted hover:text-blue-900'
+                        : '') +
+                      (cell.danger === true ? ' bg-danger-soft font-extrabold text-danger' : '')
+                    }
+                    dir={cell.ltr === true ? 'ltr' : undefined}
+                    onClick={cell.onClick}
+                  >
+                    {cell.text}
+                  </td>
+                ))}
+                {props.actions !== undefined && (
+                  <td className={`${cellBase} print-hidden overflow-hidden text-center`}>
+                    {props.actions.render(props.seats?.[rowIndex] ?? rowIndex)}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+        {footer !== null && (
+          <tfoot>
+            <tr className="bg-sunken">
+              {footer.map((cell, cellIndex) => (
+                <td
+                  key={cellIndex}
+                  colSpan={cellIndex === footer.length - 1 ? sheet.head.length - footer.length + 1 : 1}
+                  className={`${cellBase} border-t-2 border-t-rule-strong font-bold text-ink`}
+                >
+                  {cell.text}
+                </td>
+              ))}
+            </tr>
+          </tfoot>
+        )}
+      </table>
+    </div>
+  );
+});
 /** Rows per screen page; 0 is «عرض الكل» — the whole register at once.
     50 is the floor — «الغي العشرين»: twenty rows was a page nobody wanted. */
 const PAGE_SIZES = [50, 80, 0] as const;
@@ -328,7 +485,10 @@ export function SheetScreen(props: {
    * printer, PDF, Excel) is handed THIS, so what is on the paper is what was
    * on the screen.
    */
-  const view = useMemo(() => arrange(model, query, sort), [model, query, sort]);
+  // The keystroke lands in the box at once; the thousand-row re-arrange
+  // follows a beat later — typing never waits for the register.
+  const deferredQuery = useDeferredValue(query);
+  const view = useMemo(() => arrange(model, deferredQuery, sort), [model, deferredQuery, sort]);
   const searching = view.searching;
   const sheet = useMemo(
     () => ({
@@ -423,8 +583,14 @@ export function SheetScreen(props: {
       });
   };
 
-  const footer = sheet.footer;
-  const metrics = sheetMetrics(sheet, props.actions !== undefined);
+  // Memoized identity, or the memoized table below would rebuild for it.
+  const metrics = useMemo(
+    () => sheetMetrics(sheet, props.actions !== undefined),
+    [sheet, props.actions],
+  );
+  const onSort = useCallback((column: number) => {
+    setSort((current) => nextSort(current, column));
+  }, []);
   const fitZoom =
     fit && glassWidth > 0 && metrics.minWidth > glassWidth
       ? Math.max(0.45, glassWidth / metrics.minWidth)
@@ -655,152 +821,23 @@ export function SheetScreen(props: {
           ) : (
             <>
               {/* On screen a wide register keeps its columns readable and
-                  scrolls sideways if it must — the floor is what this sheet's
-                  own columns need at screen type, so nothing overlaps here
-                  either. On paper the page decides the width and every column
-                  comes back in. Print gets every row; the screen pages. */}
-              <div ref={setGlass} className="sheet-scroll overflow-x-auto">
-              <table
-                className="w-full table-fixed border-collapse border-2 border-rule-strong"
-                style={{ minWidth: `${String(metrics.minWidth)}px`, zoom: fitZoom }}
-              >
-                <colgroup>
-                  {metrics.shares.map((share, index) => {
-                    const colStyle: StyleVars = {
-                      width: share,
-                      '--print-w': metrics.printShares[index] ?? share,
-                    };
-                    return <col key={index} style={colStyle} />;
-                  })}
-                </colgroup>
-                <thead>
-                  <tr>
-                    {/* Every heading orders the register by its own column —
-                        press once for تصاعدي, again for تنازلي, a third time
-                        to put the register back in its own order. The caret
-                        is screen-only: it would be noise on the paper. */}
-                    {sheet.head.map((heading, column) => {
-                      const active = sort !== null && sort.column === column;
-                      // The line counter is not a column to order by: it is
-                      // rewritten to 1 … N over whatever the sheet shows, so
-                      // ordering it could only ever be the register's own
-                      // order, or that order reversed under a column still
-                      // reading 1, 2, 3. It stays a plain heading.
-                      const orderable = column > 0 || model.counted !== true;
-                      const headClass = `${cellBase} border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`;
-                      if (!orderable) {
-                        return (
-                          <th key={heading} className={headClass}>
-                            {heading}
-                          </th>
-                        );
-                      }
-                      return (
-                        <th
-                          key={heading}
-                          aria-sort={
-                            active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'
-                          }
-                          // The button carries the padding on screen, so the
-                          // cell gives its own up — and `p-0` alone would not
-                          // do it: cellBase's px/py are longhand and win.
-                          className={`${headClass} px-0! py-0!`}
-                        >
-                          <button
-                            type="button"
-                            // What the NEXT press will do — all three of them.
-                            title={
-                              !active ? AR.sortAsc : sort.dir === 'asc' ? AR.sortDesc : AR.sortClear
-                            }
-                            onClick={() => {
-                              setSort(nextSort(sort, column));
-                            }}
-                            className={`flex w-full items-center justify-center gap-1 px-2 py-1.5 text-center transition-colors hover:bg-line${
-                              active ? ' text-blue-800 dark:text-blue-300' : ''
-                            }`}
-                          >
-                            <span>{heading}</span>
-                            <span className="print-hidden text-[10px] leading-none opacity-70">
-                              {active ? (sort.dir === 'asc' ? '▲' : '▼') : '⇅'}
-                            </span>
-                          </button>
-                        </th>
-                      );
-                    })}
-                    {props.actions !== undefined && (
-                      <th
-                        className={`${cellBase} print-hidden border-b-2 border-b-rule-strong bg-sunken text-center font-bold text-ink`}
-                      >
-                        {props.actions.header}
-                      </th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody>
-                  {/* Every row is in the DOM: the screen shows one page, the
-                      printer un-hides the rest. */}
-                  {sheet.body.map((row, rowIndex) => {
-                    const onPage =
-                      rowIndex >= current * rowsPerPage && rowIndex < (current + 1) * rowsPerPage;
-                    return (
-                      <tr
-                        key={rowIndex}
-                        className={
-                          (onPage ? '' : 'row-off hidden print:table-row ') +
-                          (isTallRow(row) ? 'row-tall ' : '') +
-                          'odd:bg-surface even:bg-sunken'
-                        }
-                      >
-                        {row.map((cell, cellIndex) => (
-                          <td
-                            key={cellIndex}
-                            className={
-                              cellBase +
-                              (cell.ltr === true ? ' whitespace-nowrap' : '') +
-                              (cell.wrap === true ? cellFree : '') +
-                              (cell.onClick !== undefined
-                                ? ' cursor-pointer font-semibold text-blue-700 underline decoration-dotted hover:text-blue-900'
-                                : '') +
-                              (cell.danger === true
-                                ? ' bg-danger-soft font-extrabold text-danger'
-                                : '')
-                            }
-                            dir={cell.ltr === true ? 'ltr' : undefined}
-                            onClick={cell.onClick}
-                          >
-                            {cell.text}
-                          </td>
-                        ))}
-                        {props.actions !== undefined && (
-                          <td className={`${cellBase} print-hidden overflow-hidden text-center`}>
-                            {props.actions.render(view.seats?.[rowIndex] ?? rowIndex)}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-                {footer !== null && (
-                  <tfoot>
-                    <tr className="bg-sunken">
-                      {footer.map((cell, cellIndex) => (
-                        <td
-                          key={cellIndex}
-                          colSpan={
-                            cellIndex === footer.length - 1
-                              ? sheet.head.length - footer.length + 1
-                              : 1
-                          }
-                          className={`${cellBase} border-t-2 border-t-rule-strong font-bold text-ink`}
-                        >
-                          {cell.text}
-                        </td>
-                      ))}
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-              </div>
+                  scrolls sideways if it must; on paper the page decides the
+                  width and every column comes back in. Print gets every row;
+                  the screen pages. Memoized whole — see SheetTable. */}
+              <SheetTable
+                sheet={sheet}
+                metrics={metrics}
+                fitZoom={fitZoom}
+                counted={model.counted}
+                sort={sort}
+                onSort={onSort}
+                current={current}
+                rowsPerPage={rowsPerPage}
+                seats={view.seats}
+                actions={props.actions}
+                onGlass={setGlass}
+              />
+              
 
               {pages > 1 && (
                 <div className="print-hidden mt-3 flex items-center justify-center gap-2">

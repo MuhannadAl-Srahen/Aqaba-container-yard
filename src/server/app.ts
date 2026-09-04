@@ -357,7 +357,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       httpOnly: true,
       sameSite: 'lax',
       secure: 'auto',
-      maxAge: 14 * 24 * 60 * 60,
+      maxAge: 60 * 60,
     });
   };
 
@@ -416,6 +416,17 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       setPassword(db, body.password);
     });
     sendSession(reply, OWNER_ID);
+    return { ok: true };
+  });
+
+  /**
+   * تجديد الجلسة بلمسة إنسان: the client pings this on real interaction, a
+   * few minutes apart at most — the automatic screen refreshes never touch
+   * it, so a device someone walked away from goes quiet and signs out.
+   */
+  app.post('/api/session/refresh', (request, reply) => {
+    const actor = requireAuth(request);
+    sendSession(reply, actor.owner ? OWNER_ID : actor.id);
     return { ok: true };
   });
 

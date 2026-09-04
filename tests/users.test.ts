@@ -402,3 +402,19 @@ describe('the session', () => {
     expect(probe.status).toBe(401);
   });
 });
+
+describe('الجلسة ساعة تتجدد باللمس', () => {
+  it('an hour of stillness closes the door; the refresh slides it along', async () => {
+    const { openDatabase } = await import('../src/server/db');
+    const { issueSession, verifySession, SESSION_MS } = await import('../src/server/auth');
+    const db = openDatabase(':memory:');
+    const t0 = 1_760_000_000_000;
+    const token = issueSession(db, 0, t0);
+    expect(verifySession(db, token, t0 + SESSION_MS - 1000)).toBe(0);
+    expect(verifySession(db, token, t0 + SESSION_MS + 1000)).toBeNull();
+    // A renewal minted later carries a fresh hour of its own.
+    const renewed = issueSession(db, 0, t0 + SESSION_MS - 1000);
+    expect(verifySession(db, renewed, t0 + 2 * SESSION_MS - 2000)).toBe(0);
+    db.close();
+  });
+});

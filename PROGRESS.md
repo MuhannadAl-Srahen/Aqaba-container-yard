@@ -2599,3 +2599,35 @@ the destination bay; the client runs the same planner for the instant
 answer, a confirm names the count and the bay, and the indigo banner
 carries the mode. Cards wait in the operations log, where «كل بطاقات
 النقل (PDF)» already prints them in one file. 380 tests, gates green.
+
+## المرحلة 53 — السحب باليد، والكشف بلا تعليق، والجلسة ساعة — 2026-09-04
+
+Three asks in one breath, phone first.
+
+**السحب والإفلات** («اذا ضليت ماسك حاوية جوا البلوك وامشي فيها براحتي…
+النقل بعمله ع التلفون اغلب الوقت»): hold a container in the bay sheet
+~0.4s and it lifts under the finger — a ghost card rides the pointer,
+the cells that legally take it glow «أفلت هنا», and letting go runs the
+ordinary move confirmation and card. Pointer events serve touch and
+mouse alike; the taken cells carry touch-action:none so the browser
+never mistakes the drag for a scroll (the grid still scrolls from its
+empty ground); a quick tap stays a tap, a slip before the hold reads as
+a scroll, and the click that trails a drag is swallowed as its echo.
+The window listeners live for one drag and read through refs, so
+nothing resubscribes per pointer frame.
+
+**التعليق** («بصير تعليق ع النظام وقت اعرض كل الكشف بالتقارير»): the
+register table is now a memoized component — typing in the search box
+or pressing a toolbar button no longer rebuilds fifteen thousand cells;
+the query is deferred so the keystroke lands before the thousand-row
+re-arrange; and a register past 300 rows slows its live refresh to 90s
+(gate, truck, standing, and the operations log alike).
+
+**الجلسة** («واحد بفتح تلفونه او كمبيوتر بعدين بدو يجي يفتح بفتح مره
+ثانية دون ما يدخل كلمة السر»): sessions now live ONE HOUR and slide
+only on real human touch — the client pings /api/session/refresh on
+pointer or key, throttled to once per five minutes, and the map's own
+20-second polling deliberately renews nothing. A phone left in a pocket
+signs itself out; a clerk mid-shift never notices. Everyone signs in
+once after this deploy (the old two-week cookies are past their new
+hour). 381 tests, gates green.

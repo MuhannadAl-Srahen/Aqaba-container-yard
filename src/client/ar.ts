@@ -377,6 +377,9 @@ export const AR = {
   /** While a container is being placed, the slots that accept it glow. */
   landingHint: 'الخانات التي تقبل هذه الحاوية مضيئة بالأخضر.',
   landingNoneInBay: 'لا توجد في هذا الباي خانة تقبل هذه الحاوية.',
+  /** السحب والإفلات داخل ورقة الباي — «ضليت ماسك حاوية وامشي فيها براحتي». */
+  dragHint: 'اضغط مطولاً على حاوية واسحبها إلى خانة تقبلها ثم أفلتها.',
+  dropHere: 'أفلت هنا',
   /** مقترحات المكان — the yard's own habits, worn darker. Advice, not a bar. */
   slotSuggested: 'مقترَح',
   suggestedCellTitle:

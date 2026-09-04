@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type ReactElement } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { ContainerDto, Position, Tier, ZoneDef } from '../shared/types';
 import { TIERS } from '../shared/types';
 import type { YardLayout } from '../shared/types';
@@ -45,6 +45,11 @@ export function BaySheet(props: {
    * does the rest. Absent while a single move is already placing.
    */
   onGroupMove?: ((containers: readonly ContainerDto[]) => void) | undefined;
+  /**
+   * السحب والإفلات: a container held and dropped on a legal cell of this
+   * same sheet — the caller runs it through the usual move confirmation.
+   */
+  onDragMove?: ((container: ContainerDto, to: Position) => void) | undefined;
   onPick: (container: ContainerDto) => void;
   onGateIn: (position: Position) => void;
   onMoveTo: (position: Position) => void;
@@ -62,6 +67,98 @@ export function BaySheet(props: {
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const canGroup = props.onGroupMove !== undefined && placing === null && props.canMove;
+
+  /**
+   * السحب والإفلات — «اذا ضليت ماسك حاوية جوا البلوك وامشي فيها براحتي»,
+   * and «النقل بعمله ع التلفون اغلب الوقت»: hold a container ~0.4s and it
+   * comes off the grid under the finger; the cells that take it glow; let
+   * go over one and the usual confirmation moves it — card and all. A
+   * quick tap stays a tap. Pointer events serve mouse and touch alike,
+   * and the taken cells carry touch-action:none so the browser never
+   * turns the drag into a scroll (the grid still scrolls from its empty
+   * ground and edges).
+   */
+  const [drag, setDrag] = useState<{
+    container: ContainerDto;
+    x: number;
+    y: number;
+    live: boolean;
+  } | null>(null);
+  const [hoverCell, setHoverCell] = useState<string | null>(null);
+  const holdTimer = useRef<number | null>(null);
+  const downAt = useRef<{ x: number; y: number; container: ContainerDto } | null>(null);
+  /** The click that trails a finished drag must not open a card. */
+  const dragHappened = useRef(false);
+  const canDrag = props.canMove && placing === null && !selecting;
+
+  /** Where the dragged container may land in THIS sheet: cell → position. */
+  const dragTargets = useMemo((): ReadonlyMap<string, Position> => {
+    const map = new Map<string, Position>();
+    if (drag === null) return map;
+    for (const spot of bayLandings(
+      props.layout,
+      zone,
+      bay,
+      props.containers,
+      drag.container.size,
+      drag.container.id,
+    )) {
+      const cell = `${String(spot.stack)}|${spot.tier}`;
+      if (!map.has(cell)) map.set(cell, spot);
+    }
+    return map;
+  }, [drag, props.layout, props.containers, zone, bay]);
+
+  const endDrag = (): void => {
+    if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    downAt.current = null;
+    setDrag(null);
+    setHoverCell(null);
+    window.setTimeout(() => {
+      dragHappened.current = false;
+    }, 80);
+  };
+
+  // The window listeners live for the length of ONE drag; everything they
+  // read rides in refs so the subscription never churns per pointer frame.
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+  const targetsRef = useRef(dragTargets);
+  targetsRef.current = dragTargets;
+  const dropRef = useRef(props.onDragMove);
+  dropRef.current = props.onDragMove;
+  const dragActive = drag !== null;
+  useEffect(() => {
+    if (!dragActive) return;
+    const cellUnder = (event: PointerEvent): string | null =>
+      document
+        .elementFromPoint(event.clientX, event.clientY)
+        ?.closest('[data-drop-cell]')
+        ?.getAttribute('data-drop-cell') ?? null;
+    const onMove = (event: PointerEvent): void => {
+      event.preventDefault();
+      setDrag((current) =>
+        current === null ? null : { ...current, x: event.clientX, y: event.clientY },
+      );
+      setHoverCell(cellUnder(event));
+    };
+    const onUp = (event: PointerEvent): void => {
+      const cell = cellUnder(event);
+      const landing = cell === null ? undefined : targetsRef.current.get(cell);
+      const mover = dragRef.current?.container;
+      endDrag();
+      if (landing !== undefined && mover !== undefined) dropRef.current?.(mover, landing);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', endDrag);
+    return () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', endDrag);
+    };
+  }, [dragActive]);
 
   const standing = useMemo(() => {
     const all = toStanding(props.containers);
@@ -177,11 +274,46 @@ export function BaySheet(props: {
     if (view.kind === 'taken') {
       const container = view.container;
       const checked = selecting && selected.has(container.id);
+      const beingDragged = drag !== null && drag.container.id === container.id;
       return (
         <button
           key={`${String(stack)}${tier}`}
           type="button"
+          onPointerDown={(event) => {
+            if (!canDrag || props.onDragMove === undefined) return;
+            downAt.current = { x: event.clientX, y: event.clientY, container };
+            if (holdTimer.current !== null) window.clearTimeout(holdTimer.current);
+            holdTimer.current = window.setTimeout(() => {
+              const held = downAt.current;
+              if (held !== null && held.container.id === container.id) {
+                dragHappened.current = true;
+                setDrag({ container, x: held.x, y: held.y, live: true });
+              }
+            }, 400);
+          }}
+          onPointerMove={(event) => {
+            const held = downAt.current;
+            if (drag !== null || held === null) return;
+            // A slip before the hold fires is a scroll, not a lift.
+            if (
+              Math.abs(event.clientX - held.x) + Math.abs(event.clientY - held.y) > 10 &&
+              holdTimer.current !== null
+            ) {
+              window.clearTimeout(holdTimer.current);
+              holdTimer.current = null;
+              downAt.current = null;
+            }
+          }}
+          onPointerUp={() => {
+            if (drag === null && holdTimer.current !== null) {
+              window.clearTimeout(holdTimer.current);
+              holdTimer.current = null;
+              downAt.current = null;
+            }
+          }}
           onClick={() => {
+            // The click that trails a drag is the drag's own echo.
+            if (dragHappened.current) return;
             // تحديد للنقل: a tap marks the container for the group instead
             // of opening its card.
             if (selecting) {
@@ -206,7 +338,9 @@ export function BaySheet(props: {
             (container.size === 40
               ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
               : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950') +
-            (checked ? ' ring-2 ring-emerald-600' : '')
+            (checked ? ' ring-2 ring-emerald-600' : '') +
+            (canDrag ? ' touch-none select-none' : '') +
+            (beingDragged ? ' opacity-40' : '')
           }
           title={
             container.bill === ''
@@ -249,31 +383,41 @@ export function BaySheet(props: {
     // While placing, the cells that actually take the container glow — the
     // rest stay plain, so «فارغ» stops promising ground a forty's partner
     // bay has already spent. The SUGGESTED cells among them glow darker:
-    // the yard's own habits, offered, never imposed.
+    // the yard's own habits, offered, never imposed. And while a container
+    // is HELD, the cells that take it glow the same way — let go and it
+    // lands.
     const key = `${String(stack)}|${tier}`;
     const lands = landable !== null && landable.has(key);
     const advised = lands && suggested.has(key);
+    const catches = drag !== null && dragTargets.has(key);
+    const hovered = catches && hoverCell === key;
     return (
       <button
         key={`${String(stack)}${tier}`}
         type="button"
         disabled={!mayPlace}
         title={advised ? AR.suggestedCellTitle : undefined}
+        data-drop-cell={key}
         onClick={() => {
+          if (dragHappened.current) return;
           setPicked(isPicked ? null : { stack, tier });
         }}
         className={
           'h-14 rounded-lg border text-[10px] font-semibold transition-colors ' +
-          (isPicked
-            ? 'border-emerald-600 bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
-            : advised
-              ? 'border-emerald-600 bg-emerald-200 font-bold text-emerald-900 ring-1 ring-emerald-500 hover:border-emerald-700 dark:bg-emerald-900 dark:text-emerald-100'
-              : lands
-                ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:border-emerald-600 dark:bg-emerald-950 dark:text-emerald-300'
-                : 'border-dashed border-line-strong bg-sunken text-faint hover:border-blue-400 disabled:hover:border-line-strong')
+          (hovered
+            ? 'border-emerald-700 bg-emerald-300 font-bold text-emerald-950 ring-2 ring-emerald-600'
+            : catches
+              ? 'border-emerald-500 bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+              : isPicked
+                ? 'border-emerald-600 bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
+                : advised
+                  ? 'border-emerald-600 bg-emerald-200 font-bold text-emerald-900 ring-1 ring-emerald-500 hover:border-emerald-700 dark:bg-emerald-900 dark:text-emerald-100'
+                  : lands
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 hover:border-emerald-600 dark:bg-emerald-950 dark:text-emerald-300'
+                    : 'border-dashed border-line-strong bg-sunken text-faint hover:border-blue-400 disabled:hover:border-line-strong')
         }
       >
-        {advised ? AR.slotSuggested : AR.slotEmpty}
+        {catches ? AR.dropHere : advised ? AR.slotSuggested : AR.slotEmpty}
       </button>
     );
   };
@@ -390,6 +534,7 @@ export function BaySheet(props: {
         </div>
         <p className="mt-2 text-xs leading-5 text-faint" dir="rtl">
           {AR.tierCName} · {AR.tierBName} · {AR.tierAName} — {AR.fortySpans}
+          {canDrag && props.onDragMove !== undefined ? ` — ${AR.dragHint}` : ''}
         </p>
         {landable !== null && (
           <p
@@ -443,6 +588,17 @@ export function BaySheet(props: {
           </Button>
         </div>
       </div>
+
+      {/* The held container rides under the finger. */}
+      {drag !== null && (
+        <div
+          className="pointer-events-none fixed z-50 -translate-x-1/2 -translate-y-full rounded-lg border-2 border-emerald-600 bg-surface px-2 py-1 font-mono text-sm font-bold text-ink shadow-xl"
+          style={{ left: drag.x, top: drag.y - 8 }}
+          dir="ltr"
+        >
+          {drag.container.number}
+        </div>
+      )}
     </div>
   );
 }

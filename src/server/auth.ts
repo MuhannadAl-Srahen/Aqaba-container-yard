@@ -13,8 +13,13 @@ import { getSetting, setSetting } from './db';
 const PASSWORD_KEY = 'password';
 const COOKIE_SECRET_KEY = 'cookie_secret';
 
-/** Two weeks — a yard PC stays signed in between shifts without being eternal. */
-const SESSION_MS = 14 * 24 * 60 * 60 * 1000;
+/**
+ * One hour of stillness and the door closes — «واحد بفتح تلفونه او كمبيوتر
+ * بعدين بدو يجي يفتح بفتح مره ثانية دون ما يدخل كلمة السر». The client
+ * renews the hour on real human touch (a throttled ping), so a working
+ * clerk is never interrupted; a phone left in a pocket signs itself out.
+ */
+export const SESSION_MS = 60 * 60 * 1000;
 
 export const SESSION_COOKIE = 'yard_session';
 

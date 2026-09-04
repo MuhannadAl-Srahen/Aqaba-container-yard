@@ -417,14 +417,19 @@ export function ReportsScreen(props: {
 
   // A register left open on the office screen keeps up with the gate on its
   // own. Slower than the map — a sheet being read should not reshuffle under
-  // the reader every few seconds.
+  // the reader every few seconds. And a LONG register slower still: «بصير
+  // تعليق ع النظام وقت اعرض كل الكشف» — rebuilding fifteen thousand cells
+  // every twenty seconds is the hang he felt, so past three hundred rows
+  // the refresh breathes once a minute and a half.
   const LIVE = 20_000;
+  const liveFor = (count: number | undefined): number =>
+    (count ?? 0) > 300 ? 90_000 : LIVE;
 
   const gate = useQuery({
     queryKey: ['report-gate', tab, fromIso, toIso],
     queryFn: () => api.reportGate(tab === 'in' ? 'IN' : 'OUT', fromIso, toIso),
     enabled: valid && (tab === 'in' || tab === 'out'),
-    refetchInterval: LIVE,
+    refetchInterval: (query) => liveFor(query.state.data?.rows.length),
   });
   const daily = useQuery({
     queryKey: ['report-daily', fromIso, toIso],
@@ -448,13 +453,13 @@ export function ReportsScreen(props: {
           ? api.reportTruck(truck.trim(), fromIso, toIso)
           : api.reportTruckAll(fromIso, toIso),
     enabled: valid && tab === 'truck',
-    refetchInterval: LIVE,
+    refetchInterval: (query) => liveFor(query.state.data?.rows.length),
   });
   const standing = useQuery({
     queryKey: ['report-standing'],
     queryFn: api.reportStanding,
     enabled: tab === 'standing',
-    refetchInterval: LIVE,
+    refetchInterval: (query) => liveFor(query.state.data?.rows.length),
   });
   const billReport = useQuery({
     queryKey: ['report-bill', billReady ? bill.trim() : 'all'],

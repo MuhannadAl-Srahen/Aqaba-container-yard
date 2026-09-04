@@ -1153,6 +1153,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             setOpenBay(null);
             setGroupMove(group);
           }}
+          onDragMove={
+            may('MOVE')
+              ? (container, to) => {
+                  setConfirmMove({ container, to });
+                }
+              : undefined
+          }
           onPick={(container) => {
             setOpenBay(null);
             setSelected(container);

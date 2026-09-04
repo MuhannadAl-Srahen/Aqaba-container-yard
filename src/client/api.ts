@@ -539,6 +539,10 @@ export const api = {
       body: JSON.stringify({ ids, to }),
     }),
 
+  /** تجديد الجلسة بلمسة إنسان — pinged on real interaction, throttled. */
+  refreshSession: (): Promise<{ ok: boolean }> =>
+    request('/api/session/refresh', { method: 'POST', body: JSON.stringify({}) }),
+
   /** تغيير كلمة سر المالك — his current word first, six letters at least. */
   changeOwnerPassword: (current: string, password: string): Promise<{ ok: boolean }> =>
     request('/api/owner-password', {
