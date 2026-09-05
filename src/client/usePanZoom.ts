@@ -193,18 +193,23 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
     }
   }, []);
 
+  /** Zoom about the container's centre — the buttons' move, callable too. */
+  const zoomCenter = useCallback(
+    (factor: number) => {
+      const el = containerRef.current;
+      if (el === null) return;
+      const rect = el.getBoundingClientRect();
+      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, factor);
+    },
+    [zoomAt],
+  );
+
   const zoomButtons = {
     zoomIn: () => {
-      const el = containerRef.current;
-      if (el === null) return;
-      const rect = el.getBoundingClientRect();
-      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1.3);
+      zoomCenter(1.3);
     },
     zoomOut: () => {
-      const el = containerRef.current;
-      if (el === null) return;
-      const rect = el.getBoundingClientRect();
-      zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1 / 1.3);
+      zoomCenter(1 / 1.3);
     },
     fit,
   };
@@ -214,6 +219,7 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
     attachContainer,
     view,
     wasDrag,
+    zoomCenter,
     zoomButtons,
     handlers: {
       onPointerDown,

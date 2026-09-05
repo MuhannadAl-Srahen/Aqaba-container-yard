@@ -2699,3 +2699,21 @@ strings. Verified by driving the real build headless against a THROWAWAY
 seeded DB (playwright-core + Edge): screenshots confirmed the geometry,
 the welded-pair forties, and the amber search glow — the live data was
 never touched. 381 tests, all gates green.
+
+He answered from the live site within minutes, three times: the forties
+looked «شكل متكرر» (each drawn once per half of the welded pair), the
+squares were «جدا صغيرة», and the contents view deserved to be BIGGER
+than the other paints («تجعل شكل خريطة المحتويات اكبر من باقي الخرائط»)
+— zone D, five stacks wide, was the look he wanted everywhere. Three
+answers, same stage: the pair's two grids merged into ONE grid of lanes
+— a spanning forty is now a single wide square drawn once (a twenty
+fills only its own bay's half of the lane, an empty lane is one faint
+square, ground a bay lacks draws nothing); the tile grew to 96 units in
+the contents paint (zone-panel slack absorbed it); and switching to
+المحتويات steps the camera in ×1.5 about the viewport centre — stepping
+back out on leaving — via a new `zoomCenter` the zoom buttons now share
+(usePanZoom), seeded so a session that OPENS on the saved contents view
+starts closer too. Verified again headless on the throwaway DB: nine
+forties = nine wide squares, no echo; the A-block «missing» boxes turned
+out to be my own invalid seed (zone A's ground starts at stack 3 — the
+real server refuses such slots, the miniature was honest).

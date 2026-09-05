@@ -45,6 +45,9 @@ import { Button, Confirm, Toast } from './ui';
 /** Below this zoom a cell is a few pixels — hover feedback means nothing. */
 const HOVER_MIN_SCALE = 0.5;
 
+/** How much closer the camera steps when the contents paint switches on. */
+const DETAIL_ZOOM = 1.5;
+
 const EMPTY_LOAD: readonly ContainerDto[] = [];
 
 /**
@@ -362,6 +365,23 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   const pz = usePanZoom(layout.width, layout.height);
   const { wasDrag } = pz;
+
+  /**
+   * «تجعل شكل خريطة المحتويات اكبر من باقي الخرائط»: entering the contents
+   * paint steps the camera closer so the miniatures read at a glance, and
+   * leaving it steps back out by the same amount. Seeded as 'fill' so a
+   * session that OPENS on the saved contents view gets its step-in too,
+   * right after the initial fit has landed.
+   */
+  const paintBefore = useRef<'fill' | 'bills' | 'detail'>('fill');
+  const { zoomCenter } = pz;
+  useEffect(() => {
+    const before = paintBefore.current;
+    paintBefore.current = paint;
+    if (before === paint) return;
+    if (paint === 'detail') zoomCenter(DETAIL_ZOOM);
+    else if (before === 'detail') zoomCenter(1 / DETAIL_ZOOM);
+  }, [paint, zoomCenter]);
 
   const refresh = (message: string): void => {
     void queryClient.invalidateQueries({ queryKey: ['state'] });

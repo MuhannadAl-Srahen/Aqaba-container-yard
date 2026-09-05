@@ -184,6 +184,10 @@ function RunCell(props: {
   // عرض المحتويات: a loaded tile is drawn as its own sheet in miniature —
   // the fullness paint steps aside, because the squares themselves say it.
   const detail = view.detail && !cell.empty;
+  // «المربعات جدا صغيرة حاول على تكبيرها»: the contents tile grows taller,
+  // as far as its zone panel's slack allows — never past it, never smaller
+  // than the ordinary tile.
+  const cellH = detail ? Math.max(CELL_H, Math.min(96, zone.h - TITLE_H - 8)) : CELL_H;
 
   const fill = detail
     ? isTarget
@@ -251,7 +255,7 @@ function RunCell(props: {
         x={x + 2}
         y={y}
         width={width}
-        height={CELL_H}
+        height={cellH}
         rx={5}
         fill={fill}
         stroke={stroke}
@@ -293,47 +297,97 @@ function RunCell(props: {
             : `${String(cell.boxes)} / ${String(cell.capacity)}`}
         </text>
       )}
-      {/* عرض المحتويات: per bay of the tile, its sheet in miniature — stack 1
-          at the left and the face at the right, tier C over B over A, exactly
-          the grid a tap would open. A spanning forty shows in both bays it
-          covers, as the sheet itself does. */}
+      {/* عرض المحتويات: the tile's ground as ONE grid, stack 1 at the left
+          and the face at the right, tier C over B over A. Each column is a
+          LANE across the whole cell — «اريد شكل افضل او موحد للأربعين»: a
+          forty covering both bays of a welded pair is one wide square, drawn
+          once, exactly as the steel lies; a twenty fills only the half of
+          the lane that is its own bay. */}
       {detail &&
-        cell.bays.map((bay, at) => {
-          const stacks = [...(zone.stacks[String(bay)] ?? [])].sort((a, b) => a - b);
-          if (stacks.length === 0) return null;
-          const slots = new Map<string, ContainerDto>();
-          for (const container of view.loads.get(bayKey(zone.zone, bay)) ?? []) {
-            if (container.position !== null) {
-              slots.set(`${String(container.position.stack)}|${container.position.tier}`, container);
-            }
+        (() => {
+          const stackSet = new Set<number>();
+          for (const bay of cell.bays) {
+            for (const stack of zone.stacks[String(bay)] ?? []) stackSet.add(stack);
           }
-          const sx = x + at * cellW + 4;
-          const colW = (cellW - 8) / stacks.length;
-          return (
-            <g key={bay}>
-              {stacks.map((stack, si) =>
-                TIERS_TOP_DOWN.map((tier, ti) => {
-                  const holder = slots.get(`${String(stack)}|${tier}`);
-                  return (
-                    <rect
-                      key={`${String(stack)}|${tier}`}
-                      x={sx + si * colW}
-                      y={y + 19 + ti * 14}
-                      width={Math.max(colW - 1.5, 1)}
-                      height={12.5}
-                      rx={1.5}
-                      fill={holder === undefined ? 'var(--yard-slot)' : boxInk(holder)}
-                    />
+          const stacks = [...stackSet].sort((a, b) => a - b);
+          if (stacks.length === 0) return null;
+          // Who holds each half of each lane's slot, by the cell's bay order.
+          const slots = new Map<string, (ContainerDto | undefined)[]>();
+          cell.bays.forEach((bay, at) => {
+            for (const container of view.loads.get(bayKey(zone.zone, bay)) ?? []) {
+              if (container.position === null) continue;
+              const slotKey = `${String(container.position.stack)}|${container.position.tier}`;
+              const halves =
+                slots.get(slotKey) ??
+                Array.from({ length: cell.bays.length }, (): ContainerDto | undefined => undefined);
+              halves[at] = container;
+              slots.set(slotKey, halves);
+            }
+          });
+          const gx = x + 5;
+          const colW = (width - 6) / stacks.length;
+          const top = y + 18;
+          const rowH = (cellH - 22) / TIERS_TOP_DOWN.length;
+          const squares: ReactElement[] = [];
+          stacks.forEach((stack, si) => {
+            TIERS_TOP_DOWN.forEach((tier, ti) => {
+              const slotKey = `${String(stack)}|${tier}`;
+              const halves = slots.get(slotKey);
+              const sqX = gx + si * colW;
+              const sqY = top + ti * rowH;
+              const sqW = Math.max(colW - 2, 1);
+              const sqH = Math.max(rowH - 2, 1);
+              const one = halves?.find((holder) => holder !== undefined);
+              // An empty lane is ONE faint square — not a pair of echoes.
+              if (one === undefined) {
+                if (cell.bays.some((bay) => (zone.stacks[String(bay)] ?? []).includes(stack))) {
+                  squares.push(
+                    <rect key={slotKey} x={sqX} y={sqY} width={sqW} height={sqH} rx={2} fill="var(--yard-slot)" />,
                   );
-                }),
-              )}
-            </g>
-          );
-        })}
+                }
+                return;
+              }
+              const whole =
+                one !== undefined &&
+                cell.bays.every(
+                  (bay, at) =>
+                    halves?.[at]?.id === one.id ||
+                    !(zone.stacks[String(bay)] ?? []).includes(stack),
+                );
+              if (whole) {
+                // One box over the whole lane — a forty across its pair, or
+                // anything standing on a lone bay's ground.
+                squares.push(
+                  <rect key={slotKey} x={sqX} y={sqY} width={sqW} height={sqH} rx={2} fill={boxInk(one)} />,
+                );
+                return;
+              }
+              // Half by half: each bay's own ground, its own occupant or a
+              // faint empty slot; ground the bay does not have draws nothing.
+              const halfW = Math.max((sqW - 1) / cell.bays.length, 1);
+              cell.bays.forEach((bay, at) => {
+                if (!(zone.stacks[String(bay)] ?? []).includes(stack)) return;
+                const holder = halves?.[at];
+                squares.push(
+                  <rect
+                    key={`${slotKey}|${String(bay)}`}
+                    x={sqX + at * (halfW + 1)}
+                    y={sqY}
+                    width={halfW}
+                    height={sqH}
+                    rx={2}
+                    fill={holder === undefined ? 'var(--yard-slot)' : boxInk(holder)}
+                  />,
+                );
+              });
+            });
+          });
+          return <g>{squares}</g>;
+        })()}
       {noted && (
         <circle
           cx={detail ? x + width - 6 : x + (width + 4) / 2}
-          cy={detail ? y + 10 : y + CELL_H - 8}
+          cy={detail ? y + 10 : y + cellH - 8}
           r={3.5}
           fill={C.match}
         />
@@ -365,7 +419,7 @@ function RunCell(props: {
           x={x + at * cellW}
           y={y}
           width={cellW}
-          height={CELL_H}
+          height={cellH}
           fill="transparent"
           onClick={() => {
             view.onBayClick(zone.zone, bay);
