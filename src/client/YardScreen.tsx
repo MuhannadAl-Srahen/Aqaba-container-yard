@@ -8,7 +8,7 @@ import { fillPlan, planGroupMove, zoneOf } from '../shared/rules';
 import { TIERS } from '../shared/types';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
-import { YardMap, computeLayout } from './YardMap';
+import { YardMap, computeLayout, scaleLayout } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard, type CardJob } from './PrintCard';
@@ -47,6 +47,9 @@ const HOVER_MIN_SCALE = 0.5;
 
 /** How much closer the camera steps when the contents paint switches on. */
 const DETAIL_ZOOM = 1.5;
+
+/** How much larger the contents paint draws the whole plan — that mode only. */
+const DETAIL_SCALE = 1.8;
 
 const EMPTY_LOAD: readonly ContainerDto[] = [];
 
@@ -236,10 +239,41 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   useEffect(() => {
     if (!yards.includes(yardView)) setYardView(2);
   }, [yards, yardView]);
-  const layout = useMemo(
-    () => computeLayout(yardSlice(yardLayout, yardView)),
-    [yardLayout, yardView],
-  );
+  /**
+   * تلوين الخريطة: بالامتلاء كما كانت دائماً، أو بفئات البوالص — «تلون
+   * الخريطة بناءا على انو عدد البوليصات يعني فوق ال 5 او فوق ال 10» — أو
+   * عرض المحتويات: «تعرض ما داخل البلوك دون ما اكبس على البلوك». The choice
+   * is remembered on this device so the map opens the way he left it; the
+   * old look stays the first button and the default, untouched.
+   */
+  const [paint, setPaint] = useState<'fill' | 'bills' | 'detail'>(() => {
+    try {
+      const saved = localStorage.getItem('yard-paint');
+      return saved === 'bills' || saved === 'detail' ? saved : 'fill';
+    } catch {
+      return 'fill';
+    }
+  });
+  const choosePaint = (value: 'fill' | 'bills' | 'detail'): void => {
+    setPaint(value);
+    try {
+      localStorage.setItem('yard-paint', value);
+    } catch {
+      // A browser that blocks storage keeps the choice for the session only.
+    }
+  };
+
+  /**
+   * «حتى لو عنى ذلك تكبير الزون فقط في شكل خريطة المحتويات … باقي الخرائط
+   * مثل البوالص والامتلاء لا تتغير»: the contents paint draws the WHOLE
+   * plan 1.8× larger, so a ten-stack bay's twenties get real width instead
+   * of slivers — and the fill and bills maps keep the drawing exactly as it
+   * always was, no added whiteness anywhere.
+   */
+  const layout = useMemo(() => {
+    const base = computeLayout(yardSlice(yardLayout, yardView));
+    return paint === 'detail' ? scaleLayout(base, DETAIL_SCALE) : base;
+  }, [yardLayout, yardView, paint]);
 
   /**
    * A typed address is a search too: «2-E-18-01-A» asks where that is, and
@@ -299,29 +333,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       .map((stop) => AR.billSpreadStop(stop.zone, stop.count))
       .join(' · ');
 
-  /**
-   * تلوين الخريطة: بالامتلاء كما كانت دائماً، أو بفئات البوالص — «تلون
-   * الخريطة بناءا على انو عدد البوليصات يعني فوق ال 5 او فوق ال 10» — أو
-   * عرض المحتويات: «تعرض ما داخل البلوك دون ما اكبس على البلوك». The choice
-   * is remembered on this device so the map opens the way he left it; the
-   * old look stays the first button and the default, untouched.
-   */
-  const [paint, setPaint] = useState<'fill' | 'bills' | 'detail'>(() => {
-    try {
-      const saved = localStorage.getItem('yard-paint');
-      return saved === 'bills' || saved === 'detail' ? saved : 'fill';
-    } catch {
-      return 'fill';
-    }
-  });
-  const choosePaint = (value: 'fill' | 'bills' | 'detail'): void => {
-    setPaint(value);
-    try {
-      localStorage.setItem('yard-paint', value);
-    } catch {
-      // A browser that blocks storage keeps the choice for the session only.
-    }
-  };
   const billPaint = useMemo(
     () => (paint === 'bills' ? billBands(containers) : null),
     [paint, containers],
@@ -368,10 +379,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   /**
    * «تجعل شكل خريطة المحتويات اكبر من باقي الخرائط»: entering the contents
-   * paint steps the camera closer so the miniatures read at a glance, and
-   * leaving it steps back out by the same amount. Seeded as 'fill' so a
-   * session that OPENS on the saved contents view gets its step-in too,
-   * right after the initial fit has landed.
+   * paint steps the camera closer so the miniatures read at a glance. The
+   * layout swap between the modes already refits the whole yard each way —
+   * the step-in lands on top of that fresh fit, and leaving needs nothing.
+   * Seeded as 'fill' so a session that OPENS on the saved contents view
+   * gets its step-in too.
    */
   const paintBefore = useRef<'fill' | 'bills' | 'detail'>('fill');
   const { zoomCenter } = pz;
@@ -380,7 +392,6 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     paintBefore.current = paint;
     if (before === paint) return;
     if (paint === 'detail') zoomCenter(DETAIL_ZOOM);
-    else if (before === 'detail') zoomCenter(1 / DETAIL_ZOOM);
   }, [paint, zoomCenter]);
 
   const refresh = (message: string): void => {
@@ -501,6 +512,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const zoneRows = zonesQuery.data?.zones;
   const dragZones = useMemo(() => {
     if (!isOwner || zoneRows === undefined || zoneRows.length === 0) return null;
+    // The contents paint draws the plan scaled — a drop there would save the
+    // scaled coordinates as real ones. Zones are rearranged in the fill map.
+    if (paint === 'detail') return null;
     return {
       names: new Set(zoneRows.map((zone) => zone.zone)),
       onDrop: (name: string, x: number, y: number): void => {
@@ -517,7 +531,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           });
       },
     };
-  }, [isOwner, zoneRows, queryClient]);
+  }, [isOwner, zoneRows, paint, queryClient]);
 
   const mapProps = useMemo(
     () => ({

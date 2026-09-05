@@ -54,6 +54,29 @@ export interface MapLayout {
   readonly landmarks: readonly Landmark[];
 }
 
+/**
+ * The same drawing, larger — «حتى لو عنى ذلك تكبير الزون فقط في شكل خريطة
+ * المحتويات»: the contents paint scales every zone and landmark uniformly,
+ * so ten-stack bays gain the width their twenties need, while the titles,
+ * paddings and numbers keep their size and the extra room all goes to the
+ * miniatures. The fill and bills maps never pass through here.
+ */
+export function scaleLayout(layout: MapLayout, factor: number): MapLayout {
+  const grow = <T extends { x: number; y: number; w: number; h: number }>(rect: T): T => ({
+    ...rect,
+    x: rect.x * factor,
+    y: rect.y * factor,
+    w: rect.w * factor,
+    h: rect.h * factor,
+  });
+  return {
+    width: (layout.width - OUTER_PAD * 2) * factor + OUTER_PAD * 2,
+    height: (layout.height - OUTER_PAD * 2) * factor + OUTER_PAD * 2,
+    zones: layout.zones.map(grow),
+    landmarks: layout.landmarks.map(grow),
+  };
+}
+
 /** Canvas geometry: the decoded layout plus breathing room. */
 export function computeLayout(layout: YardLayout): MapLayout {
   let maxX = 0;
@@ -184,10 +207,13 @@ function RunCell(props: {
   // عرض المحتويات: a loaded tile is drawn as its own sheet in miniature —
   // the fullness paint steps aside, because the squares themselves say it.
   const detail = view.detail && !cell.empty;
-  // «المربعات جدا صغيرة حاول على تكبيرها»: the contents tile grows taller,
-  // as far as its zone panel's slack allows — never past it, never smaller
-  // than the ordinary tile.
-  const cellH = detail ? Math.max(CELL_H, Math.min(96, zone.h - TITLE_H - 8)) : CELL_H;
+  // «المربعات جدا صغيرة حاول على تكبيرها»: in the contents paint EVERY tile
+  // grows taller — the empty ones too, or the strip's bottom line turns
+  // ragged («اسفل المربعات الشكل جدا سيئ») — as far as the zone panel's
+  // slack allows, never past it, never smaller than the ordinary tile.
+  const cellH = view.detail
+    ? Math.max(CELL_H, Math.min(110, zone.h - TITLE_H - 8))
+    : CELL_H;
 
   const fill = detail
     ? isTarget
@@ -267,9 +293,9 @@ function RunCell(props: {
           needs the room. */}
       <text
         x={x + (width + 4) / 2}
-        y={detail ? y + 13 : y + 25}
+        y={detail ? y + 14 : y + cellH / 2 - 8}
         textAnchor="middle"
-        fontSize={detail ? 10.5 : 15}
+        fontSize={detail ? 12 : 15}
         fontWeight={700}
         fill={textColor}
         direction="ltr"
@@ -285,7 +311,7 @@ function RunCell(props: {
       {!detail && (
         <text
           x={x + (width + 4) / 2}
-          y={y + 50}
+          y={y + cellH / 2 + 17}
           textAnchor="middle"
           fontSize={bayBand !== null ? 11 : 12}
           fontWeight={bayBand !== null ? 700 : 600}
@@ -326,8 +352,8 @@ function RunCell(props: {
           });
           const gx = x + 5;
           const colW = (width - 6) / stacks.length;
-          const top = y + 18;
-          const rowH = (cellH - 22) / TIERS_TOP_DOWN.length;
+          const top = y + 20;
+          const rowH = (cellH - 24) / TIERS_TOP_DOWN.length;
           const squares: ReactElement[] = [];
           stacks.forEach((stack, si) => {
             TIERS_TOP_DOWN.forEach((tier, ti) => {
@@ -335,7 +361,8 @@ function RunCell(props: {
               const halves = slots.get(slotKey);
               const sqX = gx + si * colW;
               const sqY = top + ti * rowH;
-              const sqW = Math.max(colW - 2, 1);
+              // The gap must never eat a narrow lane — it shrinks with it.
+              const sqW = Math.max(colW - 2, colW * 0.72, 1);
               const sqH = Math.max(rowH - 2, 1);
               const one = halves?.find((holder) => holder !== undefined);
               // An empty lane is ONE faint square — not a pair of echoes.
@@ -364,7 +391,7 @@ function RunCell(props: {
               }
               // Half by half: each bay's own ground, its own occupant or a
               // faint empty slot; ground the bay does not have draws nothing.
-              const halfW = Math.max((sqW - 1) / cell.bays.length, 1);
+              const halfW = Math.max((sqW - 1) / cell.bays.length, sqW * 0.42, 1);
               cell.bays.forEach((bay, at) => {
                 if (!(zone.stacks[String(bay)] ?? []).includes(stack)) return;
                 const holder = halves?.[at];

@@ -2717,3 +2717,25 @@ starts closer too. Verified again headless on the throwaway DB: nine
 forties = nine wide squares, no echo; the A-block «missing» boxes turned
 out to be my own invalid seed (zone A's ground starts at stack 3 — the
 real server refuses such slots, the miniature was honest).
+
+Round three, straight from the live dark map: the twenties were STILL
+slivers on ten-stack bays («انظر الى قسم العشرين، انه سيئ جدا»), the
+strip's bottom line was ragged («اسفل المربعات الشكل جدا سيئ … مشكلة
+بspacing») — loaded tiles stood 96 tall beside empty ones at 66 — and he
+licensed the honest fix three times over: enlarge the ZONES in the
+contents paint only, the fill and bills maps untouched («لا مشكلة لو
+كبرت ال زون … باقي الخرائط لا تتغير», «قبل كانت افضل» about fill's own
+whiteness). So: `scaleLayout` draws the whole plan — zones, landmarks,
+custom zones alike — at 1.8× in the contents paint alone; titles,
+paddings and digits keep their size, so all the gained ground goes to
+the lanes (a ten-stack bay's twenty went from a 2.8-unit needle to a
+~7-unit column). Every tile, empty included, now stands the same 110
+tall with its two lines centred (the arithmetic collapses to the old
+25/50 exactly when the paint is off — fill and bills render to the
+pixel as before), gaps shrink proportionally so they never eat a narrow
+lane, and the owner's zone-dragging pauses inside the contents paint —
+a drop there would have saved 1.8× coordinates as real ones. The paint
+switch refits the camera to whichever drawing it enters, stepping in
+×1.5 on the contents side. Verified headless on the throwaway DB: a
+seeded ten-stack bay of 25 twenties reads as solid columns, and the
+strips' bottoms sit on one line.
