@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 
 import { openDatabase } from './db';
 import { buildApp } from './app';
+import { startNightly } from './nightly';
 
 /**
  * One process serves everything: the API under /api and, when a build exists,
@@ -54,6 +55,9 @@ app
   .listen({ port, host })
   .then(() => {
     console.log(`yard-web on http://${host}:${String(port)} — db: ${dataFile}`);
+    // النسخة الليلية: 02:30 بتوقيت عمّان، كل ليلة — وإلى البريد إن وُجدت
+    // إعدادات SMTP في البيئة.
+    startNightly(db);
   })
   .catch((error: unknown) => {
     console.error(error);

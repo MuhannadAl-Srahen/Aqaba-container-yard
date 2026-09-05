@@ -34,11 +34,13 @@ export default function App(): ReactElement {
    * الجلسة بلمسة إنسان، والسكون يقفل — «اذا طول وهو مش محرك ماوس او مش
    * كاتب اشي ع الكيبورد يطلب كلمة سر مره ثانية»: a real touch or keystroke
    * slides the server's hour along (a throttled ping — the map's automatic
-   * refreshes never count). And TEN MINUTES with neither closes the door
-   * itself: the session is signed out and the password screen returns. A
-   * working clerk never sees it; a device walked away from locks.
+   * refreshes never count). And HALF AN HOUR with neither closes the door
+   * itself — the owner widened it from ten minutes («خلي موضوع طلب كلمة
+   * السر نص ساعة اذا كان inactive»): the session is signed out and the
+   * password screen returns. A working clerk never sees it; a device
+   * walked away from locks.
    */
-  const IDLE_LOCK_MS = 10 * 60 * 1000;
+  const IDLE_LOCK_MS = 30 * 60 * 1000;
   const lastRenewal = useRef(0);
   const lastTouch = useRef(Date.now());
   const authorizedRef = useRef(false);

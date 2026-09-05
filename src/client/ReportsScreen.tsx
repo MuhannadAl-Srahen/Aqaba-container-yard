@@ -5,6 +5,7 @@ import type {
   DailyReportRow,
   GateReportRow,
   Handling,
+  MachineReportRow,
   PermitReportRow,
   StandingReportRow,
 } from '../shared/types';
@@ -40,7 +41,7 @@ import {
  * operations log lives on its own screen.
  */
 
-type Tab = 'in' | 'out' | 'standing' | 'daily' | 'truck' | 'bill' | 'permits';
+type Tab = 'in' | 'out' | 'standing' | 'daily' | 'machines' | 'truck' | 'bill' | 'permits';
 
 /** The bill cell is a doorway: tap it, get that bill's own sheet. */
 const billCell = (bill: string, onBill: (bill: string) => void): TableCell =>
@@ -289,12 +290,51 @@ function dailyModel(rows: readonly DailyReportRow[]): TableModel {
   return { head, body, footer, counted: true };
 }
 
+/**
+ * كشف إنتاجية الآليات — سجل «تم» ناطقاً: صف لكل (آلية، منفّذ) في الفترة،
+ * بعدد مهام الإدخال والتجهيز ومتوسط الزمن من إرسال الأمر حتى إنجازه.
+ */
+function machinesModel(rows: readonly MachineReportRow[]): TableModel {
+  const head = [
+    AR.colSeq,
+    AR.colMachine,
+    AR.colTaskDoer,
+    AR.colTasksIn,
+    AR.colTasksOut,
+    AR.colTasksTotal,
+    AR.colTaskSpeed,
+  ];
+  const body = rows.map((row, index) => [
+    cellText(String(index + 1)),
+    cellText(AR.machineName[row.machine]),
+    cellText(row.doer),
+    cellText(String(row.inDone)),
+    cellText(String(row.outDone)),
+    cellText(String(row.total)),
+    cellText(row.avgMinutes === null ? '—' : AR.taskMinutes(row.avgMinutes), row.avgMinutes ?? -1),
+  ]);
+  const footer =
+    rows.length === 0
+      ? null
+      : [
+          cellText(AR.totalRow),
+          cellText(''),
+          cellText(''),
+          cellText(String(rows.reduce((n, r) => n + r.inDone, 0))),
+          cellText(String(rows.reduce((n, r) => n + r.outDone, 0))),
+          cellText(String(rows.reduce((n, r) => n + r.total, 0))),
+          cellText(''),
+        ];
+  return { head, body, footer, counted: true };
+}
+
 const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['in', AR.reportIn],
   ['out', AR.reportOut],
   ['standing', AR.reportStanding],
   ['bill', AR.reportBill],
   ['daily', AR.reportDaily],
+  ['machines', AR.reportMachines],
   ['truck', AR.reportTruck],
   ['permits', AR.reportPermits],
 ];
@@ -440,6 +480,12 @@ export function ReportsScreen(props: {
     enabled: valid && tab === 'daily',
     refetchInterval: LIVE,
   });
+  const machines = useQuery({
+    queryKey: ['report-machines', fromIso, toIso],
+    queryFn: () => api.reportMachines(fromIso, toIso),
+    enabled: valid && tab === 'machines',
+    refetchInterval: LIVE,
+  });
   const truckReport = useQuery({
     queryKey: [
       'report-truck',
@@ -523,6 +569,8 @@ export function ReportsScreen(props: {
         return standingModel(standing.data?.rows ?? [], openBill);
       case 'daily':
         return dailyModel(daily.data?.rows ?? []);
+      case 'machines':
+        return machinesModel(machines.data?.rows ?? []);
       case 'truck':
         return truckModel(
           truckRows,
@@ -541,7 +589,7 @@ export function ReportsScreen(props: {
       case 'permits':
         return permitsModel(permits.data?.rows ?? [], openBill);
     }
-  }, [tab, gate.data, standing.data, daily.data, truckRows, billReport.data, permits.data, activeCarrier, truckReady, billReady]);
+  }, [tab, gate.data, standing.data, daily.data, machines.data, truckRows, billReport.data, permits.data, activeCarrier, truckReady, billReady]);
 
   // A register row carries its own card: no hunting the exact number down in
   // the search box to reprint the paper the driver already lost. The permits

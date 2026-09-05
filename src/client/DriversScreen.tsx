@@ -125,7 +125,7 @@ interface DriverGroup {
   readonly settled: boolean;
 }
 
-export function DriversScreen(props: { onBack: () => void }): ReactElement {
+export function DriversScreen(props: { isOwner: boolean; onBack: () => void }): ReactElement {
   const queryClient = useQueryClient();
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(ammanToday());
@@ -695,6 +695,8 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
         );
       })}
 
+      {props.isOwner && <MergeNames />}
+
       {error !== null && <p className="text-xs font-semibold text-red-600">{error}</p>}
       {toast !== null && <Toast message={toast} />}
 
@@ -743,6 +745,150 @@ export function DriversScreen(props: { onBack: () => void }): ReactElement {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * دمج أسماء السائقين المكررة — «حماد عودة» بثلاث صيغ يوزّع نقلاته على
+ * ثلاثة أسطر حتى يُدمج: the owner picks the canonical spelling, ticks the
+ * strays, and the whole book — hauls and fleet cards alike — reads one
+ * name. Owner-only; the server refuses everyone else regardless.
+ */
+function MergeNames(): ReactElement {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [keep, setKeep] = useState('');
+  const [drop, setDrop] = useState<readonly string[]>([]);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = window.setTimeout(() => {
+      setToast(null);
+    }, 3500);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [toast]);
+
+  const names = useQuery({
+    queryKey: ['driver-names'],
+    queryFn: api.driverNames,
+    enabled: open,
+    staleTime: 30_000,
+  });
+  const rows = names.data?.rows ?? [];
+  const candidates = rows.filter((row) => row.name !== keep);
+
+  const toggle = (name: string): void => {
+    setDrop((current) =>
+      current.includes(name) ? current.filter((entry) => entry !== name) : [...current, name],
+    );
+  };
+
+  const merge = (): void => {
+    setBusy(true);
+    api
+      .mergeDrivers(keep, drop)
+      .then(({ hauls, trucks }) => {
+        setToast(AR.mergeDone(hauls, trucks));
+        setKeep('');
+        setDrop([]);
+        void queryClient.invalidateQueries({ queryKey: ['driver-names'] });
+        void queryClient.invalidateQueries({ queryKey: ['drivers'] });
+        void queryClient.invalidateQueries({ queryKey: ['fleet'] });
+      })
+      .catch((failure: unknown) => {
+        setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+      })
+      .finally(() => {
+        setBusy(false);
+        setConfirming(false);
+      });
+  };
+
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-4 shadow-sm">
+      <button
+        type="button"
+        className="flex w-full items-center justify-between text-start"
+        onClick={() => {
+          setOpen((value) => !value);
+        }}
+      >
+        <span className="text-sm font-extrabold text-ink">{AR.mergeTitle}</span>
+        <span className="text-xs font-bold text-faint">{open ? '−' : '+'}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          <p className="text-xs leading-6 text-muted">{AR.mergeHint}</p>
+          <Field label={AR.mergeKeepLabel}>
+            <select
+              className={inputClass}
+              value={keep}
+              onChange={(event) => {
+                setKeep(event.target.value);
+                setDrop((current) => current.filter((entry) => entry !== event.target.value));
+              }}
+            >
+              <option value="">—</option>
+              {rows.map((row) => (
+                <option key={row.name} value={row.name}>
+                  {row.name} — {AR.haulsCount(row.hauls)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {keep !== '' && (
+            <Field label={AR.mergeDropLabel}>
+              <div className="grid max-h-64 grid-cols-1 gap-x-4 gap-y-1.5 overflow-y-auto sm:grid-cols-2">
+                {candidates.map((row) => (
+                  <label
+                    key={row.name}
+                    className="flex cursor-pointer items-center gap-2 text-sm text-ink"
+                  >
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-blue-700"
+                      checked={drop.includes(row.name)}
+                      onChange={() => {
+                        toggle(row.name);
+                      }}
+                    />
+                    {row.name}
+                    <span className="text-xs text-faint">({AR.haulsCount(row.hauls)})</span>
+                  </label>
+                ))}
+              </div>
+            </Field>
+          )}
+          <Button
+            disabled={busy || keep === '' || drop.length === 0}
+            onClick={() => {
+              setConfirming(true);
+            }}
+          >
+            {AR.mergeAction}
+          </Button>
+        </div>
+      )}
+      {confirming && (
+        <Confirm
+          title={AR.mergeConfirmTitle}
+          body={AR.mergeConfirmBody(keep, drop.length)}
+          confirmLabel={AR.mergeAction}
+          danger
+          busy={busy}
+          onConfirm={merge}
+          onCancel={() => {
+            setConfirming(false);
+          }}
+        />
+      )}
+      {toast !== null && <Toast message={toast} />}
+    </section>
   );
 }
 

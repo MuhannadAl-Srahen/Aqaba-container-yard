@@ -13,6 +13,7 @@ import type {
   RetiredZoneDto,
   Handling,
   LogReportRow,
+  MachineReportRow,
   MovementDto,
   MovementType,
   Permission,
@@ -416,6 +417,98 @@ export function setTaskUrgent(db: DatabaseSync, id: number, urgent: boolean): vo
 
 export function setTaskMachine(db: DatabaseSync, id: number, machine: Handling): void {
   db.prepare('UPDATE tasks SET machine = ? WHERE id = ?').run(machine, id);
+}
+
+// ---- دمج أسماء السائقين — the duplicate-spelling repair -------------------
+
+/**
+ * Every driver name the gate ever wrote (live rows), with how many hauls
+ * stand under each spelling — the raw material of the merge tool: «حماد
+ * عودة» in three spellings is three rows here and three lines in the
+ * accounting, until the owner folds them into one.
+ */
+export function driverNameCounts(db: DatabaseSync): Array<{ name: string; hauls: number }> {
+  const rows = db
+    .prepare(
+      `SELECT name, SUM(n) AS hauls FROM (
+         SELECT driver_in AS name, COUNT(*) AS n FROM containers
+          WHERE deleted_at IS NULL AND driver_in != '' GROUP BY driver_in
+         UNION ALL
+         SELECT driver_out, COUNT(*) FROM containers
+          WHERE deleted_at IS NULL AND driver_out != '' GROUP BY driver_out
+       ) GROUP BY name ORDER BY name`,
+    )
+    .all() as unknown as Array<{ name: string; hauls: number }>;
+  return rows;
+}
+
+/**
+ * Fold the dropped spellings into the kept one — a spelling repair, so it
+ * touches EVERY row (deleted history included: an old register should read
+ * the canonical name too) and the fleet's default drivers with them.
+ */
+export function mergeDriverNames(
+  db: DatabaseSync,
+  keep: string,
+  drop: readonly string[],
+): { hauls: number; trucks: number } {
+  const marks = drop.map(() => '?').join(', ');
+  const inChanged = db
+    .prepare(`UPDATE containers SET driver_in = ? WHERE driver_in IN (${marks})`)
+    .run(keep, ...drop);
+  const outChanged = db
+    .prepare(`UPDATE containers SET driver_out = ? WHERE driver_out IN (${marks})`)
+    .run(keep, ...drop);
+  const trucksChanged = db
+    .prepare(`UPDATE trucks SET driver = ? WHERE driver IN (${marks})`)
+    .run(keep, ...drop);
+  return {
+    hauls: Number(inChanged.changes) + Number(outChanged.changes),
+    trucks: Number(trucksChanged.changes),
+  };
+}
+
+/**
+ * كشف إنتاجية الآليات: what each hand finished per machine in the period,
+ * with the mean minutes from the order's birth to its «تم». Auto-closed
+ * tasks (closed_note != '') are the gate's bookkeeping, not work done, and
+ * are left out.
+ */
+export function machineProductivity(
+  db: DatabaseSync,
+  fromIso: string,
+  toIso: string,
+): MachineReportRow[] {
+  const rows = db
+    .prepare(
+      `SELECT machine, done_by,
+              SUM(kind = 'IN')  AS in_done,
+              SUM(kind = 'OUT') AS out_done,
+              COUNT(*)          AS total,
+              AVG((julianday(done_at) - julianday(created_at)) * 24 * 60) AS avg_minutes
+         FROM tasks
+        WHERE status = 'DONE' AND closed_note = ''
+          AND done_at >= ? AND done_at < ?
+        GROUP BY machine, done_by
+        ORDER BY machine, total DESC`,
+    )
+    .all(fromIso, toIso) as unknown as Array<{
+    machine: string;
+    done_by: number | null;
+    in_done: number;
+    out_done: number;
+    total: number;
+    avg_minutes: number | null;
+  }>;
+  const names = listUserNames(db);
+  return rows.map((row) => ({
+    machine: row.machine as Handling,
+    doer: userLabel(names, row.done_by),
+    inDone: row.in_done,
+    outDone: row.out_done,
+    total: row.total,
+    avgMinutes: row.avg_minutes === null ? null : Math.round(row.avg_minutes),
+  }));
 }
 
 /** Everyone currently standing in the yard, as the rules see them. */

@@ -2847,3 +2847,40 @@ after fifteen seconds. The «المهام» header button carries the live
 pending count. Verified headless: the driver walked to the map, the
 clerk gated a container in, and the banner rose over the yard drawing
 with the counter reading (3).
+
+## المرحلة 58 — أربعة أوامر من قائمة الاقتراحات — 2026-09-05
+
+He read the improvement list and ordered four on the spot: «كشف انتاجية
+الأليات ممتازة ضفها»، «نسخة احتياطية تلقائية ممتازة على هاد البريد»،
+«دمج أسماء السائقين المكررة وضيف هاي كمان»، «خلي موضوع طلب كلمة السر نص
+ساعة اذا كان inactive» — and «واتاكد من responsiveness on mobile please»
+riding over all of them. (The PWA idea he waved off — opening the site
+is enough — and customs OCR waits until these land.)
+
+1. كشف إنتاجية الآليات: a reports tab reading the «تم» ledger — one row
+   per (machine, hand) with entry/تجهيز counts and the mean minutes from
+   an order's birth to its «تم»; auto-closed tasks are nobody's work and
+   stay out (store.machineProductivity, GET /api/reports/machines,
+   machinesModel + tab in ReportsScreen under REPORTS).
+2. النسخة الليلية إلى البريد: at 02:30 Amman the server snapshots itself
+   (auto-…, prunes past 14) and mails the file to kekeabdo10@gmail.com
+   through a dependency-free SMTP sender (src/server/mailer.ts — implicit
+   TLS, AUTH LOGIN, MIME attachment; src/server/nightly.ts — the pure
+   msUntilNightly clock, armed from index.ts). Without BACKUP_SMTP_USER/
+   PASS in the environment the snapshot still happens and the skip is
+   logged — the app password is the one piece only the mailbox's owner
+   can mint, requested from him in the reply.
+3. دمج أسماء السائقين: an owner-only fold-out under حساب السائقين —
+   pick the canonical spelling, tick the strays, and every container row
+   (in/out, deleted history included — a spelling repair) plus the
+   fleet's default drivers read one name; the answer counts what changed
+   (driverNameCounts/mergeDriverNames, GET /api/drivers/names + POST
+   /api/drivers/merge, requireOwner, keep filtered out of drop).
+4. IDLE_LOCK_MS 10 → 30 minutes, office accounts only — drivers were
+   already exempt.
+
+Phone-width (390px) screenshots of the new tab and the merge section
+confirmed the layouts; the productivity SQL, the nightly clock (3.5h /
+30min / tomorrow cases), the MIME builder (CRLF discipline, encoded
+Arabic subject), pruning, the merge arithmetic and its guards are all
+locked by tests/upkeep.test.ts. 415 tests, gates green.

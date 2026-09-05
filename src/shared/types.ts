@@ -444,6 +444,22 @@ export interface DailyReportRow {
 }
 
 /**
+ * كشف إنتاجية الآليات: one row per (machine, hand that finished) over the
+ * period — how many entry and تجهيز tasks each closed, and how quickly.
+ * Auto-closed tasks (exit/return/delete) are nobody's work and stay out.
+ */
+export interface MachineReportRow {
+  readonly machine: Handling;
+  /** Who pressed «تم» — a driver's name, or whoever closed it by hand. */
+  readonly doer: string;
+  readonly inDone: number;
+  readonly outDone: number;
+  readonly total: number;
+  /** Mean minutes from the order's birth to its «تم»; null when unknowable. */
+  readonly avgMinutes: number | null;
+}
+
+/**
  * تصريح تحميل وخروج داخلي: the paper مؤسسة الحق issues for one bill of
  * lading — permission to load the containers listed on it out of the yard
  * and into موقع المقص only. A numbered ledger of its own, counted per year

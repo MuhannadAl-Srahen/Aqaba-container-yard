@@ -587,6 +587,22 @@ export const AR = {
     'اكتب أجر النقلة، وعندما يقبض السائق أكّد الاستلام. والنقلة التي لم يُكتب ' +
     'اسم سائقها تُدرج تحت رقم سيارتها، فلا تسقط نقلة من الحساب.',
   driversEmpty: 'لا نقلات في هذه الفترة.',
+  /** دمج الأسماء المكررة: «حماد عودة» بثلاث صيغ = ثلاثة أسطر حتى تُدمج. */
+  mergeTitle: 'دمج أسماء السائقين المكررة',
+  mergeHint:
+    'الاسم الواحد المكتوب بأكثر من صيغة يوزّع نقلات صاحبه على أكثر من سطر. ' +
+    'اختر الصيغة الصحيحة ثم علّم الصيغ المكررة، فتُصحَّح في كل السجل وبطاقات السيارات.',
+  mergeKeepLabel: 'الاسم الصحيح',
+  mergeDropLabel: 'الصيغ المكررة التي ستُدمج فيه',
+  mergeAction: 'دمج الأسماء',
+  mergeConfirmTitle: 'دمج أسماء السائقين',
+  mergeConfirmBody: (keep: string, count: number): string =>
+    `تُستبدل ${String(count)} صيغة بالاسم «${keep}» في كل سجل الحاويات وبطاقات السيارات. ` +
+    'هذا تصحيح إملائي شامل ولا يمكن فكّه إلا يدوياً.',
+  mergeDone: (hauls: number, trucks: number): string =>
+    trucks === 0
+      ? `تم الدمج: صُحّح الاسم في ${String(hauls)} نقلة.`
+      : `تم الدمج: صُحّح الاسم في ${String(hauls)} نقلة وفي ${String(trucks)} سيارة مسجلة.`,
   /** «ضعها تحت نفس رقم السيارة»: نقلة بلا اسم سائق تُنسب إلى لوحتها. */
   driverByTruck: (truck: string): string => `سيارة ${ltrCode(truck)} — بلا اسم سائق`,
   /** الصيغة داخل الجملة، حيث لا يستقيم عنوان المجموعة. */
@@ -818,6 +834,22 @@ export const AR = {
   reportIn: 'كشف حركة الدخول',
   reportOut: 'كشف حركة الخروج',
   reportDaily: 'كشف التقرير اليومي لحركة الساحة',
+  /** كشف إنتاجية الآليات — ثمرة سجل «تم»: من أنجز كم، وبأي سرعة. */
+  reportMachines: 'كشف إنتاجية الآليات',
+  colMachine: 'الآلية',
+  colTaskDoer: 'المنفّذ',
+  colTasksIn: 'مهام الإدخال',
+  colTasksOut: 'مهام التجهيز',
+  colTasksTotal: 'المجموع',
+  colTaskSpeed: 'متوسط زمن الإنجاز',
+  taskMinutes: (minutes: number): string => {
+    if (minutes < 1) return 'أقل من دقيقة';
+    if (minutes < 60) return `${String(minutes)} دقيقة`;
+    const hours = Math.floor(minutes / 60);
+    const rest = minutes % 60;
+    return rest === 0 ? `${String(hours)} ساعة` : `${String(hours)} ساعة و${String(rest)} دقيقة`;
+  },
+  machinesReportEmpty: 'لا مهام منجزة في هذه الفترة.',
   reportStanding: 'كشف الحاويات في الساحة',
   standingNow: 'الوضع الحالي — غير مقيّد بفترة',
   standingCount: (n: number): string => `${String(n)} حاوية في الساحة`,

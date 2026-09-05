@@ -13,6 +13,7 @@ import type {
   GateReportRow,
   Handling,
   LogReportRow,
+  MachineReportRow,
   MeDto,
   MovementDto,
   Permission,
@@ -246,6 +247,17 @@ export const api = {
   reportDaily: (fromIso: string, toIso: string): Promise<{ rows: DailyReportRow[] }> =>
     request(
       `/api/reports/daily?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
+  driverNames: (): Promise<{ rows: Array<{ name: string; hauls: number }> }> =>
+    request('/api/drivers/names'),
+
+  mergeDrivers: (keep: string, drop: readonly string[]): Promise<{ hauls: number; trucks: number }> =>
+    request('/api/drivers/merge', { method: 'POST', body: JSON.stringify({ keep, drop }) }),
+
+  reportMachines: (fromIso: string, toIso: string): Promise<{ rows: MachineReportRow[] }> =>
+    request(
+      `/api/reports/machines?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
     ),
 
   /** A snapshot of what is standing right now — no range, it is «الآن». */

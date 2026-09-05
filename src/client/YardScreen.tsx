@@ -466,7 +466,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     void queryClient.invalidateQueries({ queryKey: ['tasks'] });
     // A register open on this same device must not go stale behind the
     // operation that just happened in front of it.
-    for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-truck', 'report-bill', 'report-log', 'report-permits']) {
+    for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-machines', 'report-truck', 'report-bill', 'report-log', 'report-permits']) {
       void queryClient.invalidateQueries({ queryKey: [key] });
     }
     setToast(message);
@@ -644,6 +644,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   } else if (driversView && may('ACCOUNTING')) {
     screen = (
       <DriversScreen
+        isOwner={isOwner}
         onBack={() => {
           setDriversView(false);
         }}

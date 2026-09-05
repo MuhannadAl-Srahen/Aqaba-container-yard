@@ -14,6 +14,7 @@ import type {
   DailyReportRow,
   ErrorCode,
   FleetDto,
+  MachineReportRow,
   GateReportRow,
   LogReportRow,
   MeDto,
@@ -2244,6 +2245,39 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * emit one line per calendar day in the range whether the yard worked that
    * day or not, which read as the register inventing days it had never seen.
    */
+  /**
+   * دمج أسماء السائقين المكررة — the owner folds stray spellings of one
+   * driver into the canonical one, and the accounting stops splitting his
+   * hauls across three lines. A spelling repair for the whole book.
+   */
+  app.get('/api/drivers/names', (request) => {
+    requireOwner(request);
+    return { rows: store.driverNameCounts(db) };
+  });
+
+  app.post('/api/drivers/merge', (request) => {
+    requireOwner(request);
+    const body = parseOrRefuse(
+      z.object({
+        keep: z.string().trim().min(1).max(60),
+        drop: z.array(z.string().trim().min(1).max(60)).min(1).max(20),
+      }),
+      request.body,
+    );
+    // Keeping a name and dropping it at once is a slip, not an order.
+    const drop = body.drop.filter((name) => name !== body.keep);
+    if (drop.length === 0) refuse(400, 'VALIDATION', { field: 'driver' });
+    return transaction(db, () => store.mergeDriverNames(db, body.keep, drop));
+  });
+
+  /** كشف إنتاجية الآليات: من أنجز كم مهمة، وبأي سرعة، في الفترة. */
+  app.get('/api/reports/machines', (request): { rows: MachineReportRow[] } => {
+    requirePerm(request, 'REPORTS');
+    const query = request.query as { from?: string; to?: string };
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+    return { rows: store.machineProductivity(db, range.from, range.to) };
+  });
+
   app.get('/api/reports/daily', (request): { rows: DailyReportRow[] } => {
     requirePerm(request, 'REPORTS');
     const query = request.query as { from?: string; to?: string };
