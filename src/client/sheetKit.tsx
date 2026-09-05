@@ -210,7 +210,10 @@ export function sheetHtml(title: string, period: string, model: TableModel): str
     // even-row stripe is overridden so it stays red down the whole column.
     `td.danger,tbody tr:nth-child(even) td.danger{background:#fee2e2;color:#b91c1c;font-weight:800}` +
     `tfoot td{border-top:2px solid #334155;font-weight:700;background:#e2e8f0}` +
-    `thead{display:table-header-group}tfoot{display:table-footer-group}` +
+    // table-footer-group would repeat the totals at the bottom of EVERY page
+    // the way the header repeats at the top — the owner wants «المجموع» once,
+    // at the end. Row-group keeps it in source order: after the last body row.
+    `thead{display:table-header-group}tfoot{display:table-row-group}` +
     // A row is kept whole so the reader never loses the line they were on —
     // unless a note has been written at such length that the row is taller
     // than the page, in which case keeping it whole would push it off the
