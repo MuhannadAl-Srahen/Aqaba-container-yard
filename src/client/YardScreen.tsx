@@ -620,6 +620,22 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           setBayHighlight(task.containerId);
           setTasksView(false);
         }}
+        onShowCard={(task) => {
+          // «اظهار بطاقة الدخول عند المهام»: the printed paper itself, over
+          // the queue — an exit already recorded shows its exit card, and
+          // everything else the entry card the photo used to carry.
+          api
+            .detail(task.containerId)
+            .then(({ container }) => {
+              setPrintCard({
+                kind: task.kind === 'OUT' && container.exitedAt !== null ? 'out' : 'in',
+                container,
+              });
+            })
+            .catch((failure: unknown) => {
+              setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+            });
+        }}
         onBack={() => {
           setTasksView(false);
         }}

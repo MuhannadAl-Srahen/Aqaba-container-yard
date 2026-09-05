@@ -543,6 +543,9 @@ export const AR = {
   taskDoneToast: 'تم إنهاء المهمة.',
   taskUrgentToast: 'تم تحديث ترتيب المهمة.',
   taskShowSlot: 'عرض الموقع',
+  /** «اظهار بطاقة الدخول عند المهام»: الورقة نفسها التي كانت تُصوَّر. */
+  taskEntryCard: 'بطاقة الدخول',
+  taskOutCard: 'البطاقة',
   taskPendingTitle: 'المهام الحالية',
   taskDoneTodayTitle: 'المنجزة اليوم',
   taskEmpty: 'لا مهام حالياً.',

@@ -46,6 +46,12 @@ function chime(): void {
 export function TasksScreen(props: {
   machine: Handling;
   onShowSlot: (task: TaskDto) => void;
+  /**
+   * «اظهار بطاقة الدخول عند المهام»: open the container's printed card —
+   * the very paper the WhatsApp photo used to carry. An entry task shows
+   * the entry card; an exit-born task shows the exit card.
+   */
+  onShowCard: (task: TaskDto) => void;
   /** «العودة إلى الخريطة» — drivers hold MOVE and need the map to use it. */
   onBack: () => void;
 }): ReactElement {
@@ -194,6 +200,14 @@ export function TasksScreen(props: {
                   {AR.taskShowSlot}
                 </Button>
               )}
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  props.onShowCard(task);
+                }}
+              >
+                {task.kind === 'IN' ? AR.taskEntryCard : AR.taskOutCard}
+              </Button>
             </div>
           </div>
         ))}

@@ -2829,3 +2829,9 @@ headless on a throwaway DB: the driver landed on his queue, the urgent
 task led it, and «عرض الموقع» ringed the exact cell — screenshots, not
 hope. 409 tests total (15 new for the queue, one flipped for the backup
 rule), all gates green.
+
+His first minutes on the live queue brought the next ask: «تضيف عند
+سائقين الأليات القدرة على اظهار بطاقة الدخول عند المهام». Each task card
+gained a card button — the entry card for an entry task (the very paper
+the WhatsApp photo used to carry, photos and all), the exit card once an
+exit is recorded — opened as the usual print overlay above the queue.
