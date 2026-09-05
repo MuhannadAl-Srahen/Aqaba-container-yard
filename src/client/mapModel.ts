@@ -1,4 +1,4 @@
-import type { ContainerDto, Position, Size, Tier, YardLayout, Zone, ZoneDef } from '../shared/types';
+import type { ContainerDto, Landmark, Position, Size, Tier, YardLayout, Zone, ZoneDef } from '../shared/types';
 import { TIERS } from '../shared/types';
 import { baySpan, parseAddress } from '../shared/address';
 import { buildOccupancy, canPlace, fortyRoom, type Standing } from '../shared/rules';
@@ -649,4 +649,130 @@ export function billMatches(
     .map(([bill, count]) => ({ bill, count }))
     .sort((a, b) => a.bill.localeCompare(b.bill))
     .slice(0, 5);
+}
+
+// ── the drawing's own geometry ──────────────────────────────────────────────
+
+/**
+ * The map's metrics, in yard units. The panel's inner metrics (padding,
+ * title) must match the decoder's zone rects — tools/decode-aseza.mjs and
+ * src/shared/layout.ts draw every strip 150 tall with a 14-unit padding.
+ */
+export const MAP = {
+  /** Breathing room around the whole drawing. */
+  outerPad: 26,
+  /** The zone panel's padding, all four sides. */
+  pad: 14,
+  titleH: 44,
+  /** The ordinary tile — the fill and bills paints, exactly as always. */
+  cellH: 66,
+  /** The gap between neighbouring tiles of a strip. */
+  cellGap: 4,
+  /**
+   * عرض المحتويات. The contents paint's tile is taller, and as wide as its
+   * OWN stacks ask: every stack of the yard is given the same lane, so a
+   * twenty is one square of one width wherever it stands — a ten-stack bay
+   * is simply twice as wide as a five-stack one — and a forty is exactly
+   * two of them. The panel then hugs its tiles: no floor left under them.
+   */
+  detailCellH: 114,
+  lane: 19,
+  laneGap: 2,
+  /** Between the tile's frame and its first and last lane. */
+  laneInset: 4,
+} as const;
+
+/** The contents paint's panel: title, the taller tile, and the padding. */
+export const DETAIL_ZONE_H = MAP.titleH + MAP.detailCellH + MAP.pad;
+
+/**
+ * How wide each bay's column is drawn, in plan order. The ordinary paints
+ * share the panel's width evenly — the plan's own pitch, untouched. The
+ * contents paint gives a bay its stacks' lanes and nothing more, so no lane
+ * is ever squeezed and no tile carries blank ground beside its lanes.
+ */
+export function bayWidths(zone: ZoneDef, detail: boolean): number[] {
+  if (!detail) {
+    const cellW = (zone.w - MAP.pad * 2) / zone.bays.length;
+    return zone.bays.map(() => cellW);
+  }
+  return zone.bays.map((bay) => {
+    const stacks = Math.max(1, zone.stacks[String(bay)]?.length ?? 0);
+    return stacks * MAP.lane - MAP.laneGap + MAP.laneInset * 2 + MAP.cellGap;
+  });
+}
+
+/**
+ * Where a tile's lanes stand. `pitch` is one lane's stride — one column per
+ * bay of the tile, so a lone bay's lane is one twenty wide and a welded
+ * pair's holds a forty over its two halves — and `start` the first lane's
+ * inset from the frame's edge. The lane is the SAME width on every tile of
+ * the map; a pair with room to spare centres its grid, and only a pair whose
+ * bays disagree about their stacks (a custom zone's doing) squeezes its
+ * lanes to stay inside the frame.
+ */
+export function laneGrid(
+  frameW: number,
+  lanes: number,
+  parts: number,
+): { readonly pitch: number; readonly start: number } {
+  const inner = frameW - MAP.laneInset * 2;
+  const pitch = Math.min(MAP.lane * parts, (inner + MAP.laneGap) / Math.max(1, lanes));
+  const gridW = lanes * pitch - MAP.laneGap;
+  return { pitch, start: MAP.laneInset + (inner - gridW) / 2 };
+}
+
+export interface MapLayout {
+  readonly width: number;
+  readonly height: number;
+  readonly zones: readonly ZoneDef[];
+  readonly landmarks: readonly Landmark[];
+}
+
+/** The canvas around a set of rects: their extent plus breathing room. */
+function extentOf(zones: readonly ZoneDef[], landmarks: readonly Landmark[]): MapLayout {
+  let maxX = 0;
+  let maxY = 0;
+  for (const rect of [...zones, ...landmarks]) {
+    maxX = Math.max(maxX, rect.x + rect.w);
+    maxY = Math.max(maxY, rect.y + rect.h);
+  }
+  return { width: maxX + MAP.outerPad * 2, height: maxY + MAP.outerPad * 2, zones, landmarks };
+}
+
+/** Canvas geometry: the decoded layout as the plan draws it. */
+export function computeLayout(layout: YardLayout): MapLayout {
+  return extentOf(layout.zones, layout.landmarks);
+}
+
+/**
+ * The same plan redrawn for the contents paint — «حتى لو عنى ذلك تكبير
+ * الزون فقط في شكل خريطة المحتويات»: every zone is as wide as its stacks'
+ * lanes and exactly as tall as its taller tile needs, and the positions of
+ * everything — zones and landmarks alike — stretch by the largest growth any
+ * zone undergoes, so nothing can overlap what the plan set beside it. The
+ * fill and bills maps never pass through here.
+ */
+export function detailLayout(layout: YardLayout): MapLayout {
+  const grown = layout.zones.map((zone) => ({
+    zone,
+    w: MAP.pad * 2 + bayWidths(zone, true).reduce((sum, w) => sum + w, 0),
+  }));
+  const sx = Math.max(1, ...grown.map(({ zone, w }) => (zone.w > 0 ? w / zone.w : 1)));
+  const sy = Math.max(1, ...layout.zones.map((zone) => (zone.h > 0 ? DETAIL_ZONE_H / zone.h : 1)));
+  const zones = grown.map(({ zone, w }) => ({
+    ...zone,
+    x: zone.x * sx,
+    y: zone.y * sy,
+    w,
+    h: DETAIL_ZONE_H,
+  }));
+  const landmarks = layout.landmarks.map((mark) => ({
+    ...mark,
+    x: mark.x * sx,
+    y: mark.y * sy,
+    w: mark.w * sx,
+    h: mark.h * sy,
+  }));
+  return extentOf(zones, landmarks);
 }

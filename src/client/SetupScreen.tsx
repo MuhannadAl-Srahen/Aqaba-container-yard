@@ -3,7 +3,8 @@ import { ASEZA } from '../shared/asezaLayout';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { Button, ErrorLine, Field, inputClass } from './ui';
-import { YardMap, computeLayout } from './YardMap';
+import { YardMap } from './YardMap';
+import { computeLayout } from './mapModel';
 
 /**
  * First run: one password and nothing else. The yard needs no drawing — it

@@ -1,8 +1,19 @@
 import { memo, useState, type ReactElement } from 'react';
-import type { ContainerDto, Landmark, YardLayout, Zone, ZoneDef } from '../shared/types';
+import type { ContainerDto, Landmark, Zone, ZoneDef } from '../shared/types';
 import { TIERS } from '../shared/types';
 import { AR } from './ar';
-import { bayKey, maxStackOf, summarizeZone, zoneCells, type BayBand, type ZoneCell } from './mapModel';
+import {
+  MAP,
+  bayKey,
+  bayWidths,
+  laneGrid,
+  maxStackOf,
+  summarizeZone,
+  zoneCells,
+  type BayBand,
+  type MapLayout,
+  type ZoneCell,
+} from './mapModel';
 
 /**
  * The official ASEZA yard drawn to scale as SVG: zone strips with their bays
@@ -12,13 +23,14 @@ import { bayKey, maxStackOf, summarizeZone, zoneCells, type BayBand, type ZoneCe
  *
  * A map cell is one ODD bay — the ground itself. What stands in it (both
  * tiers, and any 40 reaching over from an even bay) is one tap away.
+ *
+ * The geometry itself — paddings, tile sizes, the contents paint's lanes —
+ * lives in mapModel.ts, where a test can hold it to its word.
  */
 
-const OUTER_PAD = 26;
 /** The zone panel's inner metrics — must match the decoder's zone rects. */
-const PAD = 14;
-const TITLE_H = 44;
-const CELL_H = 66;
+const PAD = MAP.pad;
+const TITLE_H = MAP.titleH;
 
 /** The bay sheet reads C over B over A; its miniature reads the same. */
 const TIERS_TOP_DOWN = [...TIERS].reverse();
@@ -47,52 +59,6 @@ const C = {
   landmarkLine: 'var(--yard-landmark-line)',
 } as const;
 
-export interface MapLayout {
-  readonly width: number;
-  readonly height: number;
-  readonly zones: readonly ZoneDef[];
-  readonly landmarks: readonly Landmark[];
-}
-
-/**
- * The same drawing, larger — «حتى لو عنى ذلك تكبير الزون فقط في شكل خريطة
- * المحتويات»: the contents paint scales every zone and landmark uniformly,
- * so ten-stack bays gain the width their twenties need, while the titles,
- * paddings and numbers keep their size and the extra room all goes to the
- * miniatures. The fill and bills maps never pass through here.
- */
-export function scaleLayout(layout: MapLayout, factor: number): MapLayout {
-  const grow = <T extends { x: number; y: number; w: number; h: number }>(rect: T): T => ({
-    ...rect,
-    x: rect.x * factor,
-    y: rect.y * factor,
-    w: rect.w * factor,
-    h: rect.h * factor,
-  });
-  return {
-    width: (layout.width - OUTER_PAD * 2) * factor + OUTER_PAD * 2,
-    height: (layout.height - OUTER_PAD * 2) * factor + OUTER_PAD * 2,
-    zones: layout.zones.map(grow),
-    landmarks: layout.landmarks.map(grow),
-  };
-}
-
-/** Canvas geometry: the decoded layout plus breathing room. */
-export function computeLayout(layout: YardLayout): MapLayout {
-  let maxX = 0;
-  let maxY = 0;
-  for (const rect of [...layout.zones, ...layout.landmarks]) {
-    maxX = Math.max(maxX, rect.x + rect.w);
-    maxY = Math.max(maxY, rect.y + rect.h);
-  }
-  return {
-    width: maxX + OUTER_PAD * 2,
-    height: maxY + OUTER_PAD * 2,
-    zones: layout.zones,
-    landmarks: layout.landmarks,
-  };
-}
-
 export interface MapProps {
   /** Who covers each odd bay, keyed by `bayKey`. */
   loads: ReadonlyMap<string, readonly ContainerDto[]>;
@@ -120,7 +86,8 @@ export interface MapProps {
    * every loaded tile becomes a miniature of its own bay sheet — a square
    * per slot, stacks across and the three tiers down, twenties and forties
    * in their own inks — so the owner reads what stands inside without a tap.
-   * The old look is the default paint, untouched.
+   * The old look is the default paint, untouched. The layout handed in
+   * alongside must be the contents paint's own (`detailLayout`).
    */
   detail: boolean;
   movingId: number | null;
@@ -147,12 +114,13 @@ export interface MapProps {
 function RunCell(props: {
   zone: ZoneDef;
   cell: ZoneCell;
-  /** Index of the cell's first bay within `zone.bays` — its column. */
-  index: number;
-  cellW: number;
+  /** Where the cell's first bay column starts, within the panel. */
+  x: number;
+  /** The width of each of the cell's bay columns, in the cell's bay order. */
+  widths: readonly number[];
   view: MapProps;
 }): ReactElement {
-  const { zone, cell, index, cellW, view } = props;
+  const { zone, cell, x, widths, view } = props;
   const keys = cell.bays.map((bay) => bayKey(zone.zone, bay));
 
   const seen = new Set<number>();
@@ -200,20 +168,19 @@ function RunCell(props: {
           bills: Math.max(...bands.map((entry) => entry.bills)),
         };
 
-  const x = PAD + index * cellW;
   const y = TITLE_H;
-  const width = cellW * cell.bays.length - 4;
+  // The frame spans the cell's bay columns less the strip between tiles.
+  const span = widths.reduce((sum, w) => sum + w, 0);
+  const width = span - MAP.cellGap;
 
   // عرض المحتويات: a loaded tile is drawn as its own sheet in miniature —
   // the fullness paint steps aside, because the squares themselves say it.
   const detail = view.detail && !cell.empty;
   // «المربعات جدا صغيرة حاول على تكبيرها»: in the contents paint EVERY tile
-  // grows taller — the empty ones too, or the strip's bottom line turns
-  // ragged («اسفل المربعات الشكل جدا سيئ») — as far as the zone panel's
-  // slack allows, never past it, never smaller than the ordinary tile.
-  const cellH = view.detail
-    ? Math.max(CELL_H, Math.min(110, zone.h - TITLE_H - 8))
-    : CELL_H;
+  // stands taller — the empty ones too, or the strip's bottom line turns
+  // ragged («اسفل المربعات الشكل جدا سيئ») — and the panel is cut to hug
+  // exactly this height, so no floor is left under the blocks.
+  const cellH = view.detail ? MAP.detailCellH : MAP.cellH;
 
   const fill = detail
     ? isTarget
@@ -289,13 +256,14 @@ function RunCell(props: {
         strokeDasharray={cell.empty && !strong ? '4 3' : undefined}
       />
       {/* The ground's own numbers, exactly as the plan paints them. In the
-          contents view the number shrinks to the top edge — the miniature
-          needs the room. */}
+          contents view the number moves up to the top edge and a size UP —
+          «من الصعب رؤية الأرقام الخاصة بالباي» — and the miniature takes the
+          rest of the tile. */}
       <text
         x={x + (width + 4) / 2}
-        y={detail ? y + 14 : y + cellH / 2 - 8}
+        y={detail ? y + 17 : y + cellH / 2 - 8}
         textAnchor="middle"
-        fontSize={detail ? 12 : 15}
+        fontSize={detail ? 16 : 15}
         fontWeight={700}
         fill={textColor}
         direction="ltr"
@@ -328,7 +296,9 @@ function RunCell(props: {
           LANE across the whole cell — «اريد شكل افضل او موحد للأربعين»: a
           forty covering both bays of a welded pair is one wide square, drawn
           once, exactly as the steel lies; a twenty fills only the half of
-          the lane that is its own bay. */}
+          the lane that is its own bay. And every lane on the map is the
+          same width — «بلوكات العشرين مو كلهن متشابهات»: a twenty is one
+          square of one size wherever it stands, a forty exactly two. */}
       {detail &&
         (() => {
           const stackSet = new Set<number>();
@@ -350,20 +320,22 @@ function RunCell(props: {
               slots.set(slotKey, halves);
             }
           });
-          const gx = x + 5;
-          const colW = (width - 6) / stacks.length;
-          const top = y + 20;
-          const rowH = (cellH - 24) / TIERS_TOP_DOWN.length;
+          const { pitch, start } = laneGrid(width, stacks.length, cell.bays.length);
+          // One bay's own column within a lane: the whole lane on a lone
+          // bay, half of it in a welded pair.
+          const column = pitch / cell.bays.length;
+          const gx = x + 2 + start;
+          const top = y + 24;
+          const rowH = (cellH - 28) / TIERS_TOP_DOWN.length;
+          const sqH = Math.max(rowH - MAP.laneGap, 1);
           const squares: ReactElement[] = [];
           stacks.forEach((stack, si) => {
             TIERS_TOP_DOWN.forEach((tier, ti) => {
               const slotKey = `${String(stack)}|${tier}`;
               const halves = slots.get(slotKey);
-              const sqX = gx + si * colW;
+              const sqX = gx + si * pitch;
               const sqY = top + ti * rowH;
-              // The gap must never eat a narrow lane — it shrinks with it.
-              const sqW = Math.max(colW - 2, colW * 0.72, 1);
-              const sqH = Math.max(rowH - 2, 1);
+              const sqW = Math.max(pitch - MAP.laneGap, 1);
               const one = halves?.find((holder) => holder !== undefined);
               // An empty lane is ONE faint square — not a pair of echoes.
               if (one === undefined) {
@@ -374,16 +346,12 @@ function RunCell(props: {
                 }
                 return;
               }
-              const whole =
-                one !== undefined &&
-                cell.bays.every(
-                  (bay, at) =>
-                    halves?.[at]?.id === one.id ||
-                    !(zone.stacks[String(bay)] ?? []).includes(stack),
-                );
+              // The same box in EVERY half of the lane: a forty across its
+              // pair, or anything at all on a lone bay's ground. A twenty
+              // beside a wall keeps its own column — «بلوكات العشرين مو كلهن
+              // متشابهات» — and the missing ground beside it draws nothing.
+              const whole = cell.bays.every((_bay, at) => halves?.[at]?.id === one.id);
               if (whole) {
-                // One box over the whole lane — a forty across its pair, or
-                // anything standing on a lone bay's ground.
                 squares.push(
                   <rect key={slotKey} x={sqX} y={sqY} width={sqW} height={sqH} rx={2} fill={boxInk(one)} />,
                 );
@@ -391,14 +359,14 @@ function RunCell(props: {
               }
               // Half by half: each bay's own ground, its own occupant or a
               // faint empty slot; ground the bay does not have draws nothing.
-              const halfW = Math.max((sqW - 1) / cell.bays.length, sqW * 0.42, 1);
+              const halfW = Math.max(column - MAP.laneGap, 1);
               cell.bays.forEach((bay, at) => {
                 if (!(zone.stacks[String(bay)] ?? []).includes(stack)) return;
                 const holder = halves?.[at];
                 squares.push(
                   <rect
                     key={`${slotKey}|${String(bay)}`}
-                    x={sqX + at * (halfW + 1)}
+                    x={sqX + at * column}
                     y={sqY}
                     width={halfW}
                     height={sqH}
@@ -443,9 +411,9 @@ function RunCell(props: {
         <rect
           key={bay}
           data-map-bay={`${zone.zone}|${String(bay)}`}
-          x={x + at * cellW}
+          x={x + widths.slice(0, at).reduce((sum, w) => sum + w, 0)}
           y={y}
-          width={cellW}
+          width={widths[at] ?? 0}
           height={cellH}
           fill="transparent"
           onClick={() => {
@@ -460,7 +428,15 @@ function RunCell(props: {
 const ZonePanel = memo(
   function ZonePanel(props: { zone: ZoneDef; view: MapProps }): ReactElement {
     const { zone, view } = props;
-    const cellW = (zone.w - PAD * 2) / zone.bays.length;
+    // Each bay's column: the plan's even pitch, or — in the contents paint —
+    // as wide as that bay's own stacks. The columns are laid end to end.
+    const widths = bayWidths(zone, view.detail);
+    const starts: number[] = [];
+    let cursor = PAD;
+    for (const w of widths) {
+      starts.push(cursor);
+      cursor += w;
+    }
     const summary = summarizeZone(zone, view.loads);
 
     // Dragging: the offset rides in local state while the pointer is down,
@@ -502,16 +478,19 @@ const ZonePanel = memo(
         <text x={PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={700} fill={C.label}>
           {AR.fullAndFree(summary.usedTeu, summary.totalTeu - summary.usedTeu)}
         </text>
-        {zoneCells(zone, view.loads).map((cell) => (
-          <RunCell
-            key={cell.bays[0]}
-            zone={zone}
-            cell={cell}
-            index={zone.bays.indexOf(cell.bays[0] ?? -1)}
-            cellW={cellW}
-            view={view}
-          />
-        ))}
+        {zoneCells(zone, view.loads).map((cell) => {
+          const index = zone.bays.indexOf(cell.bays[0] ?? -1);
+          return (
+            <RunCell
+              key={cell.bays[0]}
+              zone={zone}
+              cell={cell}
+              x={starts[index] ?? PAD}
+              widths={widths.slice(index, index + cell.bays.length)}
+              view={view}
+            />
+          );
+        })}
         {draggable && (
           <rect
             width={zone.w}
@@ -627,7 +606,7 @@ export const YardMap = memo(function YardMap(props: {
           <line x1="0" y1="0" x2="0" y2="7" stroke={C.landmarkLine} strokeWidth="1.4" opacity="0.55" />
         </pattern>
       </defs>
-      <g transform={`translate(${String(OUTER_PAD)}, ${String(OUTER_PAD)})`}>
+      <g transform={`translate(${String(MAP.outerPad)}, ${String(MAP.outerPad)})`}>
         {layout.landmarks.map((landmark, index) => (
           <LandmarkShape key={index} landmark={landmark} />
         ))}

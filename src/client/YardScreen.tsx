@@ -8,7 +8,7 @@ import { fillPlan, planGroupMove, zoneOf } from '../shared/rules';
 import { TIERS } from '../shared/types';
 import { ApiFailure, api } from './api';
 import { AR } from './ar';
-import { YardMap, computeLayout, scaleLayout } from './YardMap';
+import { YardMap } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard, type CardJob } from './PrintCard';
@@ -23,6 +23,8 @@ import {
   billMatches,
   billSpread,
   buildBayLoads,
+  computeLayout,
+  detailLayout,
   nearBillMates,
   searchMatches,
   targetBays,
@@ -47,9 +49,6 @@ const HOVER_MIN_SCALE = 0.5;
 
 /** How much closer the camera steps when the contents paint switches on. */
 const DETAIL_ZOOM = 1.5;
-
-/** How much larger the contents paint draws the whole plan — that mode only. */
-const DETAIL_SCALE = 1.8;
 
 const EMPTY_LOAD: readonly ContainerDto[] = [];
 
@@ -265,14 +264,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   /**
    * «حتى لو عنى ذلك تكبير الزون فقط في شكل خريطة المحتويات … باقي الخرائط
-   * مثل البوالص والامتلاء لا تتغير»: the contents paint draws the WHOLE
-   * plan 1.8× larger, so a ten-stack bay's twenties get real width instead
-   * of slivers — and the fill and bills maps keep the drawing exactly as it
-   * always was, no added whiteness anywhere.
+   * مثل البوالص والامتلاء لا تتغير»: the contents paint redraws the plan
+   * its own way — every bay as wide as its stacks' lanes, so a twenty is
+   * one square of one width everywhere, and every panel cut to hug its
+   * taller tiles — while the fill and bills maps keep the drawing exactly
+   * as it always was, no added whiteness anywhere.
    */
   const layout = useMemo(() => {
-    const base = computeLayout(yardSlice(yardLayout, yardView));
-    return paint === 'detail' ? scaleLayout(base, DETAIL_SCALE) : base;
+    const slice = yardSlice(yardLayout, yardView);
+    return paint === 'detail' ? detailLayout(slice) : computeLayout(slice);
   }, [yardLayout, yardView, paint]);
 
   /**

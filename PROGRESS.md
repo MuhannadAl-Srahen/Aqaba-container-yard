@@ -2739,3 +2739,54 @@ switch refits the camera to whichever drawing it enters, stepping in
 ×1.5 on the contents side. Verified headless on the throwaway DB: a
 seeded ten-stack bay of 25 twenties reads as solid columns, and the
 strips' bottoms sit on one line.
+
+## المرحلة 57 — اللوحة تلاصق بلاطاتها، وكل عشرين بعرض واحد — 2026-09-05
+
+Three messages from the live contents map, minutes apart. «في space تحت
+البلوكات كبير»: stage 56's uniform 1.8× grew every panel's HEIGHT along
+with its width while the tile stayed capped at 110, so a 270-tall panel
+carried ~116 units of blank floor under a 110-tall tile. «بلوكات العشرين
+مو كلهن متشابهات … في بلوكات شكلهم صغير»: a lane was the tile's width
+divided by THAT bay's stack count, so a twenty measured 9.8 units on an
+8-stack bay, 8.5 on a 9-stack one, 7.4 on a 10-stack one, 8.4 inside a
+welded pair and 16.9 in zone D — and a twenty beside a wall took the
+whole lane, as wide as a forty. «من الصعب رؤية الأرقام الخاصة بالباي»: the
+tile's number had shrunk to 12 to make room for the miniature.
+
+One rule answers all three. In the contents paint every stack of the yard
+is given the same lane (19 units), so a bay's tile is exactly as wide as
+its stacks ask — a ten-stack bay twice a five-stack one — and every twenty
+is one square of one width wherever it stands, a forty exactly two, a
+wall-side twenty its own column with nothing drawn beside it; a welded
+pair lays the union of its bays' stacks at two columns a lane, centred in
+its frame, and squeezes only where its two bays disagree (the plan's 9–11
+and 45–47 boundaries, by half a unit). The panel is cut to title + tile +
+padding (44 + 114 + 14 = 172), so the floor under the blocks is the same
+14 the sides have; the zones' and landmarks' positions stretch by the
+largest growth any zone undergoes (×3.4 sideways, ×1.15 down) so nothing
+can overlap; the tile's number is 16 now, the grid starts below it, and
+the tile stands four units taller so the squares keep their height. The
+fill and bills maps render to the unit as before — measured, not assumed.
+Not deployed yet: the owner has not said the word, and a deploy asks
+every open tab in the office for a hard refresh.
+
+Implementation: the geometry moved out of the component into
+`mapModel.ts` — `MAP` metrics, `bayWidths`, `laneGrid`, `computeLayout`,
+`detailLayout` (`scaleLayout` and `DETAIL_SCALE` are gone) — where a test
+can hold it to its word; `RunCell` takes its column start and per-bay
+widths, `ZonePanel` lays the columns end to end. New
+`tests/mapGeometry.test.ts` (12 tests) locks the lane width on every
+official bay and pair, the hugging panel, the plan's untouched pitch and
+the no-overlap promise. Verified headless (Edge via playwright-core) on
+the built client against a THROWAWAY seeded DB in the scratchpad — 122
+containers, never data/yard.db, never the cloud: every panel 172 tall over
+114-tall tiles with a 14 floor, twenties 17 wide everywhere (16.5 in the
+one mismatched pair), forties 35–36, and the screenshots read as one grid
+from zone A's 8-stack bays to zone D's five. The headless phone emulation
+showed nothing useful (blank after zooming about an empty centre); the
+phone's behaviour is untouched by this change, but his own phone's look
+is still worth his minute. Two shell notes for next time: the wheel does
+nothing in headless Edge (zoom through the map's own buttons), and long
+Bash heredocs into repo files died twice with «unexpected EOF» — the
+Write tool, or part files in the scratchpad joined with cat, worked. 393
+tests, gates green.
