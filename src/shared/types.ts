@@ -245,6 +245,8 @@ export interface TaskDto {
   readonly size: Size;
   readonly bill: string;
   readonly notes: string;
+  /** As the scale ticket was copied at the gate — «ضع الوزن ايضا عند المهام». */
+  readonly weight: string;
   /** The live slot while it stands; the birth snapshot once it no longer does. */
   readonly position: Position | null;
 }

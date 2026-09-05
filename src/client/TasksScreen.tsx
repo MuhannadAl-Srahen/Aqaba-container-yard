@@ -140,6 +140,10 @@ export function TasksScreen(props: {
                 {AR.feet(task.size)}
                 {task.bill !== '' && <> · {AR.cardBill}: {ltrCode(task.bill)}</>}
               </p>
+              {/* What the machine is about to lift — «لانها مهمة». */}
+              {task.weight !== '' && (
+                <p className="font-semibold text-ink">{AR.taskWeightLine(task.weight)}</p>
+              )}
               {task.truck !== '' && <p>{AR.taskTruckLine(task.truck)}</p>}
               {task.notes !== '' && <p>{task.notes}</p>}
               <p className="text-xs text-faint">{AR.taskCreatedBy(task.createdBy)}</p>

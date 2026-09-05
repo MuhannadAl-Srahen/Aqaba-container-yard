@@ -268,6 +268,7 @@ interface TaskRow {
   size: number;
   bill: string;
   notes: string;
+  weight: string;
   live_zone: string | null;
   live_bay: number | null;
   live_stack: number | null;
@@ -275,7 +276,7 @@ interface TaskRow {
 }
 
 const TASK_SELECT = `
-  SELECT t.*, k.number, k.size, k.bill, k.notes,
+  SELECT t.*, k.number, k.size, k.bill, k.notes, k.weight,
          k.zone AS live_zone, k.bay AS live_bay, k.stack AS live_stack, k.tier AS live_tier
     FROM tasks t
     JOIN containers k ON k.id = t.container_id`;
@@ -298,6 +299,7 @@ function toTask(row: TaskRow, names: Readonly<Record<string, string>>): TaskDto 
     size: row.size as Size,
     bill: row.bill,
     notes: row.notes,
+    weight: row.weight,
     // The live slot while the box stands; the birth snapshot once it no
     // longer does — the driver must still be told where it stood.
     position:

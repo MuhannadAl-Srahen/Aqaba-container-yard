@@ -133,6 +133,8 @@ describe('birth at the gate', () => {
     expect(craneList[0]?.machine).toBe('CRANE');
     expect(craneList[0]?.number).toBe('TGHU1234565');
     expect(craneList[0]?.position).toEqual(at(1, 1));
+    // «ضع الوزن ايضا عند المهام» — the machine must know what it lifts.
+    expect(craneList[0]?.weight).toBe('25000');
     expect(craneList[0]?.status).toBe('PENDING');
 
     // The straddle's tablet stays quiet — even asking for the crane's list

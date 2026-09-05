@@ -581,6 +581,8 @@ export const AR = {
       : `عدد المهام المرسلة: ${String(created)}، ولدى ${String(skipped)} منها مهمة معلّقة من قبل.`,
   tasksCount: (n: number): string => `عدد المهام: ${String(n)}`,
   taskTruckLine: (truck: string): string => `سيارة الخروج: ${ltrCode(truck)}`,
+  /** «ضع الوزن ايضا عند المهام الخاصة بالأليات لانها مهمة». */
+  taskWeightLine: (weight: string): string => `الوزن: ${ltrCode(weight)} كغم`,
 
   // ---- دفعات كشف الجمارك — الكشف يُقرأ حرفياً أو لا يُقرأ ----
   batchesButton: 'الدفعات',
