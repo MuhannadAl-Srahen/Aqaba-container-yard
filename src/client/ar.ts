@@ -546,6 +546,10 @@ export const AR = {
   /** «اظهار بطاقة الدخول عند المهام»: الورقة نفسها التي كانت تُصوَّر. */
   taskEntryCard: 'بطاقة الدخول',
   taskOutCard: 'البطاقة',
+  /** «يطلعهم اشعار داخل التطبيق انو اجاه امر بالحاوية مشان ينتبه». */
+  taskArrived: (count: number): string =>
+    count === 1 ? 'وصل أمر جديد بحاوية.' : `وصلت ${String(count)} أوامر جديدة بحاويات.`,
+  taskOpenQueue: 'فتح المهام',
   taskPendingTitle: 'المهام الحالية',
   taskDoneTodayTitle: 'المنجزة اليوم',
   taskEmpty: 'لا مهام حالياً.',

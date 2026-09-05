@@ -38,6 +38,7 @@ import { ReclassSheet } from './ReclassSheet';
 import { DriversScreen } from './DriversScreen';
 import { TasksScreen } from './TasksScreen';
 import { TaskMonitorScreen } from './TaskMonitorScreen';
+import { chime } from './chime';
 import { BaySheet } from './BaySheet';
 import { OwnerToolsScreen } from './OwnerToolsScreen';
 import { UsersScreen } from './UsersScreen';
@@ -174,6 +175,48 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     landedOnTasks.current = true;
     if (me.machine !== '') setTasksView(true);
   }, [me]);
+
+  /**
+   * إشعار داخل التطبيق — «بس يجيهم مهمة يطلعهم اشعار داخل التطبيق انو
+   * اجاه امر بالحاوية مشان ينتبه ويكون في صوت»: the driver's pending
+   * queue is polled from HERE, whatever screen is up, so the ring, the
+   * buzz and the arrival banner reach him on the map as surely as on the
+   * queue itself. The same query key the queue screen uses — one cache.
+   */
+  const driverMachine = me !== null && me.machine !== '' ? me.machine : null;
+  const driverQueue = useQuery({
+    queryKey: ['tasks', 'PENDING', driverMachine ?? 'CRANE'],
+    queryFn: () => api.tasks('PENDING', driverMachine ?? 'CRANE'),
+    enabled: driverMachine !== null,
+    refetchInterval: 10_000,
+  });
+  const pendingCount = driverMachine === null ? 0 : (driverQueue.data?.tasks.length ?? 0);
+  const knownPending = useRef<number | null>(null);
+  const [taskAlert, setTaskAlert] = useState<number | null>(null);
+  useEffect(() => {
+    if (driverMachine === null || driverQueue.data === undefined) {
+      knownPending.current = null;
+      return;
+    }
+    const count = driverQueue.data.tasks.length;
+    const before = knownPending.current;
+    knownPending.current = count;
+    // More work than a moment ago = the gate acted. First answer stays
+    // quiet — signing in to a full queue is not news.
+    if (before !== null && count > before) {
+      chime();
+      if (!tasksView) setTaskAlert(count - before);
+    }
+  }, [driverQueue.data, driverMachine, tasksView]);
+  useEffect(() => {
+    if (taskAlert === null) return;
+    const timer = window.setTimeout(() => {
+      setTaskAlert(null);
+    }, 15_000);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [taskAlert]);
 
   /**
    * Is the map itself the thing on screen? This component owns every screen —
@@ -920,7 +963,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                   setTasksView(true);
                 }}
               >
-                {AR.myTasksButton}
+                {pendingCount > 0 ? `${AR.myTasksButton} (${String(pendingCount)})` : AR.myTasksButton}
               </Button>
             )}
             {(isOwner || may('GATE_IN') || may('GATE_OUT')) && (
@@ -1530,6 +1573,33 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             setPrintCard(null);
           }}
         />
+      )}
+      {/* لافتة وصول مهمة — تعلو أي شاشة كان عليها السائق، وتُفتح منها
+          القائمة مباشرة؛ الرنة والاهتزاز انطلقا لحظةَ رصد الوصول. */}
+      {taskAlert !== null && driverMachine !== null && !tasksView && (
+        <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+          <div className="flex w-full max-w-md flex-wrap items-center gap-3 rounded-2xl border-2 border-amber-400 bg-surface p-3 shadow-2xl">
+            <span className="text-sm font-bold text-ink">{AR.taskArrived(taskAlert)}</span>
+            <span className="ms-auto flex gap-2">
+              <Button
+                onClick={() => {
+                  setTaskAlert(null);
+                  setTasksView(true);
+                }}
+              >
+                {AR.taskOpenQueue}
+              </Button>
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setTaskAlert(null);
+                }}
+              >
+                {AR.close}
+              </Button>
+            </span>
+          </div>
+        </div>
       )}
       {toast !== null && <Toast message={toast} />}
     </>

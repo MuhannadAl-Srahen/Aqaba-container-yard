@@ -2835,3 +2835,15 @@ His first minutes on the live queue brought the next ask: «تضيف عند
 gained a card button — the entry card for an entry task (the very paper
 the WhatsApp photo used to carry, photos and all), the exit card once an
 exit is recorded — opened as the usual print overlay above the queue.
+
+And the last piece the same evening: «بس يجيهم مهمة يطلعهم اشعار داخل
+التطبيق انو اجاه امر بالحاوية مشان ينتبه ويكون في صوت». The ring moved
+UP: the driver's pending queue is polled from YardScreen itself (same
+query key, one cache), so wherever the driver stands — map, bay sheet,
+his own queue — a rising count chimes and buzzes (chime.ts, shared),
+and everywhere EXCEPT the queue an amber banner rises over the screen:
+«وصل أمر جديد بحاوية.» with «فتح المهام» beside «إغلاق», self-dismissing
+after fifteen seconds. The «المهام» header button carries the live
+pending count. Verified headless: the driver walked to the map, the
+clerk gated a container in, and the banner rose over the yard drawing
+with the counter reading (3).

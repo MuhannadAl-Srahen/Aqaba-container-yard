@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Handling, TaskDto } from '../shared/types';
 import { positionLabel } from '../shared/address';
@@ -11,37 +11,10 @@ import { Button, Confirm, Toast } from './ui';
 /**
  * شاشة سائق الآلية — بديل قروب الواتساب: the tablet mounted on the crane or
  * the straddle shows the machine's own queue, urgent first then oldest
- * first, each task a card big enough for a gloved thumb. A new task rings
- * and buzzes; «تم» closes it under the driver's name.
+ * first, each task a card big enough for a gloved thumb. The ring and the
+ * arrival banner live in YardScreen — they must sound on EVERY screen, not
+ * only this one; «تم» here closes the task under the driver's name.
  */
-
-/** A short beep through WebAudio — no asset, no permission, no Notification
- *  API (flaky inside Android WebViews). The sign-in tap already satisfied
- *  the autoplay policy; where it did not, silence is not a fault. */
-function chime(): void {
-  try {
-    const context = new AudioContext();
-    const oscillator = context.createOscillator();
-    const gain = context.createGain();
-    oscillator.frequency.value = 880;
-    gain.gain.setValueAtTime(0.15, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.4);
-    oscillator.connect(gain);
-    gain.connect(context.destination);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 0.4);
-    oscillator.onended = (): void => {
-      void context.close();
-    };
-  } catch {
-    // No audio here — the count badge still tells the story.
-  }
-  try {
-    navigator.vibrate?.(200);
-  } catch {
-    // Same: vibration is a courtesy, not a requirement.
-  }
-}
 
 export function TasksScreen(props: {
   machine: Handling;
@@ -82,15 +55,6 @@ export function TasksScreen(props: {
   });
 
   const rows = pending.data?.tasks ?? [];
-  // More work than a moment ago = the gate acted: ring. First load stays
-  // quiet — signing in to a full queue is not news.
-  const knownCount = useRef<number | null>(null);
-  useEffect(() => {
-    if (pending.data === undefined) return;
-    const count = pending.data.tasks.length;
-    if (knownCount.current !== null && count > knownCount.current) chime();
-    knownCount.current = count;
-  }, [pending.data]);
 
   const doneToday = (finished.data?.tasks ?? []).filter(
     (task) => task.doneAt !== null && formatDateOnly(task.doneAt) === formatDateOnly(new Date().toISOString()),
