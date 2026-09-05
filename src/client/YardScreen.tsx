@@ -36,6 +36,8 @@ import { GateInSheet } from './GateInSheet';
 import { ContainerCard } from './ContainerCard';
 import { ReclassSheet } from './ReclassSheet';
 import { DriversScreen } from './DriversScreen';
+import { TasksScreen } from './TasksScreen';
+import { TaskMonitorScreen } from './TaskMonitorScreen';
 import { BaySheet } from './BaySheet';
 import { OwnerToolsScreen } from './OwnerToolsScreen';
 import { UsersScreen } from './UsersScreen';
@@ -121,6 +123,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [yardView, setYardView] = useState(2);
   /** Temporary: the owner's training tools, removed with OwnerToolsScreen. */
   const [toolsView, setToolsView] = useState(false);
+  /** مهام الآليات: شاشة السائق نفسه، وشاشة المراقبة عند المكتب. */
+  const [tasksView, setTasksView] = useState(false);
+  const [monitorView, setMonitorView] = useState(false);
+  /** «عرض الموقع» من مهمة: the container the bay sheet should ring. */
+  const [bayHighlight, setBayHighlight] = useState<number | null>(null);
 
   /**
    * Selecting a container in another yard swings the map to that yard —
@@ -157,6 +164,18 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     isOwner || (me?.permissions.includes(permission) ?? false);
 
   /**
+   * سائق الآلية يهبط على مهامه — the tablet opens ON the queue, once per
+   * sign-in: leaving for the map afterwards is the driver's own choice and
+   * must not be fought by a re-render.
+   */
+  const landedOnTasks = useRef(false);
+  useEffect(() => {
+    if (landedOnTasks.current || me === null) return;
+    landedOnTasks.current = true;
+    if (me.machine !== '') setTasksView(true);
+  }, [me]);
+
+  /**
    * Is the map itself the thing on screen? This component owns every screen —
    * the register, the log, the staff list, the owner's tools are all values it
    * renders — so it stays mounted behind all of them, and its poll went on
@@ -176,7 +195,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     reporting === false &&
     !logView &&
     !zonesView &&
-    !driversView;
+    !driversView &&
+    !tasksView &&
+    !monitorView;
 
   // The map is the shared picture of the ground, so it is the fastest poll:
   // whatever the gate does has to reach the office within a few seconds.
@@ -398,6 +419,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     void queryClient.invalidateQueries({ queryKey: ['state'] });
     void queryClient.invalidateQueries({ queryKey: ['container'] });
     void queryClient.invalidateQueries({ queryKey: ['search'] });
+    // The gate acted — every machine queue on every tablet must hear it.
+    void queryClient.invalidateQueries({ queryKey: ['tasks'] });
     // A register open on this same device must not go stale behind the
     // operation that just happened in front of it.
     for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-truck', 'report-bill', 'report-log', 'report-permits']) {
@@ -580,6 +603,33 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <DriversScreen
         onBack={() => {
           setDriversView(false);
+        }}
+      />
+    );
+  } else if (tasksView && me !== null && me.machine !== '') {
+    screen = (
+      <TasksScreen
+        machine={me.machine}
+        onShowSlot={(task) => {
+          if (task.position === null) return;
+          followSelection(task.position.zone);
+          // The sheet is always an odd bay's; a forty's even address is read
+          // through the odd bay under its lower half.
+          const sheetBay = task.position.bay % 2 === 1 ? task.position.bay : task.position.bay - 1;
+          setOpenBay({ zone: task.position.zone, bay: sheetBay });
+          setBayHighlight(task.containerId);
+          setTasksView(false);
+        }}
+        onBack={() => {
+          setTasksView(false);
+        }}
+      />
+    );
+  } else if (monitorView && (isOwner || may('GATE_IN') || may('GATE_OUT'))) {
+    screen = (
+      <TaskMonitorScreen
+        onBack={() => {
+          setMonitorView(false);
         }}
       />
     );
@@ -847,6 +897,26 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               server refuses the rest regardless — this is just courtesy. */}
           <div className="ms-auto flex items-center gap-1.5">
             <ThemePicker />
+            {me !== null && me.machine !== '' && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setTasksView(true);
+                }}
+              >
+                {AR.myTasksButton}
+              </Button>
+            )}
+            {(isOwner || may('GATE_IN') || may('GATE_OUT')) && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setMonitorView(true);
+                }}
+              >
+                {AR.tasksButton}
+              </Button>
+            )}
             {may('ACCOUNTING') && (
               <Button
                 kind="quiet"
@@ -1194,6 +1264,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           load={loads.get(bayKey(openBay.zone, openBay.bay)) ?? EMPTY_LOAD}
           canGateIn={may('GATE_IN')}
           canMove={may('MOVE')}
+          highlightId={bayHighlight ?? undefined}
           placing={moving}
           onAddToMove={
             moving !== null && correcting === null
@@ -1257,6 +1328,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
           onClose={() => {
             setOpenBay(null);
+            setBayHighlight(null);
           }}
         />
       )}

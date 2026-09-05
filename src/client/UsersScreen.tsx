@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Permission, UserDto } from '../shared/types';
-import { PERMISSIONS } from '../shared/types';
+import type { Handling, Permission, UserDto } from '../shared/types';
+import { HANDLING, PERMISSIONS } from '../shared/types';
 import { AR } from './ar';
 import { ApiFailure, api } from './api';
 import { ThemePicker } from './ThemePicker';
@@ -17,9 +17,46 @@ interface Draft {
   name: string;
   pin: string;
   permissions: Permission[];
+  machine: Handling | '';
 }
 
-const EMPTY: Draft = { name: '', pin: '', permissions: ['GATE_IN', 'MOVE', 'GATE_OUT'] };
+const EMPTY: Draft = { name: '', pin: '', permissions: ['GATE_IN', 'MOVE', 'GATE_OUT'], machine: '' };
+
+/**
+ * «بلا آلية / الونش / العقرب»: a driver account is an ordinary account that
+ * names its machine — the tablet then lands on that machine's task queue
+ * and holds a shift-long session.
+ */
+function MachinePicker(props: {
+  value: Handling | '';
+  onChange: (next: Handling | '') => void;
+}): ReactElement {
+  const options: Array<[Handling | '', string]> = [
+    ['', AR.machineNone],
+    ...HANDLING.map((machine): [Handling | '', string] => [machine, AR.machineName[machine]]),
+  ];
+  return (
+    <div className="flex gap-1 rounded-xl border border-line bg-sunken p-0.5">
+      {options.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => {
+            props.onChange(value);
+          }}
+          className={
+            'rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ' +
+            (props.value === value
+              ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+              : 'text-muted hover:bg-line')
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function PermissionBoxes(props: {
   value: readonly Permission[];
@@ -92,7 +129,12 @@ export function UsersScreen(props: { onBack: () => void }): ReactElement {
 
   const startEdit = (user: UserDto): void => {
     setEditing(user);
-    setEditDraft({ name: user.name, pin: '', permissions: [...user.permissions] });
+    setEditDraft({
+      name: user.name,
+      pin: '',
+      permissions: [...user.permissions],
+      machine: user.machine,
+    });
     setError(null);
   };
 
@@ -130,6 +172,7 @@ export function UsersScreen(props: { onBack: () => void }): ReactElement {
                       api.editUser(user.id, {
                         name: editDraft.name.trim(),
                         permissions: editDraft.permissions,
+                        machine: editDraft.machine,
                         ...(editDraft.pin === '' ? {} : { pin: editDraft.pin }),
                       }),
                       AR.userSaved,
@@ -170,6 +213,14 @@ export function UsersScreen(props: { onBack: () => void }): ReactElement {
                       setEditDraft({ ...editDraft, permissions });
                     }}
                   />
+                  <Field label={AR.userMachine} hint={<span className="text-faint">{AR.userMachineHint}</span>}>
+                    <MachinePicker
+                      value={editDraft.machine}
+                      onChange={(machine) => {
+                        setEditDraft({ ...editDraft, machine });
+                      }}
+                    />
+                  </Field>
                   <div className="flex gap-2">
                     <Button
                       type="submit"
@@ -190,6 +241,11 @@ export function UsersScreen(props: { onBack: () => void }): ReactElement {
               ) : (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                   <span className="text-base font-bold text-ink">{user.name}</span>
+                  {user.machine !== '' && (
+                    <span className="rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                      {AR.machineName[user.machine]}
+                    </span>
+                  )}
                   <span className="flex flex-wrap gap-1">
                     {user.permissions.length === 0 ? (
                       <span className="rounded-lg bg-sunken px-2 py-0.5 text-xs font-semibold text-faint">
@@ -242,6 +298,7 @@ export function UsersScreen(props: { onBack: () => void }): ReactElement {
                   name: draft.name.trim(),
                   pin: draft.pin,
                   permissions: draft.permissions,
+                  machine: draft.machine,
                 }),
                 AR.userAdded,
               );
@@ -287,6 +344,14 @@ export function UsersScreen(props: { onBack: () => void }): ReactElement {
                 setDraft({ ...draft, permissions });
               }}
             />
+            <Field label={AR.userMachine} hint={<span className="text-faint">{AR.userMachineHint}</span>}>
+              <MachinePicker
+                value={draft.machine}
+                onChange={(machine) => {
+                  setDraft({ ...draft, machine });
+                }}
+              />
+            </Field>
             <Button
               type="submit"
               disabled={busy || draft.name.trim() === '' || !validPin(draft.pin)}

@@ -2790,3 +2790,42 @@ nothing in headless Edge (zoom through the map's own buttons), and long
 Bash heredocs into repo files died twice with «unexpected EOF» — the
 Write tool, or part files in the scratchpad joined with cat, worked. 393
 tests, gates green.
+
+## المرحلة 57 — مهام الآليات: قروب الواتساب يتقاعد — 2026-09-05
+
+«رح اعمل حسابات لسائقين الأليات… بدي الية كثير ممتازة احسن من الأعتماد
+على قروبات الواتس اب». The biggest stage since the group move, planned
+with his four answers in hand (prepare-model exits with re-routing for
+breakdowns, urgent-then-FIFO, shift-long tablet sessions, «تم» with a
+full audit trail) plus two orders that arrived mid-plan: existing data
+untouchable, and backups for everyone / restore for the owner alone.
+
+Server: schema v26 — `users.machine` ('' | CRANE | STRADDLE, purely
+additive) and a `tasks` ledger (closed, never deleted) with the slot
+snapshot an exited container leaves behind. Tasks are born INSIDE the
+gate's own transactions: IN on entry to the chosen machine; OUT on a
+تجهيز request (single via prepare, whole bill via prepare-bill with
+per-container machines) or at the exit itself when no تجهيز preceded
+it; exit/unexit/delete auto-close pendings with coded reasons. The desk
+(owner/GATE_IN/GATE_OUT) hurries, re-routes (an IN re-route corrects
+containers.handling and writes an EDIT movement — the entry card prints
+what actually unloaded it), and closes by hand; drivers are FORCED onto
+their own machine's list and answer «تم» under their name. Sessions:
+issueSession takes a ttl — DRIVER_SESSION_MS = 12h for machine
+accounts, the office hour untouched; /api/boot says `driver` about the
+caller only (staff stays {id, name}). /api/backup opened to requireAuth;
+restore still requireOwner.
+
+Client: TasksScreen (tablet-first cards, urgent red-ringed first, huge
+number, blue slot, «تم» + «عرض الموقع» opening the bay sheet with a new
+`highlightId` amber ring; a WebAudio chime + vibration when the pending
+count RISES); TaskMonitorScreen for the desk (machine/status chips,
+urgent toggle, re-route with the handling-correction warning, manual
+close); MachinePicker in UsersScreen; «تجهيز للإخراج» in ContainerCard;
+«تجهيز البوليصة كاملة» in the bill sheet; App.tsx exempts driver
+sessions from the idle lock and renews them by timer; drivers LAND on
+their queue once per sign-in. Verified by driving the real build
+headless on a throwaway DB: the driver landed on his queue, the urgent
+task led it, and «عرض الموقع» ringed the exact cell — screenshots, not
+hope. 409 tests total (15 new for the queue, one flipped for the backup
+rule), all gates green.

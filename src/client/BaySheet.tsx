@@ -30,6 +30,11 @@ export function BaySheet(props: {
   load: readonly ContainerDto[];
   canGateIn: boolean;
   canMove: boolean;
+  /**
+   * «عرض الموقع» من مهمة آلية: the container this sheet was opened FOR —
+   * its cell wears an amber ring so the driver's eye lands on it at once.
+   */
+  highlightId?: number | undefined;
   /** Set while a move is placing: the container looking for its new slot. */
   placing: ContainerDto | null;
   /**
@@ -435,6 +440,7 @@ export function BaySheet(props: {
               ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
               : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950') +
             (checked ? ' ring-2 ring-emerald-600' : '') +
+            (props.highlightId === container.id ? ' ring-2 ring-amber-500' : '') +
             (canDrag ? ' select-none' : '') +
             (beingDragged ? ' opacity-40' : '')
           }

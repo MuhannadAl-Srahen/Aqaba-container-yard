@@ -138,7 +138,11 @@ export function ContainerCard(props: {
   onChanged: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
-  const [confirming, setConfirming] = useState<'exit' | 'unexit' | 'delete' | null>(null);
+  const [confirming, setConfirming] = useState<'exit' | 'unexit' | 'delete' | 'prepare' | null>(
+    null,
+  );
+  /** آلية مهمة التجهيز — تفتح على مناولة الحاوية والكاتب حرّ في تبديلها. */
+  const [prepareMachine, setPrepareMachine] = useState<Handling | null>(null);
   /**
    * A caller may ask the card to open already editing (the register row's
    * pencil does). It may not thereby hand the form to someone who has no
@@ -393,6 +397,20 @@ export function ContainerCard(props: {
                 {AR.actionExit}
               </Button>
             )}
+            {/* تجهيز للإخراج: a machine task BEFORE the exit is recorded —
+                the driver fetches the box to the gate, then the paper. */}
+            {inYard && props.may('GATE_OUT') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setPrepareMachine(container.handling);
+                  setConfirming('prepare');
+                }}
+                disabled={busy}
+              >
+                {AR.prepareAction}
+              </Button>
+            )}
             {/* The exit taken back: it returns to its own slot, and refuses
                 plainly if somebody has taken that slot in the meantime. */}
             {!inYard && props.may('GATE_OUT') && (
@@ -569,6 +587,52 @@ export function ContainerCard(props: {
                 }}
               >
                 {AR.actionExit}
+              </Button>
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setConfirming(null);
+                }}
+              >
+                {AR.cancel}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {confirming === 'prepare' && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-2xl">
+            <h3 className="text-base font-extrabold text-ink">{AR.prepareTitle}</h3>
+            <p className="mt-1 text-sm text-muted">{AR.prepareMachineLabel}</p>
+            <div className="mt-3 flex gap-2">
+              {HANDLING.map((machine) => (
+                <button
+                  key={machine}
+                  type="button"
+                  onClick={() => {
+                    setPrepareMachine(machine);
+                  }}
+                  className={
+                    'flex-1 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors ' +
+                    (prepareMachine === machine
+                      ? 'border-blue-700 bg-blue-700 text-white'
+                      : 'border-line bg-sunken text-muted hover:border-blue-400')
+                  }
+                >
+                  {AR.machineName[machine]}
+                </button>
+              ))}
+            </div>
+            <div className="mt-5 flex gap-2">
+              <Button
+                disabled={busy || prepareMachine === null}
+                onClick={() => {
+                  if (prepareMachine === null) return;
+                  run(api.prepareTask(container.id, prepareMachine), AR.prepareSent);
+                }}
+              >
+                {AR.prepareAction}
               </Button>
               <Button
                 kind="quiet"

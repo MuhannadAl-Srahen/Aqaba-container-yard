@@ -43,6 +43,14 @@ export default function App(): ReactElement {
   const lastTouch = useRef(Date.now());
   const authorizedRef = useRef(false);
   authorizedRef.current = boot.data?.authorized === true && boot.data.firstRun !== true;
+  /**
+   * سائق الآلية لا يُقفَل بالسكون — a tablet mounted on the crane sits
+   * untouched between tasks by nature. Its shift-long session is renewed by
+   * a TIMER instead (the touch ping cannot be relied on up there), and it
+   * ends at «خروج», at shift handover.
+   */
+  const driverRef = useRef(false);
+  driverRef.current = boot.data?.driver === true;
   const locking = useRef(false);
   useEffect(() => {
     const renew = (): void => {
@@ -55,7 +63,7 @@ export default function App(): ReactElement {
       });
     };
     const watch = window.setInterval(() => {
-      if (!authorizedRef.current || locking.current) return;
+      if (!authorizedRef.current || locking.current || driverRef.current) return;
       if (Date.now() - lastTouch.current < IDLE_LOCK_MS) return;
       locking.current = true;
       void api
@@ -66,10 +74,19 @@ export default function App(): ReactElement {
           reboot();
         });
     }, 30_000);
+    // The driver's clockwork renewal: every half hour the 12-hour window
+    // slides, so the queue stays live for the whole shift hands-free.
+    const driverRenew = window.setInterval(() => {
+      if (!authorizedRef.current || !driverRef.current) return;
+      void api.refreshSession().catch(() => {
+        // Same as above: a dead session bounces on the next query.
+      });
+    }, 30 * 60 * 1000);
     window.addEventListener('pointerdown', renew);
     window.addEventListener('keydown', renew);
     return () => {
       window.clearInterval(watch);
+      window.clearInterval(driverRenew);
       window.removeEventListener('pointerdown', renew);
       window.removeEventListener('keydown', renew);
     };

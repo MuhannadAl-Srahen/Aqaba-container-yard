@@ -1,4 +1,12 @@
-import type { ErrorCode, Permission, Tier } from '../shared/types';
+import type {
+  ErrorCode,
+  Handling,
+  Permission,
+  TaskCloseNote,
+  TaskKind,
+  TaskStatus,
+  Tier,
+} from '../shared/types';
 import { TIERS } from '../shared/types';
 import { ltrCode } from '../shared/bidi';
 
@@ -514,6 +522,55 @@ export const AR = {
   editExitSection: 'بيانات الخروج',
   badDate: 'التاريخ غير صحيح.',
   exitBeforeEntry: 'يجب أن يكون تاريخ الخروج بعد تاريخ الدخول.',
+
+  // ---- مهام الآليات — بديل قروب الواتساب ----
+  tasksButton: 'مهام الآليات',
+  myTasksButton: 'المهام',
+  /** أسماء الآليتين معرفةً؛ handlingName أعلاه يبقى مجرداً للبطاقات. */
+  machineName: { CRANE: 'الونش', STRADDLE: 'العقرب' } satisfies Record<Handling, string>,
+  machineNone: 'بلا آلية',
+  userMachine: 'الآلية',
+  userMachineHint: 'حساب سائق آلية يفتح على شاشة مهامه ويبقى داخلاً طوال الوردية.',
+  tasksScreenTitle: (machine: string): string => `مهام ${machine}`,
+  taskKindName: { IN: 'إدخال', OUT: 'تجهيز إخراج' } satisfies Record<TaskKind, string>,
+  taskStatusName: { PENDING: 'معلّقة', DONE: 'منجزة' } satisfies Record<TaskStatus, string>,
+  taskUrgentChip: 'مستعجل',
+  taskMakeUrgent: 'مستعجل',
+  taskClearUrgent: 'إلغاء الاستعجال',
+  taskDoneAction: 'تم',
+  taskDoneTitle: 'إنهاء المهمة',
+  taskDoneBody: (number: string): string => `هل أُنجزت مهمة الحاوية ${ltrCode(number)}؟`,
+  taskDoneToast: 'تم إنهاء المهمة.',
+  taskUrgentToast: 'تم تحديث ترتيب المهمة.',
+  taskShowSlot: 'عرض الموقع',
+  taskPendingTitle: 'المهام الحالية',
+  taskDoneTodayTitle: 'المنجزة اليوم',
+  taskEmpty: 'لا مهام حالياً.',
+  taskCreatedBy: (name: string): string => `أرسلها ${name}`,
+  taskDoneBy: (name: string): string => `أنهاها ${name}`,
+  taskRerouteAction: 'تحويل إلى الآلية الأخرى',
+  taskRerouteTitle: 'تحويل المهمة',
+  taskRerouteBody: (number: string, machine: string): string =>
+    `تحوّل مهمة الحاوية ${ltrCode(number)} إلى ${machine}. إن كانت مهمة إدخال ` +
+    'تُصحَّح آلية المناولة في سجل الحاوية أيضاً.',
+  taskRerouted: 'تم تحويل المهمة.',
+  taskClosedNote: {
+    AUTO_EXIT: 'أُغلقت بتسجيل الخروج',
+    AUTO_RETURN: 'أُغلقت بإلغاء الخروج',
+    AUTO_DELETE: 'أُغلقت بحذف السجل',
+  } satisfies Record<TaskCloseNote, string>,
+  prepareAction: 'تجهيز للإخراج',
+  prepareTitle: 'إرسال مهمة تجهيز',
+  prepareMachineLabel: 'إلى أي آلية؟',
+  prepareByHandling: 'حسب آلية كل حاوية',
+  prepareSent: 'أُرسلت مهمة التجهيز.',
+  prepareBillAction: 'تجهيز البوليصة كاملة',
+  prepareBillSent: (created: number, skipped: number): string =>
+    skipped === 0
+      ? `عدد مهام التجهيز المرسلة: ${String(created)}.`
+      : `عدد المهام المرسلة: ${String(created)}، ولدى ${String(skipped)} منها مهمة معلّقة من قبل.`,
+  tasksCount: (n: number): string => `عدد المهام: ${String(n)}`,
+  taskTruckLine: (truck: string): string => `سيارة الخروج: ${ltrCode(truck)}`,
 
   // ---- driver accounting ----
   driversButton: 'حساب السائقين',

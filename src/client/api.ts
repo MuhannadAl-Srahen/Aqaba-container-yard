@@ -22,6 +22,8 @@ import type {
   Position,
   RetiredZoneDto,
   StandingReportRow,
+  TaskDto,
+  TaskStatus,
   TruckDto,
   UnassignedPlateRow,
   UserDto,
@@ -146,6 +148,8 @@ export interface BootDto {
   staff: Array<{ id: number; name: string }>;
   /** When the running build was compiled — the answer to «نزلت التعديلات؟». */
   build: string;
+  /** Is the CALLER's own session a driver's — the idle lock reads this. */
+  driver: boolean;
 }
 
 export const api = {
@@ -173,12 +177,18 @@ export const api = {
     name: string;
     pin: string;
     permissions: readonly Permission[];
+    machine: Handling | '';
   }): Promise<UserDto> => request('/api/users', { method: 'POST', body: JSON.stringify(input) }),
 
   /** Send a `pin` only to replace it; leave it out to keep the current one. */
   editUser: (
     id: number,
-    input: { name: string; permissions: readonly Permission[]; pin?: string },
+    input: {
+      name: string;
+      permissions: readonly Permission[];
+      machine?: Handling | '';
+      pin?: string;
+    },
   ): Promise<UserDto> =>
     request(`/api/users/${String(id)}`, { method: 'PATCH', body: JSON.stringify(input) }),
 
@@ -542,6 +552,29 @@ export const api = {
   /** تجديد الجلسة بلمسة إنسان — pinged on real interaction, throttled. */
   refreshSession: (): Promise<{ ok: boolean }> =>
     request('/api/session/refresh', { method: 'POST', body: JSON.stringify({}) }),
+
+  // ---- مهام الآليات ----
+  tasks: (status: TaskStatus, machine?: Handling, limit?: number): Promise<{ tasks: TaskDto[] }> =>
+    request(
+      `/api/tasks?status=${status}` +
+        (machine === undefined ? '' : `&machine=${machine}`) +
+        (limit === undefined ? '' : `&limit=${String(limit)}`),
+    ),
+
+  prepareTask: (containerId: number, machine?: Handling): Promise<TaskDto> =>
+    request('/api/tasks/prepare', { method: 'POST', body: JSON.stringify({ containerId, machine }) }),
+
+  prepareBill: (bill: string, machine?: Handling): Promise<{ created: number; skipped: number }> =>
+    request('/api/tasks/prepare-bill', { method: 'POST', body: JSON.stringify({ bill, machine }) }),
+
+  taskDone: (id: number): Promise<TaskDto> =>
+    request(`/api/tasks/${String(id)}/done`, { method: 'POST', body: JSON.stringify({}) }),
+
+  taskUrgent: (id: number, urgent: boolean): Promise<TaskDto> =>
+    request(`/api/tasks/${String(id)}/urgent`, { method: 'POST', body: JSON.stringify({ urgent }) }),
+
+  taskMachine: (id: number, machine: Handling): Promise<TaskDto> =>
+    request(`/api/tasks/${String(id)}/machine`, { method: 'POST', body: JSON.stringify({ machine }) }),
 
   /** تغيير كلمة سر المالك — his current word first, six letters at least. */
   changeOwnerPassword: (current: string, password: string): Promise<{ ok: boolean }> =>

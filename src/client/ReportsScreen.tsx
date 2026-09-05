@@ -4,10 +4,11 @@ import type {
   ContainerDto,
   DailyReportRow,
   GateReportRow,
+  Handling,
   PermitReportRow,
   StandingReportRow,
 } from '../shared/types';
-import { cardSerial } from '../shared/types';
+import { HANDLING, cardSerial } from '../shared/types';
 import { carrierOfPlate } from '../shared/fleet';
 import { ltrCode } from '../shared/bidi';
 import { ApiFailure } from './api';
@@ -360,6 +361,8 @@ export function ReportsScreen(props: {
   const [truckDir, setTruckDir] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [bill, setBill] = useState(props.initialBill ?? '');
   const [removingPermit, setRemovingPermit] = useState<PermitReportRow | null>(null);
+  /** «تجهيز البوليصة كاملة»: the bill awaiting its machine choice, or null. */
+  const [prepareBillFor, setPrepareBillFor] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   /** الطباعة الكلية للبطاقات — the owner's one-click book of the period. */
@@ -755,6 +758,20 @@ export function ReportsScreen(props: {
                 {AR.permitCreate}
               </Button>
             )}
+            {/* «بنخرجها دفعة وحده البوليصة كاملة»: one tap sends a تجهيز
+                task per standing container — each to its own machine, or
+                all to one when the desk overrides. */}
+            {billReady && props.canPermit && (
+              <Button
+                kind="quiet"
+                disabled={(billReport.data?.rows ?? []).some((row) => row.position !== null) === false}
+                onClick={() => {
+                  setPrepareBillFor(bill.trim());
+                }}
+              >
+                {AR.prepareBillAction}
+              </Button>
+            )}
           </>
         ) : (tab === 'in' || tab === 'out') && props.isOwner ? (
           // الطباعة الكلية — the owner's alone; the server refuses everyone
@@ -801,6 +818,61 @@ export function ReportsScreen(props: {
           setRemovingPermit(null);
         }}
       />
+    )}
+    {prepareBillFor !== null && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-2xl">
+          <h3 className="text-base font-extrabold text-ink">{AR.prepareBillAction}</h3>
+          <p className="mt-1 text-sm text-muted">{AR.prepareMachineLabel}</p>
+          <div className="mt-3 grid gap-2">
+            {(
+              [
+                [undefined, AR.prepareByHandling],
+                ...HANDLING.map((machine): [Handling | undefined, string] => [
+                  machine,
+                  AR.machineName[machine],
+                ]),
+              ] as Array<[Handling | undefined, string]>
+            ).map(([machine, label]) => (
+              <Button
+                key={label}
+                kind="quiet"
+                disabled={busy}
+                onClick={() => {
+                  const chosen = prepareBillFor;
+                  setBusy(true);
+                  api
+                    .prepareBill(chosen, machine)
+                    .then(({ created, skipped }) => {
+                      void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+                      setToast(AR.prepareBillSent(created, skipped));
+                    })
+                    .catch((failure: unknown) => {
+                      setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+                    })
+                    .finally(() => {
+                      setBusy(false);
+                      setPrepareBillFor(null);
+                    });
+                }}
+              >
+                {label}
+              </Button>
+            ))}
+          </div>
+          <div className="mt-4">
+            <Button
+              kind="quiet"
+              full
+              onClick={() => {
+                setPrepareBillFor(null);
+              }}
+            >
+              {AR.cancel}
+            </Button>
+          </div>
+        </div>
+      </div>
     )}
     {toast !== null && <Toast message={toast} />}
     </>
