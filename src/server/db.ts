@@ -223,6 +223,11 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- Comma-separated permission codes; the empty string is "may sign in
       -- and look, nothing more".
       perms      TEXT    NOT NULL DEFAULT '',
+      -- v26: '' | CRANE | STRADDLE. A non-empty machine marks a DRIVER
+      -- account: the tablet lands on that machine's task queue and holds a
+      -- shift-long session. No CHECK, like containers.handling — zod guards
+      -- the wire.
+      machine    TEXT    NOT NULL DEFAULT '',
       deleted_at TEXT
     );
 
@@ -444,8 +449,48 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_wages_live
       ON wages (container_id, direction) WHERE deleted_at IS NULL;
 
-    PRAGMA user_version = 25;
+    -- v26: مهام الآليات — the WhatsApp photo group, replaced. A task is born
+    -- the instant the gate acts (an IN on entry; an OUT on a تجهيز request
+    -- or at the exit itself) and appears on the machine's tablet. Tasks are
+    -- CLOSED, never deleted — no deleted_at on purpose: the queue is a work
+    -- ledger, and history is the point.
+    CREATE TABLE IF NOT EXISTS tasks (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind         TEXT    NOT NULL CHECK (kind IN ('IN', 'OUT')),
+      container_id INTEGER NOT NULL REFERENCES containers (id),
+      machine      TEXT    NOT NULL CHECK (machine IN ('CRANE', 'STRADDLE')),
+      urgent       INTEGER NOT NULL DEFAULT 0,
+      status       TEXT    NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'DONE')),
+      created_at   TEXT    NOT NULL,
+      created_by   INTEGER REFERENCES users (id),
+      done_at      TEXT,
+      done_by      INTEGER REFERENCES users (id),
+      -- '' for a driver's own «تم»; otherwise a close CODE (AUTO_EXIT,
+      -- AUTO_RETURN, AUTO_DELETE) — the client owns the Arabic sentence.
+      closed_note  TEXT    NOT NULL DEFAULT '',
+      -- The slot at task birth: an exited container keeps no live position,
+      -- and the driver must still be told which slot the box stood in.
+      pos_zone     TEXT,
+      pos_bay      INTEGER,
+      pos_stack    INTEGER,
+      pos_tier     TEXT,
+      truck        TEXT    NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (machine, status);
+    CREATE INDEX IF NOT EXISTS idx_tasks_container ON tasks (container_id);
+
+    PRAGMA user_version = 26;
   `);
+
+  // v26 upgrade: drivers joined the staff. A users table from before the
+  // machines gets the column in place; every existing account reads '' — an
+  // office account, honestly. Purely additive: no row is rewritten.
+  const userColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('users') as unknown as Array<{ name: string }>;
+  if (!userColumns.some((column) => column.name === 'machine')) {
+    db.exec(`ALTER TABLE users ADD COLUMN machine TEXT NOT NULL DEFAULT ''`);
+  }
 
   // v25 upgrade: the gate now asks whether a bill is a lone container or a
   // manifest. Old records keep NULL — unknown then, unknown honestly.

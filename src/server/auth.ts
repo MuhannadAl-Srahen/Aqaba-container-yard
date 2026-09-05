@@ -21,6 +21,13 @@ const COOKIE_SECRET_KEY = 'cookie_secret';
  */
 export const SESSION_MS = 60 * 60 * 1000;
 
+/**
+ * سائق الآلية يبقى داخلاً طوال الوردية — a tablet mounted on the crane
+ * cannot retype a PIN every idle hour. Twelve hours covers a shift with
+ * margin; the driver signs out at handover, and the office keeps its hour.
+ */
+export const DRIVER_SESSION_MS = 12 * 60 * 60 * 1000;
+
 export const SESSION_COOKIE = 'yard_session';
 
 /** `salt:hash`, hex. The one storage form for every secret in the system. */
@@ -67,8 +74,13 @@ function cookieSecret(db: DatabaseSync): Buffer {
  * existed had two parts and no longer parse: everyone signs in once more,
  * which is the right thing for the release that introduces accounts.
  */
-export function issueSession(db: DatabaseSync, userId: number, now: number): string {
-  const expires = now + SESSION_MS;
+export function issueSession(
+  db: DatabaseSync,
+  userId: number,
+  now: number,
+  ttlMs: number = SESSION_MS,
+): string {
+  const expires = now + ttlMs;
   const payload = `${String(userId)}.${String(expires)}`;
   const signature = createHmac('sha256', cookieSecret(db)).update(payload).digest('hex');
   return `${payload}.${signature}`;

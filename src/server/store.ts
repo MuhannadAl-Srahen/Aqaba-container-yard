@@ -18,12 +18,16 @@ import type {
   Permission,
   Position,
   Size,
+  TaskCloseNote,
+  TaskDto,
+  TaskKind,
+  TaskStatus,
   Tier,
   TruckDto,
   UserDto,
   Zone,
 } from '../shared/types';
-import { OWNER_ID, PERMISSIONS } from '../shared/types';
+import { HANDLING, OWNER_ID, PERMISSIONS } from '../shared/types';
 import type { Standing } from '../shared/rules';
 import { hashSecret } from './auth';
 
@@ -114,11 +118,22 @@ interface UserRow {
   name: string;
   pin_hash: string;
   perms: string;
+  machine: string;
   deleted_at: string | null;
 }
 
+/** The stored machine, filtered back to the vocabulary — '' means office. */
+function parseMachine(text: string): Handling | '' {
+  return (HANDLING as readonly string[]).includes(text) ? (text as Handling) : '';
+}
+
 function toUser(row: UserRow): UserDto {
-  return { id: row.id, name: row.name, permissions: parsePermissions(row.perms) };
+  return {
+    id: row.id,
+    name: row.name,
+    permissions: parsePermissions(row.perms),
+    machine: parseMachine(row.machine),
+  };
 }
 
 /** The employees who can sign in today. */
@@ -154,25 +169,41 @@ export function userNameTaken(db: DatabaseSync, name: string, exceptId?: number)
 
 export function insertUser(
   db: DatabaseSync,
-  user: { name: string; pin: string; permissions: readonly Permission[] },
+  user: {
+    name: string;
+    pin: string;
+    permissions: readonly Permission[];
+    machine: Handling | '';
+  },
 ): number {
   const result = db
-    .prepare('INSERT INTO users (name, pin_hash, perms) VALUES (?, ?, ?)')
-    .run(user.name, hashSecret(user.pin), user.permissions.join(','));
+    .prepare('INSERT INTO users (name, pin_hash, perms, machine) VALUES (?, ?, ?, ?)')
+    .run(user.name, hashSecret(user.pin), user.permissions.join(','), user.machine);
   return Number(result.lastInsertRowid);
 }
 
-/** Rename, re-permission, and optionally set a fresh PIN. */
+/** Rename, re-permission, re-machine, and optionally set a fresh PIN. */
 export function updateUser(
   db: DatabaseSync,
   id: number,
-  user: { name: string; permissions: readonly Permission[]; pin?: string | undefined },
+  user: {
+    name: string;
+    permissions: readonly Permission[];
+    machine?: Handling | '' | undefined;
+    pin?: string | undefined;
+  },
 ): void {
   db.prepare('UPDATE users SET name = ?, perms = ? WHERE id = ? AND deleted_at IS NULL').run(
     user.name,
     user.permissions.join(','),
     id,
   );
+  if (user.machine !== undefined) {
+    db.prepare('UPDATE users SET machine = ? WHERE id = ? AND deleted_at IS NULL').run(
+      user.machine,
+      id,
+    );
+  }
   if (user.pin !== undefined) {
     db.prepare('UPDATE users SET pin_hash = ? WHERE id = ? AND deleted_at IS NULL').run(
       hashSecret(user.pin),
@@ -200,6 +231,191 @@ export function listUserNames(db: DatabaseSync): Record<string, string> {
 export function userLabel(names: Readonly<Record<string, string>>, id: number | null): string {
   if (id === null || id === OWNER_ID) return OWNER_NAME;
   return names[String(id)] ?? OWNER_NAME;
+}
+
+// ---- مهام الآليات — the machine task queue ----------------------------------
+
+/**
+ * A task row joined with its container: the driver reads everything off one
+ * card. The join keeps DELETED containers — a closed task on a struck record
+ * must still render in the history it belongs to.
+ */
+interface TaskRow {
+  id: number;
+  kind: string;
+  container_id: number;
+  machine: string;
+  urgent: number;
+  status: string;
+  created_at: string;
+  created_by: number | null;
+  done_at: string | null;
+  done_by: number | null;
+  closed_note: string;
+  pos_zone: string | null;
+  pos_bay: number | null;
+  pos_stack: number | null;
+  pos_tier: string | null;
+  truck: string;
+  number: string;
+  size: number;
+  bill: string;
+  notes: string;
+  live_zone: string | null;
+  live_bay: number | null;
+  live_stack: number | null;
+  live_tier: string | null;
+}
+
+const TASK_SELECT = `
+  SELECT t.*, k.number, k.size, k.bill, k.notes,
+         k.zone AS live_zone, k.bay AS live_bay, k.stack AS live_stack, k.tier AS live_tier
+    FROM tasks t
+    JOIN containers k ON k.id = t.container_id`;
+
+function toTask(row: TaskRow, names: Readonly<Record<string, string>>): TaskDto {
+  return {
+    id: row.id,
+    kind: row.kind as TaskKind,
+    containerId: row.container_id,
+    machine: row.machine as Handling,
+    urgent: row.urgent !== 0,
+    status: row.status as TaskStatus,
+    createdAt: row.created_at,
+    createdBy: userLabel(names, row.created_by),
+    doneAt: row.done_at,
+    doneBy: row.done_at === null ? null : userLabel(names, row.done_by),
+    closedNote: row.closed_note as TaskCloseNote | '',
+    truck: row.truck,
+    number: row.number,
+    size: row.size as Size,
+    bill: row.bill,
+    notes: row.notes,
+    // The live slot while the box stands; the birth snapshot once it no
+    // longer does — the driver must still be told where it stood.
+    position:
+      slotOf(row.live_zone, row.live_bay, row.live_stack, row.live_tier) ??
+      slotOf(row.pos_zone, row.pos_bay, row.pos_stack, row.pos_tier),
+  };
+}
+
+export interface NewTask {
+  kind: TaskKind;
+  containerId: number;
+  machine: Handling;
+  at: string;
+  /** null = the owner, exactly as movements write it. */
+  createdBy: number | null;
+  /** The slot at birth, kept for after the live position is wiped. */
+  position: Position | null;
+  truck?: string;
+}
+
+export function insertTask(db: DatabaseSync, task: NewTask): number {
+  const result = db
+    .prepare(
+      `INSERT INTO tasks (kind, container_id, machine, created_at, created_by,
+                          pos_zone, pos_bay, pos_stack, pos_tier, truck)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .run(
+      task.kind,
+      task.containerId,
+      task.machine,
+      task.at,
+      task.createdBy,
+      task.position?.zone ?? null,
+      task.position?.bay ?? null,
+      task.position?.stack ?? null,
+      task.position?.tier ?? null,
+      task.truck ?? '',
+    );
+  return Number(result.lastInsertRowid);
+}
+
+export function getTask(db: DatabaseSync, id: number): TaskDto | null {
+  const row = db.prepare(`${TASK_SELECT} WHERE t.id = ?`).get(id) as TaskRow | undefined;
+  return row === undefined ? null : toTask(row, listUserNames(db));
+}
+
+/**
+ * The queue as the tablet reads it. PENDING: «مستعجل» first, then the oldest
+ * first — the order the owner chose. DONE: the freshest first, capped.
+ */
+export function listTasks(
+  db: DatabaseSync,
+  filter: { machine?: Handling | undefined; status: TaskStatus; limit?: number | undefined },
+): TaskDto[] {
+  const where = ['t.status = ?'];
+  const args: Array<string | number> = [filter.status];
+  if (filter.machine !== undefined) {
+    where.push('t.machine = ?');
+    args.push(filter.machine);
+  }
+  const order =
+    filter.status === 'PENDING'
+      ? 'ORDER BY t.urgent DESC, t.created_at, t.id'
+      : 'ORDER BY t.done_at DESC, t.id DESC';
+  const limit = Math.min(filter.limit ?? 200, 500);
+  const rows = db
+    .prepare(`${TASK_SELECT} WHERE ${where.join(' AND ')} ${order} LIMIT ?`)
+    .all(...args, limit) as unknown as TaskRow[];
+  const names = listUserNames(db);
+  return rows.map((row) => toTask(row, names));
+}
+
+/** Is a PENDING task of this kind already open on the container? */
+export function pendingTaskExists(db: DatabaseSync, containerId: number, kind: TaskKind): boolean {
+  const row = db
+    .prepare(`SELECT id FROM tasks WHERE container_id = ? AND kind = ? AND status = 'PENDING'`)
+    .get(containerId, kind) as { id: number } | undefined;
+  return row !== undefined;
+}
+
+/**
+ * Close every PENDING task on a container (optionally one kind) — the gate
+ * acted, so the queue must not keep asking. Returns how many closed.
+ */
+export function closePendingTasks(
+  db: DatabaseSync,
+  containerId: number,
+  kind: TaskKind | null,
+  at: string,
+  byId: number | null,
+  note: TaskCloseNote,
+): number {
+  const result =
+    kind === null
+      ? db
+          .prepare(
+            `UPDATE tasks SET status = 'DONE', done_at = ?, done_by = ?, closed_note = ?
+             WHERE container_id = ? AND status = 'PENDING'`,
+          )
+          .run(at, byId, note, containerId)
+      : db
+          .prepare(
+            `UPDATE tasks SET status = 'DONE', done_at = ?, done_by = ?, closed_note = ?
+             WHERE container_id = ? AND kind = ? AND status = 'PENDING'`,
+          )
+          .run(at, byId, note, containerId, kind);
+  return Number(result.changes);
+}
+
+/** The driver's own «تم»: closed by hand, with no close code. */
+export function setTaskDone(db: DatabaseSync, id: number, at: string, byId: number | null): void {
+  db.prepare(`UPDATE tasks SET status = 'DONE', done_at = ?, done_by = ? WHERE id = ?`).run(
+    at,
+    byId,
+    id,
+  );
+}
+
+export function setTaskUrgent(db: DatabaseSync, id: number, urgent: boolean): void {
+  db.prepare('UPDATE tasks SET urgent = ? WHERE id = ?').run(urgent ? 1 : 0, id);
+}
+
+export function setTaskMachine(db: DatabaseSync, id: number, machine: Handling): void {
+  db.prepare('UPDATE tasks SET machine = ? WHERE id = ?').run(machine, id);
 }
 
 /** Everyone currently standing in the yard, as the rules see them. */
@@ -403,6 +619,14 @@ export interface ContainerEdit {
   driverOut: string;
   enteredAt: string;
   exitedAt: string | null;
+}
+
+/**
+ * تحويل مهمة إدخال يصحّح المناولة: the entry card must print what actually
+ * lifted the box off the truck, so re-routing the task rewrites the fact.
+ */
+export function setHandling(db: DatabaseSync, id: number, handling: Handling): void {
+  db.prepare('UPDATE containers SET handling = ? WHERE id = ?').run(handling, id);
 }
 
 export function updateContainer(db: DatabaseSync, id: number, edit: ContainerEdit): void {

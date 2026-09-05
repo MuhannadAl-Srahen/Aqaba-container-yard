@@ -303,7 +303,6 @@ describe('permissions', () => {
     for (const [method, url, payload] of [
       ['GET', '/api/users', undefined],
       ['POST', '/api/users', { name: 'x', pin: '1234', permissions: [] }],
-      ['POST', '/api/backup', undefined],
       ['GET', '/api/owner/tools', undefined],
       ['POST', '/api/owner/seed', {}],
       ['POST', '/api/owner/wipe-password', { password: 'whatever' }],
@@ -313,6 +312,25 @@ describe('permissions', () => {
       const refused = await call({ method, url, payload, cookie: ayman.cookie });
       expect(refused.status, url).toBe(403);
     }
+  });
+
+  it('every account may TAKE a backup; putting one back stays the owner’s', async () => {
+    // «اعطي جميع الموظفين القدرة على عمل نسخة احتياطية ولكن استرجاع النسخة
+    // بيد المالك»: more copies leaving the building is safety, not risk —
+    // the site already sits behind the sign-in either way.
+    const naji = await hire('ناجي', '2244', []);
+    // A memory database cannot be snapshotted, so passing the door shows as
+    // NOT_SETUP here — the point is it is no longer the owner's 403.
+    const copy = await call({ method: 'POST', url: '/api/backup', cookie: naji.cookie });
+    expect(copy.status).toBe(409);
+    expect((copy.body as { code: string }).code).toBe('NOT_SETUP');
+    const restore = await call({
+      method: 'POST',
+      url: '/api/owner/restore',
+      payload: {},
+      cookie: naji.cookie,
+    });
+    expect(restore.status).toBe(403);
   });
 
   it('the owner passes everything without a checkbox anywhere', async () => {

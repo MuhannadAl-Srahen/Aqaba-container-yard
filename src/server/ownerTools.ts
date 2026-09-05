@@ -106,13 +106,16 @@ export function registerOwnerTools(
       // practice containers — a permit book naming vanished boxes is noise.
       db.exec('DELETE FROM permit_items');
       db.exec('DELETE FROM permits');
+      // The machine queue lists containers too — practice tasks go with
+      // the practice boxes.
+      db.exec('DELETE FROM tasks');
       db.exec('DELETE FROM movements');
       db.exec('DELETE FROM containers');
       // One counter per year now, so the wipe clears the whole family.
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
       db.exec(
-        "DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements', 'permits', 'permit_items')",
+        "DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements', 'permits', 'permit_items', 'tasks')",
       );
       // Counted back AFTER the delete, from the table itself. The screen says
       // what actually went, so «it did not delete anything» is a claim either

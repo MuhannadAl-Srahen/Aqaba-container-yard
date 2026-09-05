@@ -117,13 +117,14 @@ describe('schema v9 — the cutover to the official yard', () => {
       'permits',
       'photos',
       'settings',
+      'tasks',
       'trucks',
       'users',
       'wages',
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(25);
+    ).toBe(26);
     db.close();
   });
 
@@ -220,6 +221,7 @@ describe('schema v9 — the cutover to the official yard', () => {
       'permits',
       'photos',
       'settings',
+      'tasks',
       'trucks',
       'users',
       'wages',

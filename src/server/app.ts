@@ -37,7 +37,9 @@ import { canMove, canPlace, planGroupMove, planRemoval, restingOn, slotUsable } 
 import { composeLayout, zoneDefOf } from '../shared/layout';
 import type { YardLayout, Zone } from '../shared/types';
 import {
+  DRIVER_SESSION_MS,
   SESSION_COOKIE,
+  SESSION_MS,
   hasPassword,
   issueSession,
   setPassword,
@@ -168,18 +170,33 @@ const editSchema = z.object({
 
 const permissionSchema = z.array(z.enum(PERMISSIONS)).max(PERMISSIONS.length);
 const pinSchema = z.string().trim().regex(/^\d{4,6}$/);
+/** أي آلية يقود الحساب: '' = مكتب. */
+const userMachineSchema = z.enum(HANDLING).or(z.literal(''));
 
 const userSchema = z.object({
   name: z.string().trim().min(1).max(40),
   pin: pinSchema,
   permissions: permissionSchema,
+  machine: userMachineSchema.default(''),
 });
 
 /** An edit may leave the PIN alone; sending one replaces it. */
 const userPatchSchema = z.object({
   name: z.string().trim().min(1).max(40),
   permissions: permissionSchema,
+  machine: userMachineSchema.optional(),
   pin: pinSchema.optional(),
+});
+
+/** مهام الآليات: a تجهيز request, and the queue's own small verbs. */
+const machineSchema = z.enum(HANDLING);
+const prepareSchema = z.object({
+  containerId: z.number().int().min(1),
+  machine: machineSchema.optional(),
+});
+const prepareBillSchema = z.object({
+  bill: z.string().trim().min(1).max(40),
+  machine: machineSchema.optional(),
 });
 
 const carrierSchema = z.object({
@@ -310,15 +327,25 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     const id = verifySession(db, token, Date.now());
     if (id === null) return null;
     if (id === OWNER_ID) {
-      return { id: OWNER_ID, name: store.OWNER_NAME, owner: true, permissions: PERMISSIONS };
+      return {
+        id: OWNER_ID,
+        name: store.OWNER_NAME,
+        owner: true,
+        permissions: PERMISSIONS,
+        machine: '',
+      };
     }
     // An employee removed mid-session loses the session with the account.
     const user = store.getUser(db, id);
     if (user === null) return null;
-    return { id: user.id, name: user.name, owner: false, permissions: user.permissions };
+    return {
+      id: user.id,
+      name: user.name,
+      owner: false,
+      permissions: user.permissions,
+      machine: user.machine,
+    };
   };
-
-  const isAuthorized = (request: FastifyRequest): boolean => actorOf(request) !== null;
 
   const requireAuth = (request: FastifyRequest): MeDto => {
     const actor = actorOf(request);
@@ -344,6 +371,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   /** The id a movement records: null for the owner. */
   const actorId = (actor: MeDto): number | null => (actor.owner ? null : actor.id);
 
+  /** The people who run the machine queue: the owner and the two gate desks. */
+  const canRunTasks = (actor: MeDto): boolean =>
+    actor.owner ||
+    actor.permissions.includes('GATE_IN') ||
+    actor.permissions.includes('GATE_OUT');
+
   const idParam = (request: FastifyRequest): number => {
     const params = request.params as { id?: string };
     const id = Number(params.id);
@@ -352,11 +385,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   };
 
   const sendSession = (reply: FastifyReply, userId: number): void => {
+    // A driver's tablet holds the whole shift; the office keeps its hour.
+    const machine = userId === OWNER_ID ? '' : (store.getUser(db, userId)?.machine ?? '');
+    const ttl = machine === '' ? SESSION_MS : DRIVER_SESSION_MS;
     // No maxAge ON PURPOSE — «واحد يدخل ع الموقع يطلب منه كل مره كلمة سر»:
     // a cookie with no age dies with the browser, so opening the site anew
-    // starts at the password. The signed hour inside the token stands
+    // starts at the password. The signed window inside the token stands
     // behind it for browsers that never truly close.
-    reply.setCookie(SESSION_COOKIE, issueSession(db, userId, Date.now()), {
+    reply.setCookie(SESSION_COOKIE, issueSession(db, userId, Date.now(), ttl), {
       path: '/',
       httpOnly: true,
       sameSite: 'lax',
@@ -393,11 +429,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   const build = buildStamp();
 
   app.get('/api/boot', (request) => {
+    const actor = actorOf(request);
     return {
       firstRun: !hasPassword(db),
-      authorized: isAuthorized(request),
+      authorized: actor !== null,
+      // {id, name} and nothing more: which machine an account drives is not
+      // the anonymous sign-in screen's business.
       staff: store.listUsers(db).map((user) => ({ id: user.id, name: user.name })),
       build,
+      /** Is the CALLER's own session a driver's — the idle lock reads this. */
+      driver: actor !== null && actor.machine !== '',
     };
   });
 
@@ -922,6 +963,16 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         cardInYear: year,
       });
       store.recordMovement(db, id, 'IN', at, null, body.position, '', actorId(actor));
+      // مهام الآليات: the instant the gate receives, the chosen machine's
+      // tablet is told — the WhatsApp photo, replaced.
+      store.insertTask(db, {
+        kind: 'IN',
+        containerId: id,
+        machine: body.handling,
+        at,
+        createdBy: actorId(actor),
+        position: body.position,
+      });
       void reply.status(201);
       return store.getContainer(db, id);
     });
@@ -1097,8 +1148,192 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       });
       store.recordMovement(db, id, 'OUT', at, position, null, '', actorId(actor));
       settleAbove(descents, at, dto.number, actorId(actor));
+      // The queue follows the gate: a pending تجهيز is now answered, and a
+      // stale entry task dies with the visit. If NO تجهيز preceded this
+      // exit, one is born right here — already pending, carrying the truck
+      // and the slot the box stood in, so nothing is ever missed.
+      const closedOut = store.closePendingTasks(db, id, 'OUT', at, actorId(actor), 'AUTO_EXIT');
+      store.closePendingTasks(db, id, 'IN', at, actorId(actor), 'AUTO_EXIT');
+      if (closedOut === 0 && dto.handling !== null) {
+        store.insertTask(db, {
+          kind: 'OUT',
+          containerId: id,
+          machine: dto.handling,
+          at,
+          createdBy: actorId(actor),
+          position,
+          truck: gate.truck,
+        });
+      }
       return store.getContainer(db, id);
     });
+  });
+
+  // ---- مهام الآليات — the machine task queue --------------------------------
+
+  /**
+   * تجهيز للإخراج: the clerk tells a machine to fetch a standing container
+   * to the gate BEFORE the exit is recorded — the owner's chosen exit model.
+   * The machine defaults to what unloaded the box; the clerk may override
+   * (a broken crane hands its work to the straddle).
+   */
+  app.post('/api/tasks/prepare', (request, reply) => {
+    const actor = requirePerm(request, 'GATE_OUT');
+    const body = parseOrRefuse(prepareSchema, request.body);
+    return transaction(db, () => {
+      const { dto, position } = standingContainer(body.containerId);
+      if (store.pendingTaskExists(db, dto.id, 'OUT')) refuse(409, 'TASK_EXISTS');
+      const machine = body.machine ?? dto.handling;
+      if (machine === null) refuse(400, 'VALIDATION', { field: 'machine' });
+      if (machine === null) throw new Error('unreachable');
+      const id = store.insertTask(db, {
+        kind: 'OUT',
+        containerId: dto.id,
+        machine,
+        at: now(),
+        createdBy: actorId(actor),
+        position,
+      });
+      void reply.status(201);
+      return store.getTask(db, id);
+    });
+  });
+
+  /**
+   * «بنخرجها دفعة وحده البوليصة كاملة»: one تجهيز for the whole bill — a
+   * task per standing container, skipping any that already has one pending.
+   */
+  app.post('/api/tasks/prepare-bill', (request, reply) => {
+    const actor = requirePerm(request, 'GATE_OUT');
+    const body = parseOrRefuse(prepareBillSchema, request.body);
+    return transaction(db, () => {
+      const standing = store
+        .listByBill(db, body.bill)
+        .filter((container) => container.position !== null);
+      if (standing.length === 0) refuse(404, 'NOT_FOUND');
+      // All-or-nothing on the machine question: a row that names no machine
+      // and gets no override would route nowhere, so the batch refuses whole.
+      if (body.machine === undefined && standing.some((c) => c.handling === null)) {
+        refuse(400, 'VALIDATION', { field: 'machine' });
+      }
+      const at = now();
+      let created = 0;
+      let skipped = 0;
+      for (const container of standing) {
+        if (store.pendingTaskExists(db, container.id, 'OUT')) {
+          skipped += 1;
+          continue;
+        }
+        const machine = body.machine ?? container.handling;
+        if (machine === null) continue; // unreachable after the check above
+        store.insertTask(db, {
+          kind: 'OUT',
+          containerId: container.id,
+          machine,
+          at,
+          createdBy: actorId(actor),
+          position: container.position,
+        });
+        created += 1;
+      }
+      void reply.status(201);
+      return { created, skipped };
+    });
+  });
+
+  /** «تم» — the driver's own hand, or the desk closing a task for him. */
+  app.post('/api/tasks/:id/done', (request) => {
+    const actor = requireAuth(request);
+    const id = idParam(request);
+    return transaction(db, () => {
+      const task = store.getTask(db, id);
+      if (task === null) refuse(404, 'NOT_FOUND');
+      if (task === null) throw new Error('unreachable');
+      if (!canRunTasks(actor) && actor.machine !== task.machine) refuse(403, 'FORBIDDEN');
+      if (task.status !== 'PENDING') refuse(409, 'TASK_CLOSED');
+      store.setTaskDone(db, id, now(), actorId(actor));
+      return store.getTask(db, id);
+    });
+  });
+
+  /** «مستعجل»: the desk pushes a task to the head of the machine's queue. */
+  app.post('/api/tasks/:id/urgent', (request) => {
+    const actor = requireAuth(request);
+    if (!canRunTasks(actor)) refuse(403, 'FORBIDDEN');
+    const id = idParam(request);
+    const body = parseOrRefuse(z.object({ urgent: z.boolean() }), request.body);
+    return transaction(db, () => {
+      const task = store.getTask(db, id);
+      if (task === null) refuse(404, 'NOT_FOUND');
+      if (task === null) throw new Error('unreachable');
+      if (task.status !== 'PENDING') refuse(409, 'TASK_CLOSED');
+      store.setTaskUrgent(db, id, body.urgent);
+      return store.getTask(db, id);
+    });
+  });
+
+  /**
+   * تحويل المهمة بين الآليتين — «ممكن اودي الحاوية من الونش للعقرب»: a
+   * breakdown hands the work over. Re-routing an IN task also rewrites the
+   * container's المناولة (the entry card prints what actually unloaded it)
+   * and says so in the log, exactly as an edit would.
+   */
+  app.post('/api/tasks/:id/machine', (request) => {
+    const actor = requireAuth(request);
+    if (!canRunTasks(actor)) refuse(403, 'FORBIDDEN');
+    const id = idParam(request);
+    const body = parseOrRefuse(z.object({ machine: machineSchema }), request.body);
+    return transaction(db, () => {
+      const task = store.getTask(db, id);
+      if (task === null) refuse(404, 'NOT_FOUND');
+      if (task === null) throw new Error('unreachable');
+      if (task.status !== 'PENDING') refuse(409, 'TASK_CLOSED');
+      store.setTaskMachine(db, id, body.machine);
+      if (task.kind === 'IN' && task.machine !== body.machine) {
+        const before = store.getContainer(db, task.containerId);
+        store.setHandling(db, task.containerId, body.machine);
+        store.recordMovement(
+          db,
+          task.containerId,
+          'EDIT',
+          now(),
+          null,
+          null,
+          JSON.stringify({ k: ['handling'], b: { handling: before?.handling ?? '' } }),
+          actorId(actor),
+        );
+      }
+      return store.getTask(db, id);
+    });
+  });
+
+  /**
+   * The queue itself. A driver is FORCED onto their own machine's list —
+   * the parameter is ignored; the desks and the registers see everything.
+   */
+  app.get('/api/tasks', (request) => {
+    const actor = requireAuth(request);
+    const query = request.query as { machine?: string; status?: string; limit?: string };
+    let machine: (typeof HANDLING)[number] | undefined;
+    if (actor.machine !== '') {
+      machine = actor.machine;
+    } else {
+      if (!canRunTasks(actor) && !actor.permissions.includes('REPORTS')) {
+        refuse(403, 'FORBIDDEN');
+      }
+      if (query.machine !== undefined) {
+        const parsed = machineSchema.safeParse(query.machine);
+        if (!parsed.success) refuse(400, 'VALIDATION', { field: 'machine' });
+        machine = parsed.success ? parsed.data : undefined;
+      }
+    }
+    if (query.status !== undefined && query.status !== 'PENDING' && query.status !== 'DONE') {
+      refuse(400, 'VALIDATION', { field: 'status' });
+    }
+    const status = query.status === 'DONE' ? ('DONE' as const) : ('PENDING' as const);
+    const limit =
+      query.limit === undefined ? undefined : Math.max(1, Math.trunc(Number(query.limit)) || 1);
+    return { tasks: store.listTasks(db, { machine, status, limit }) };
   });
 
   app.patch('/api/containers/:id', (request) => {
@@ -1271,7 +1506,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (refusal !== null) refuseRule(refusal);
 
       store.cancelExit(db, id, wasAt);
-      store.recordMovement(db, id, 'RETURN', now(), null, wasAt, '', actorId(actor));
+      const returnedAt = now();
+      store.recordMovement(db, id, 'RETURN', returnedAt, null, wasAt, '', actorId(actor));
+      // An exit-born task that nobody finished is void with the exit itself.
+      store.closePendingTasks(db, id, null, returnedAt, actorId(actor), 'AUTO_RETURN');
       // The voided exit card leaves a hole in the year, and the hole stays.
       // Its number was printed once and belongs to nobody else.
       return store.getContainer(db, id);
@@ -1346,6 +1584,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       store.softDelete(db, id, at);
       // The mistake itself goes on the record — audits hide nothing.
       store.recordMovement(db, id, 'DELETE', at, existing.position, null, '', actorId(actor));
+      // A struck record asks nothing of any machine; restore does NOT
+      // reopen — the clerk sends a fresh تجهيز if one is still wanted.
+      store.closePendingTasks(db, id, null, at, actorId(actor), 'AUTO_DELETE');
       settleAbove(descents, at, existing.number, actorId(actor));
       // The gap STAYS. «لو كان عندي 1 2 3 وحذفت 3، الي بدي اجي اضيفها خلص
       // لازم تيجي 4، مو توخذ محل ال 3» — the owner's reversal of his own
@@ -1505,7 +1746,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * النسخة الاحتياطية بكبسة: a clean snapshot of the whole database, written
    * beside the live file AND handed back as a download — two copies from one
    * tap. VACUUM INTO folds the WAL in, so the snapshot is complete and
-   * self-contained. The owner's button alone.
+   * self-contained. Every signed-in account may take one; putting one BACK
+   * is the owner's alone.
    */
   // ------------------------------------------------------------- photos ----
 
@@ -1848,7 +2090,10 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   });
 
   app.post('/api/backup', (request, reply) => {
-    requireOwner(request);
+    // «اعطي جميع الموظفين القدرة على عمل نسخة احتياطية ولكن استرجاع النسخة
+    // بيد المالك»: any signed-in account may TAKE a copy — more copies,
+    // safer yard. Restoring one stays the owner's alone (ownerTools).
+    requireAuth(request);
     if (databaseFile(db) === '') refuse(409, 'NOT_SETUP');
     const target = snapshot(db, 'yard');
 

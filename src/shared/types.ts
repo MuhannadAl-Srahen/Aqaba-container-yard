@@ -188,6 +188,12 @@ export interface UserDto {
   readonly id: number;
   readonly name: string;
   readonly permissions: readonly Permission[];
+  /**
+   * أي آلية يقودها هذا الحساب: '' = حساب مكتب. A non-empty machine marks a
+   * DRIVER account — the tablet lands on that machine's task queue and its
+   * session lasts a whole shift instead of the office hour.
+   */
+  readonly machine: Handling | '';
 }
 
 /** Who is signed in, and what the screen may offer them. */
@@ -196,6 +202,51 @@ export interface MeDto {
   readonly name: string;
   readonly owner: boolean;
   readonly permissions: readonly Permission[];
+  /** The signed-in account's machine; '' for office accounts and the owner. */
+  readonly machine: Handling | '';
+}
+
+/**
+ * مهام الآليات — the WhatsApp photo group, replaced: a task is born the
+ * instant the gate acts and appears on the machine's tablet. IN = a received
+ * container to be stacked at its slot; OUT = a تجهيز — fetch it to the truck.
+ */
+export const TASK_KINDS = ['IN', 'OUT'] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+
+export const TASK_STATUSES = ['PENDING', 'DONE'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/**
+ * Why a task closed without a driver's «تم» — codes on the wire, Arabic in
+ * ar.ts alone: closed by the exit being recorded, by the exit being undone,
+ * or by the container's record being struck.
+ */
+export const TASK_CLOSE_NOTES = ['AUTO_EXIT', 'AUTO_RETURN', 'AUTO_DELETE'] as const;
+export type TaskCloseNote = (typeof TASK_CLOSE_NOTES)[number];
+
+export interface TaskDto {
+  readonly id: number;
+  readonly kind: TaskKind;
+  readonly containerId: number;
+  readonly machine: Handling;
+  readonly urgent: boolean;
+  readonly status: TaskStatus;
+  readonly createdAt: string;
+  /** Resolved name label, the way report rows carry `user`. */
+  readonly createdBy: string;
+  readonly doneAt: string | null;
+  readonly doneBy: string | null;
+  readonly closedNote: TaskCloseNote | '';
+  /** Exit-born OUT tasks carry the plate the box leaves on. */
+  readonly truck: string;
+  // The container as the driver needs it, joined server-side:
+  readonly number: string;
+  readonly size: Size;
+  readonly bill: string;
+  readonly notes: string;
+  /** The live slot while it stands; the birth snapshot once it no longer does. */
+  readonly position: Position | null;
 }
 
 /**
@@ -568,6 +619,10 @@ export const ERROR_CODES = [
   'EXIT_BEFORE_ENTRY',
   'NUMBER_IN_YARD',
   'ALREADY_OUT',
+  /** A pending تجهيز task already stands on this container. */
+  'TASK_EXISTS',
+  /** The task was already done or auto-closed; the screen is behind. */
+  'TASK_CLOSED',
   'NAME_TAKEN',
   'NOT_DELETED',
   /** Asked to take back an exit for a container that is standing in the yard. */
