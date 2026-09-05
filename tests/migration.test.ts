@@ -109,6 +109,8 @@ describe('schema v9 — the cutover to the official yard', () => {
 
     // The yard's shape left the database entirely.
     expect(tablesOf(db)).toEqual([
+      'batch_rows',
+      'batches',
       'carriers',
       'containers',
       'custom_zones',
@@ -124,7 +126,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(26);
+    ).toBe(27);
     db.close();
   });
 
@@ -213,6 +215,8 @@ describe('schema v9 — the cutover to the official yard', () => {
     const file = path.join(dir, 'fresh.db');
     const db = openDatabase(file);
     expect(tablesOf(db)).toEqual([
+      'batch_rows',
+      'batches',
       'carriers',
       'containers',
       'custom_zones',

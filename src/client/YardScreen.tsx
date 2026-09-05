@@ -33,6 +33,7 @@ import {
 import { downloadBlob } from './sheetKit';
 import { usePanZoom } from './usePanZoom';
 import { GateInSheet } from './GateInSheet';
+import { BatchesScreen, type BatchDraft } from './BatchesScreen';
 import { ContainerCard } from './ContainerCard';
 import { ReclassSheet } from './ReclassSheet';
 import { DriversScreen } from './DriversScreen';
@@ -129,6 +130,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [monitorView, setMonitorView] = useState(false);
   /** «عرض الموقع» من مهمة: the container the bay sheet should ring. */
   const [bayHighlight, setBayHighlight] = useState<number | null>(null);
+  /** دفعات كشف الجمارك: سجل الكشوف المرفوعة. */
+  const [batchesView, setBatchesView] = useState(false);
+  /**
+   * «تسجيل دخولها» from a دفعة row arms a DRAFT, never a form: the map is
+   * the application, so the clerk still taps the bay and picks the slot —
+   * the gate-in sheet then opens carrying the sheet's number and bill.
+   */
+  const [batchDraft, setBatchDraft] = useState<BatchDraft | null>(null);
 
   /**
    * Selecting a container in another yard swings the map to that yard —
@@ -240,7 +249,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     !zonesView &&
     !driversView &&
     !tasksView &&
-    !monitorView;
+    !monitorView &&
+    !batchesView;
 
   // The map is the shared picture of the ground, so it is the fastest poll:
   // whatever the gate does has to reach the office within a few seconds.
@@ -464,6 +474,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     void queryClient.invalidateQueries({ queryKey: ['search'] });
     // The gate acted — every machine queue on every tablet must hear it.
     void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+    // And the دفعة registry recomputes وصل/باقٍ off the book that just moved.
+    void queryClient.invalidateQueries({ queryKey: ['batches'] });
+    void queryClient.invalidateQueries({ queryKey: ['batch'] });
+    void queryClient.invalidateQueries({ queryKey: ['batch-lookup'] });
     // A register open on this same device must not go stale behind the
     // operation that just happened in front of it.
     for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-machines', 'report-truck', 'report-bill', 'report-log', 'report-permits']) {
@@ -479,6 +493,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setConfirmGroup(null);
     setCorrecting(null);
     setConfirmMove(null);
+    // A completed operation retires the armed دفعة draft with everything else.
+    setBatchDraft(null);
     setBusy(false);
   };
 
@@ -690,6 +706,22 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       <TaskMonitorScreen
         onBack={() => {
           setMonitorView(false);
+        }}
+      />
+    );
+  } else if (batchesView && (isOwner || may('GATE_IN') || may('REPORTS'))) {
+    screen = (
+      <BatchesScreen
+        canUpload={isOwner || may('GATE_IN')}
+        isOwner={isOwner}
+        onBack={() => {
+          setBatchesView(false);
+        }}
+        onReceive={(draft) => {
+          // Back to the map, armed: the banner names the box and its bay
+          // parity, and the clerk walks the ground as always.
+          setBatchesView(false);
+          setBatchDraft(draft);
         }}
       />
     );
@@ -977,6 +1009,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                 {AR.tasksButton}
               </Button>
             )}
+            {(isOwner || may('GATE_IN') || may('REPORTS')) && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setBatchesView(true);
+                }}
+              >
+                {AR.batchesButton}
+              </Button>
+            )}
             {may('ACCOUNTING') && (
               <Button
                 kind="quiet"
@@ -1222,6 +1264,29 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           </button>
         </div>
       )}
+      {/* تسجيل من الدفعة: the armed draft walks the map like a move does —
+          the banner carries the number and which bay parity fits it. */}
+      {batchDraft !== null && moving === null && (
+        <div className="z-10 flex items-center justify-between gap-3 bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white">
+          <span className="min-w-0">
+            <span className="block">{AR.batchDraftBanner(batchDraft.number)}</span>
+            <span className="mt-0.5 block text-xs font-semibold text-emerald-100">
+              {batchDraft.size !== null
+                ? AR.batchDraftSize(batchDraft.size)
+                : AR.batchDraftSizeUnknown(batchDraft.sizeRaw)}
+            </span>
+          </span>
+          <button
+            type="button"
+            className="rounded-lg bg-emerald-800 px-3 py-1 hover:bg-emerald-900"
+            onClick={() => {
+              setBatchDraft(null);
+            }}
+          >
+            {AR.movingCancel}
+          </button>
+        </div>
+      )}
 
       <main className="relative flex-1 overflow-hidden">
         <div
@@ -1399,7 +1464,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           // Their own flow: the bill is searched BEFORE the box is put
           // down — so a search naming exactly one bill fills the form's
           // bill box by itself. The clerk still sees it and can change it.
-          initialBill={moving === null ? (activeBill ?? '') : ''}
+          // An armed دفعة draft outranks both: the sheet's own word arrives
+          // written in, number and bill together.
+          initialNumber={batchDraft !== null ? batchDraft.number : ''}
+          initialBill={
+            batchDraft !== null ? batchDraft.bill : moving === null ? (activeBill ?? '') : ''
+          }
           containers={containers}
           // The entry card is what the gate is doing this for, so it comes up
           // by itself — no hunting the container down to press a button.

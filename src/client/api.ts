@@ -1,5 +1,8 @@
 import type {
   ApiError,
+  BatchDto,
+  BatchMatch,
+  BatchSummaryDto,
   BillKind,
   CardSheetRow,
   CarrierDto,
@@ -32,6 +35,7 @@ import type {
   Zone,
 } from '../shared/types';
 import { daysBetween } from '../shared/dates';
+import type { SheetRow } from '../shared/customsSheet';
 import { AR } from './ar';
 
 /**
@@ -97,6 +101,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiFailure('NETWORK', AR.networkError);
   }
 
+  return (await response.json()) as T;
+}
+
+/**
+ * A sheet file as raw bytes — the دفعة uploads. Hand-rolled like
+ * restoreBackup because the shared request() promises a JSON body.
+ */
+async function uploadSheet<T>(path: string, file: File): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      headers: { 'content-type': 'application/octet-stream' },
+      body: await file.arrayBuffer(),
+    });
+  } catch {
+    throw new ApiFailure('NETWORK', AR.networkError);
+  }
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as ApiError | null;
+    const code = body?.code ?? 'NETWORK';
+    throw new ApiFailure(code, AR.errors[code as ErrorCode] ?? AR.networkError);
+  }
   return (await response.json()) as T;
 }
 
@@ -587,6 +614,28 @@ export const api = {
 
   taskMachine: (id: number, machine: Handling): Promise<TaskDto> =>
     request(`/api/tasks/${String(id)}/machine`, { method: 'POST', body: JSON.stringify({ machine }) }),
+
+  // ---- دفعات كشف الجمارك ----
+  /** Read the sheet on the server and answer what it says — stores nothing. */
+  previewBatch: (file: File): Promise<{ rows: SheetRow[] }> => uploadSheet('/api/batches/preview', file),
+
+  /** Approve: the same bytes again — the deterministic reader keeps its word. */
+  createBatch: (file: File, name: string): Promise<BatchDto> =>
+    uploadSheet(
+      `/api/batches?name=${encodeURIComponent(name)}&filename=${encodeURIComponent(file.name)}`,
+      file,
+    ),
+
+  batches: (): Promise<{ batches: BatchSummaryDto[] }> => request('/api/batches'),
+
+  batch: (id: number): Promise<BatchDto> => request(`/api/batches/${String(id)}`),
+
+  removeBatch: (id: number): Promise<{ ok: boolean }> =>
+    request(`/api/batches/${String(id)}`, { method: 'DELETE' }),
+
+  /** The gate's live question: does an open دفعة expect this number? */
+  batchLookup: (number: string): Promise<{ match: BatchMatch | null }> =>
+    request(`/api/batches/lookup?number=${encodeURIComponent(number)}`),
 
   /** تغيير كلمة سر المالك — his current word first, six letters at least. */
   changeOwnerPassword: (current: string, password: string): Promise<{ ok: boolean }> =>

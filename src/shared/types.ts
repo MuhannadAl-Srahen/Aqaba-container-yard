@@ -460,6 +460,65 @@ export interface MachineReportRow {
 }
 
 /**
+ * دفعات كشف الجمارك: the transfer sheet («نقل حاويات إلى مديرية التخزين —
+ * دفعة N») uploaded as a file and kept as the paper's literal mirror. A row
+ * stores what the sheet said — nothing more — and whether that container has
+ * arrived is COMPUTED against the yard book by number, never stored, so the
+ * registry can never disagree with the ground.
+ */
+export const BATCH_ROW_STATUSES = ['PENDING', 'STANDING', 'EXITED'] as const;
+export type BatchRowStatus = (typeof BATCH_ROW_STATUSES)[number];
+
+export interface BatchSummaryDto {
+  readonly id: number;
+  readonly name: string;
+  readonly filename: string;
+  readonly createdAt: string;
+  /** Resolved label — who uploaded it; the owner's role label for the owner. */
+  readonly createdBy: string;
+  readonly total: number;
+  /** Rows whose number stands in the yard book (standing or exited). */
+  readonly arrived: number;
+}
+
+export interface BatchRowDto {
+  readonly id: number;
+  /** The sheet's own «#» counter; null when the sheet carried none. */
+  readonly seq: number | null;
+  /** Normalized as the gate normalizes, so the two books join by equality. */
+  readonly number: string;
+  /** 20/40 — or null when the sheet wrote something else (see sizeRaw). */
+  readonly size: Size | null;
+  /** The size cell exactly as the sheet wrote it («45» stays «45»). */
+  readonly sizeRaw: string;
+  readonly bill: string;
+  /** The shipping line column, when the sheet carries one (WHL, PIL…). */
+  readonly lineOp: string;
+  readonly status: BatchRowStatus;
+  /** The yard-book record behind the status; null while لم تصل. */
+  readonly containerId: number | null;
+  readonly enteredAt: string | null;
+  readonly exitedAt: string | null;
+}
+
+export interface BatchDto {
+  readonly id: number;
+  readonly name: string;
+  readonly filename: string;
+  readonly createdAt: string;
+  readonly createdBy: string;
+  readonly rows: readonly BatchRowDto[];
+}
+
+/** What the gate's live lookup answers for a typed number: the sheet's word. */
+export interface BatchMatch {
+  readonly batchId: number;
+  readonly batchName: string;
+  readonly size: Size | null;
+  readonly bill: string;
+}
+
+/**
  * تصريح تحميل وخروج داخلي: the paper مؤسسة الحق issues for one bill of
  * lading — permission to load the containers listed on it out of the yard
  * and into موقع المقص only. A numbered ledger of its own, counted per year
@@ -675,6 +734,16 @@ export const ERROR_CODES = [
   'WAGE_PAID',
   /** Receipt cannot be confirmed before a wage is written. */
   'WAGE_MISSING',
+  /** دفعات كشف الجمارك: the file is a scan — pictures, not letters. OCR guesses, and one wrong character is a catastrophe, so the original Excel/Word must be asked for. */
+  'SHEET_SCANNED',
+  /** Old binary Excel (.xls) cannot be read literally; re-save as xlsx. */
+  'SHEET_OLD_EXCEL',
+  /** Not a format the reader can take literally (xlsx/docx/csv) — or a CSV in a non-UTF-8 codepage, refused rather than mis-decoded. */
+  'SHEET_UNREADABLE',
+  /** The file was read and no container-number column was found in it. */
+  'SHEET_EMPTY',
+  /** More rows than any one دفعة carries — split the file. */
+  'SHEET_TOO_BIG',
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
 

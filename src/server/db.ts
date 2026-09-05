@@ -479,7 +479,38 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (machine, status);
     CREATE INDEX IF NOT EXISTS idx_tasks_container ON tasks (container_id);
 
-    PRAGMA user_version = 26;
+    -- v27: دفعات كشف الجمارك — the transfer sheet the directorate sends,
+    -- read literally (deterministic file formats only, never OCR) and kept
+    -- as the paper's own mirror. Rows carry NO arrival mark on purpose:
+    -- whether a listed container has arrived is computed at read time by
+    -- joining its normalized number against the yard book, so the statuses
+    -- heal themselves through delete/restore/unexit and the gate's own
+    -- transactions are never touched.
+    CREATE TABLE IF NOT EXISTS batches (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      name       TEXT    NOT NULL,
+      filename   TEXT    NOT NULL DEFAULT '',
+      created_at TEXT    NOT NULL,
+      created_by INTEGER REFERENCES users (id),
+      deleted_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS batch_rows (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      batch_id INTEGER NOT NULL REFERENCES batches (id),
+      seq      INTEGER,
+      -- Normalized as the gate normalizes (iso6346), so equality joins hold.
+      number   TEXT    NOT NULL,
+      -- NULL passes the CHECK by SQL rule: a sheet size outside the yard's
+      -- vocabulary (a real «45») keeps size NULL and lives in size_raw.
+      size     INTEGER CHECK (size IN (20, 40)),
+      size_raw TEXT    NOT NULL DEFAULT '',
+      bill     TEXT    NOT NULL DEFAULT '',
+      line_op  TEXT    NOT NULL DEFAULT ''
+    );
+    CREATE INDEX IF NOT EXISTS idx_batch_rows_batch ON batch_rows (batch_id);
+    CREATE INDEX IF NOT EXISTS idx_batch_rows_number ON batch_rows (number);
+
+    PRAGMA user_version = 27;
   `);
 
   // v26 upgrade: drivers joined the staff. A users table from before the

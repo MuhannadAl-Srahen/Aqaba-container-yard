@@ -109,13 +109,16 @@ export function registerOwnerTools(
       // The machine queue lists containers too — practice tasks go with
       // the practice boxes.
       db.exec('DELETE FROM tasks');
+      // Practice sheets go with their practice yard — rows first (the child).
+      db.exec('DELETE FROM batch_rows');
+      db.exec('DELETE FROM batches');
       db.exec('DELETE FROM movements');
       db.exec('DELETE FROM containers');
       // One counter per year now, so the wipe clears the whole family.
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
       db.exec(
-        "DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements', 'permits', 'permit_items', 'tasks')",
+        "DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements', 'permits', 'permit_items', 'tasks', 'batches', 'batch_rows')",
       );
       // Counted back AFTER the delete, from the table itself. The screen says
       // what actually went, so «it did not delete anything» is a claim either

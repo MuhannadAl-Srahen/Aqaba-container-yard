@@ -2884,3 +2884,68 @@ confirmed the layouts; the productivity SQL, the nightly clock (3.5h /
 30min / tomorrow cases), the MIME builder (CRLF discipline, encoded
 Arabic subject), pruning, the merge arithmetic and its guards are all
 locked by tests/upkeep.test.ts. 415 tests, gates green.
+
+## المرحلة 59 — دفعات كشف الجمارك، و«المجموع» مرة واحدة — 2026-09-06
+
+His order for the last deferred feature, with its founding rule spoken
+first: «حط اخر شي موضوع الكشف تبع الجمارك… ممكن يجي بصيغ مختلفة مثلا pdf
+او word or excel… اذا كان في لو حرف او رقم غلط تم نقله رح يعملنا مشكلة
+جدا جدا كبيرة». His real files told the design: «دفعة 11.xlsx» is a
+clean table — three side-by-side `# | Unit Nbr | Type | BL Nbr` bands,
+124 containers, a pre-numbered blank tail; «150 حاوية دفعة 8.xlsx» adds
+Line Op and four honest rows of Type 45; and every دفعة PDF is a pure
+image scan (0 fonts — verified byte by byte). So the decisions, his:
+deterministic formats ONLY and no OCR ever (a scan is refused and the
+sentence says to ask the sender for the original); a full batch
+registry; upload for owner + GATE_IN; both prefill doors.
+
+- Mid-planning he sent a live complaint: the daily report's «المجموع»
+  printed at the foot of EVERY PDF page. One token in sheetHtml —
+  tfoot table-footer-group → table-row-group — and the totals row
+  prints once, after the last body row. Proven with a tracer dye
+  counted per page stream: old css [2,2,2], fix [0,0,2]. Shipped alone
+  (956a544) and deployed before the feature work began.
+- v27, purely additive: `batches` + `batch_rows` (seq, normalized
+  number, size 20/40-or-NULL beside the literal size_raw, bill,
+  line_op). NO arrival column and no link column — a row's status is
+  computed at read time by joining its number against the yard book
+  (standing → واصلة, exited → خرجت with the date, none → لم تصل), so
+  delete/restore/unexit heal the registry and the gate transactions
+  are untouched.
+- src/shared/customsSheet.ts (pure): the band walk — split columns at
+  fully-empty ones, find the number column BY CONTENT (≥half of its
+  digit-bearing cells are ISO-shaped), companions by their own shapes;
+  Arabic-Indic digits folded, bidi marks stripped, order preserved.
+  warningsOf/totalsOf recompute everywhere — nothing stored can drift.
+- src/server/sheetFiles.ts: magic-byte sniff (%PDF → SHEET_SCANNED,
+  OLE → SHEET_OLD_EXCEL, HTML/junk → SHEET_UNREADABLE), a typed port
+  of the aseza zip reader extended with inlineStr/str cells, XML
+  entities undone («A&amp;B» stores «A&B»), docx w:tbl grids, strict
+  UTF-8 CSV (1256 refused, never mis-decoded, delimiter sniffed).
+- Routes: preview (parse, store nothing) / create?name= (same reader,
+  201) / list / :id / lookup?number= / owner-only soft DELETE — one
+  readBatchRows helper so preview and approve can never disagree;
+  SHEET_EMPTY and a 2000-row cap. Wipe takes batches with it.
+- Client: «الدفعات» header button (owner ∨ GATE_IN ∨ REPORTS);
+  BatchesScreen list → review (editable name, the totals line to eye
+  against the paper, amber warned rows) → detail with live statuses;
+  door (a) in GateInSheet — lookup fires once per WHOLE number, the
+  bill fills under the autoDriver never-clobber rule and retracts with
+  its cause, «مسجّلة في «دفعة …»» in emerald, size disagreement in
+  amber; door (b) arms a DRAFT: back to the map, an emerald banner
+  carries the number and bay parity, the clerk walks the ground as
+  always and the form opens pre-written.
+- Tests: tests/customsSheet.test.ts (the band walk on both real
+  shapes, every warning, digit folding) + tests/batches.test.ts (a
+  ~40-line stored-entry zip writer with its own CRC32 builds real
+  xlsx/docx in the test — no binaries in git; statuses turning through
+  receive/exit/delete/restore, lookup newest-first and closing on
+  arrival, the five refusals, fidelity, the permission doors) +
+  migration v27 + wipe. 430 tests, gates green.
+- Browser walk on a throwaway DB with the REAL «دفعة 11.xlsx»: 124
+  rows read letter-for-letter («86 × أربعين و38 × عشرين، على 84
+  بوليصة»), approved, one row armed → bay tapped → forty landing →
+  the form came up carrying CMAU3320281 + CFA0935597 by itself →
+  received → the registry turned to «وصل 1 من 124 · واصلة» on its own.
+  دفعة 8 showed its four amber 45s; the scanned PDF got the refusal
+  sentence verbatim; 390px phone shots clean.

@@ -291,14 +291,24 @@ describe('التصاريح عبر المسح والاسترجاع', () => {
     return (listed.body as { rows: unknown[] }).rows.length;
   };
 
-  it('the wipe takes the practice permits with the practice containers', async () => {
+  it('the wipe takes the practice permits and sheets with the practice containers', async () => {
     await call({ method: 'POST', url: '/api/owner/seed' });
     await issuePermit();
     expect(await permitCount()).toBe(1);
+    // A practice دفعة rides along and must go the same way.
+    const sheet = Buffer.from('#,Unit Nbr,Type,BL Nbr\n1,TGHU1234565,20,B', 'utf8');
+    const made = await call({
+      method: 'POST',
+      url: '/api/batches?name=' + encodeURIComponent('تدريب'),
+      raw: sheet,
+    });
+    expect(made.status).toBe(201);
     const word = 'مسح-التدريب';
     await call({ method: 'POST', url: '/api/owner/wipe-password', payload: { password: word } });
     await call({ method: 'POST', url: '/api/owner/wipe', payload: { password: word } });
     expect(await permitCount()).toBe(0);
+    const batches = await call({ method: 'GET', url: '/api/batches' });
+    expect((batches.body as { batches: unknown[] }).batches).toHaveLength(0);
   });
 
   it('a restore brings the permit book back, serial and items alike', async () => {

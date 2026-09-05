@@ -9,6 +9,9 @@ import { z } from 'zod';
 import type { Browser, BrowserType } from 'playwright-core';
 import type {
   ApiError,
+  BatchDto,
+  BatchMatch,
+  BatchSummaryDto,
   CardSheetRow,
   ContainerDto,
   DailyReportRow,
@@ -31,7 +34,10 @@ import type { DriverHaulRow } from '../shared/types';
 import { normalizePlate, plateMatches } from '../shared/fleet';
 import { plainCode } from '../shared/bidi';
 import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
-import { checkNumber } from '../shared/iso6346';
+import { checkNumber, normalizeNumber } from '../shared/iso6346';
+import type { SheetRow } from '../shared/customsSheet';
+import { interpretGrids } from '../shared/customsSheet';
+import { readSheetGrids } from './sheetFiles';
 import { baySpan, positionLabel, samePosition, yardOf } from '../shared/address';
 import type { Descent, Refusal as RuleRefusal, Standing } from '../shared/rules';
 import { canMove, canPlace, planGroupMove, planRemoval, restingOn, slotUsable } from '../shared/rules';
@@ -914,6 +920,113 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (store.getPermit(db, id) === null) refuse(404, 'NOT_FOUND');
       // The voided permit keeps its number, and the book carries the hole.
       store.softDeletePermit(db, id, now());
+      return { ok: true };
+    });
+  });
+
+  // ─── دفعات كشف الجمارك: الكشف يُقرأ حرفياً أو لا يُقرأ ─────────────────────
+
+  /** Upload and approval belong to the gate: the owner or a GATE_IN hand. */
+  const requireBatchUpload = (request: FastifyRequest): MeDto => {
+    const actor = requireAuth(request);
+    if (!actor.owner && !actor.permissions.includes('GATE_IN')) refuse(403, 'FORBIDDEN');
+    return actor;
+  };
+  /** Viewing adds the report readers — the registry is a كشف like any other. */
+  const requireBatchView = (request: FastifyRequest): MeDto => {
+    const actor = requireAuth(request);
+    const allowed =
+      actor.owner ||
+      actor.permissions.includes('GATE_IN') ||
+      actor.permissions.includes('REPORTS');
+    if (!allowed) refuse(403, 'FORBIDDEN');
+    return actor;
+  };
+
+  // Real sheets measure kilobytes — the byte cap is sanity, and the row cap
+  // keeps a wrong file (a whole year's ledger) from becoming one giant دفعة.
+  const SHEET_BODY_LIMIT = 10 * 1024 * 1024;
+  const SHEET_ROW_CAP = 2000;
+
+  /** One reader for preview and approve — the two can never disagree. */
+  const readBatchRows = (body: unknown): SheetRow[] => {
+    if (!Buffer.isBuffer(body) || body.length === 0) refuse(400, 'VALIDATION');
+    if (!Buffer.isBuffer(body)) throw new Error('unreachable');
+    const reading = readSheetGrids(body);
+    if (!reading.ok) refuse(400, reading.code);
+    if (!reading.ok) throw new Error('unreachable');
+    const rows = interpretGrids(reading.grids);
+    if (rows.length === 0) refuse(409, 'SHEET_EMPTY');
+    if (rows.length > SHEET_ROW_CAP) refuse(409, 'SHEET_TOO_BIG');
+    return rows;
+  };
+
+  const batchCreateQuery = z.object({
+    name: z.string().trim().min(1).max(80),
+    filename: z.string().trim().max(160).default(''),
+  });
+
+  /** Read the sheet and answer what it says — nothing is stored. */
+  app.post('/api/batches/preview', { bodyLimit: SHEET_BODY_LIMIT }, (request) => {
+    requireBatchUpload(request);
+    return { rows: readBatchRows(request.body) };
+  });
+
+  /**
+   * Approve: the client sends the same bytes again and the same reader reads
+   * them — the parser is deterministic, so what was reviewed is what is kept.
+   * The name rides the query string because the body is the file itself.
+   */
+  app.post('/api/batches', { bodyLimit: SHEET_BODY_LIMIT }, (request, reply): BatchDto => {
+    const actor = requireBatchUpload(request);
+    const query = parseOrRefuse(batchCreateQuery, request.query);
+    const rows = readBatchRows(request.body);
+    return transaction(db, () => {
+      const id = store.insertBatch(db, {
+        name: query.name,
+        filename: query.filename,
+        at: now(),
+        createdBy: actorId(actor),
+      });
+      store.insertBatchRows(db, id, rows);
+      void reply.status(201);
+      const batch = store.getBatch(db, id);
+      if (batch === null) throw new Error('unreachable');
+      return batch;
+    });
+  });
+
+  /** The gate's live question while a number is being typed. */
+  app.get('/api/batches/lookup', (request): { match: BatchMatch | null } => {
+    requireBatchUpload(request);
+    const query = parseOrRefuse(
+      z.object({ number: z.string().trim().min(1).max(20) }),
+      request.query,
+    );
+    return { match: store.lookupOpenBatchRow(db, normalizeNumber(query.number)) };
+  });
+
+  app.get('/api/batches', (request): { batches: BatchSummaryDto[] } => {
+    requireBatchView(request);
+    return { batches: store.listBatches(db) };
+  });
+
+  app.get('/api/batches/:id', (request): BatchDto => {
+    requireBatchView(request);
+    const id = idParam(request);
+    const batch = store.getBatch(db, id);
+    if (batch === null) refuse(404, 'NOT_FOUND');
+    if (batch === null) throw new Error('unreachable');
+    return batch;
+  });
+
+  /** Striking a sheet from the registry is the owner's, like every walk-back. */
+  app.delete('/api/batches/:id', (request) => {
+    requireOwner(request);
+    const id = idParam(request);
+    return transaction(db, () => {
+      if (store.getBatch(db, id) === null) refuse(404, 'NOT_FOUND');
+      store.softDeleteBatch(db, id, now());
       return { ok: true };
     });
   });

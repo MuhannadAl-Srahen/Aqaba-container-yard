@@ -27,12 +27,17 @@ export function GateInSheet(props: {
    * here already written. The clerk sees it and can overwrite it.
    */
   initialBill?: string;
+  /**
+   * تسجيل من الدفعة: the armed draft writes the number in before the sheet
+   * opens — the clerk walked the map to this slot carrying a listed box.
+   */
+  initialNumber?: string;
   /** Everything standing — so the form can say where this bill already is. */
   containers?: readonly ContainerDto[];
   onDone: (container: ContainerDto, message: string) => void;
   onClose: () => void;
 }): ReactElement {
-  const [number, setNumber] = useState('');
+  const [number, setNumber] = useState(props.initialNumber ?? '');
   const [bill, setBill] = useState(props.initialBill ?? '');
   const [truck, setTruck] = useState('');
   const [seal, setSeal] = useState('');
@@ -93,6 +98,34 @@ export function GateInSheet(props: {
   const check = number.trim() === '' ? null : checkNumber(number);
   const size = sizeOfBay(props.position.bay);
   const positionText = positionLabel(props.position);
+
+  /**
+   * دفعات كشف الجمارك: once the typed number is whole (4 letters, 7 digits)
+   * — not per keystroke — ask whether an open دفعة expects it, and let the
+   * sheet's own word fill the bill. The same never-clobber rule as the
+   * driver: only an empty field, or this form's own earlier suggestion.
+   */
+  const wholeNumber = check !== null && check.wellFormed ? check.normalized : '';
+  const batchLookup = useQuery({
+    queryKey: ['batch-lookup', wholeNumber],
+    queryFn: () => api.batchLookup(wholeNumber),
+    enabled: wholeNumber !== '',
+    staleTime: 30_000,
+  });
+  const batchMatch = wholeNumber === '' ? null : (batchLookup.data?.match ?? null);
+  const autoBill = useRef('');
+  useEffect(() => {
+    if (batchMatch !== null && batchMatch.bill !== '') {
+      if (bill === '' || bill === autoBill.current) {
+        setBill(batchMatch.bill);
+        autoBill.current = batchMatch.bill;
+      }
+    } else if (autoBill.current !== '' && bill === autoBill.current) {
+      // The suggestion retracts with its cause — typed work never does.
+      setBill('');
+      autoBill.current = '';
+    }
+  }, [batchMatch, bill]);
 
   /**
    * Where this bill already stands, and whether the picked slot is beside
@@ -189,13 +222,27 @@ export function GateInSheet(props: {
         <Field
           label={AR.containerNumber}
           hint={
-            check === null ? (
-              <span className="text-faint">{AR.numberForm}</span>
-            ) : check.valid ? (
-              <span className="text-emerald-600">{AR.numberOk}</span>
-            ) : (
-              <span className="text-amber-600">{AR.numberBad(check.expectedDigit)}</span>
-            )
+            <>
+              {check === null ? (
+                <span className="text-faint">{AR.numberForm}</span>
+              ) : check.valid ? (
+                <span className="text-emerald-600">{AR.numberOk}</span>
+              ) : (
+                <span className="text-amber-600">{AR.numberBad(check.expectedDigit)}</span>
+              )}
+              {/* The sheet knows this box: its bill is filled from the دفعة —
+                  and a size that disagrees with the picked bay says so. */}
+              {batchMatch !== null &&
+                (batchMatch.size !== null && batchMatch.size !== size ? (
+                  <span className="block font-semibold text-amber-600">
+                    {AR.batchSizeMismatch(batchMatch.size, size)}
+                  </span>
+                ) : (
+                  <span className="block font-semibold text-emerald-600">
+                    {AR.batchHint(batchMatch.batchName)}
+                  </span>
+                ))}
+            </>
           }
         >
           <input

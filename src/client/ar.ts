@@ -1,13 +1,16 @@
 import type {
+  BatchRowStatus,
   ErrorCode,
   Handling,
   Permission,
+  Size,
   TaskCloseNote,
   TaskKind,
   TaskStatus,
   Tier,
 } from '../shared/types';
 import { TIERS } from '../shared/types';
+import type { SheetWarning } from '../shared/customsSheet';
 import { ltrCode } from '../shared/bidi';
 
 /**
@@ -578,6 +581,70 @@ export const AR = {
       : `عدد المهام المرسلة: ${String(created)}، ولدى ${String(skipped)} منها مهمة معلّقة من قبل.`,
   tasksCount: (n: number): string => `عدد المهام: ${String(n)}`,
   taskTruckLine: (truck: string): string => `سيارة الخروج: ${ltrCode(truck)}`,
+
+  // ---- دفعات كشف الجمارك — الكشف يُقرأ حرفياً أو لا يُقرأ ----
+  batchesButton: 'الدفعات',
+  batchesTitle: 'دفعات كشف الجمارك',
+  batchesHint:
+    'ارفع كشف الدفعة كما وصل (إكسل أو وورد أو ملف نصي) فيُقرأ حرفاً بحرف ويصير ' +
+    'سجلاً حياً: ترى ما وصل وما بقي، وعند تسجيل دخول حاوية مذكورة فيه تُعبّأ ' +
+    'الفئة والبوليصة من الكشف نفسه فلا يُعاد كتابة شيء باليد.',
+  batchesEmpty: 'لا دفعات مرفوعة بعد.',
+  batchUpload: 'رفع كشف دفعة',
+  batchPickHint: 'الصيغ المقبولة: إكسل (xlsx) أو وورد (docx) أو نصي (csv).',
+  batchName: 'اسم الدفعة',
+  batchReviewTitle: 'مراجعة الكشف قبل الاعتماد',
+  batchReviewHint:
+    'قورن المجاميع أدناه بالورقة نفسها قبل الاعتماد. الأسطر المظللة تحمل ' +
+    'ملاحظة تحتها — وهي تنبيه لا منع: يُسجَّل ما كتبه الكشف كما هو.',
+  batchTotalsLine: (rows: number, of20: number, of40: number, other: number, bills: number): string =>
+    `عدد الحاويات: ${String(rows)} — ${String(of40)} × أربعين و${String(of20)} × عشرين` +
+    (other > 0 ? ` و${String(other)} بفئة أخرى` : '') +
+    `، على ${String(bills)} بوليصة.`,
+  batchApprove: 'اعتماد الدفعة',
+  batchApproveBody: (name: string, rows: number): string =>
+    `تُحفظ «${name}» بواقع ${String(rows)} حاوية كما قرأها الكشف، ويبدأ تتبع وصولها.`,
+  batchApproved: (name: string): string => `تم اعتماد الدفعة «${name}».`,
+  batchCreatedBy: (name: string): string => `رفعها ${name}`,
+  batchArrivedOf: (arrived: number, total: number): string =>
+    `وصل ${String(arrived)} من ${String(total)}`,
+  batchDone: 'اكتملت',
+  batchReceiveRow: 'تسجيل دخولها',
+  /** الشريط المسلّح: الخريطة تبقى الباب — يُنقر الباي وتُختار الخانة كالمعتاد. */
+  batchDraftBanner: (number: string): string =>
+    `تسجيل دخول ${ltrCode(number)} — انقر الباي واختر الخانة كالمعتاد.`,
+  batchDraftSize: (size: Size): string =>
+    size === 40 ? 'فئتها 40 قدماً: اختر باياً زوجياً.' : 'فئتها 20 قدماً: اختر باياً فردياً.',
+  batchDraftSizeUnknown: (raw: string): string =>
+    `الكشف يكتب فئتها «${raw}» وهي خارج فئات الساحة — اختر الخانة على مسؤولية العين.`,
+  /** تلميح نموذج الإدخال حين يطابق الرقم دفعة مفتوحة. */
+  batchHint: (name: string): string => `مسجّلة في «${name}» — عُبّئت البوليصة من الكشف.`,
+  batchSizeMismatch: (batchSize: Size, baySize: Size): string =>
+    `الكشف يسجّلها فئة ${String(batchSize)} وهذه الخانة لفئة ${String(baySize)}. ` +
+    'تأكد من الرقم أو اختر خانة تناسب فئتها.',
+  batchDeleteAction: 'حذف الدفعة',
+  confirmBatchDeleteTitle: 'حذف الدفعة',
+  confirmBatchDeleteBody: (name: string): string =>
+    `تُحذف «${name}» من سجل الدفعات ولا يتغير أي شيء في سجل الحاويات نفسه.`,
+  batchDeleted: 'تم حذف الدفعة.',
+  colSheetSeq: 'م',
+  colLineOp: 'الخط الملاحي',
+  colBatchStatus: 'الحالة',
+  batchStatusName: {
+    PENDING: 'لم تصل',
+    STANDING: 'واصلة',
+    EXITED: 'خرجت',
+  } satisfies Record<BatchRowStatus, string>,
+  /** تنبيهات القراءة — تنبيه لا منع، والكشف يُسجَّل كما كُتب. */
+  sheetWarningName: {
+    NUMBER_MALFORMED:
+      'الرقم ليس على الصيغة المعتمدة (4 أحرف و7 أرقام) — سيُسجَّل كما كتبه الكشف.',
+    NUMBER_CHECK: 'رقم التحقق العالمي لا يطابق — غالباً خطأ كتابة في الكشف نفسه. راجعه مع الورقة.',
+    SIZE_UNKNOWN: 'الفئة ليست 20 ولا 40 — تُحفظ كما كُتبت ولا تُعبّأ تلقائياً.',
+    BILL_MISSING: 'بلا رقم بوليصة في الكشف.',
+    DUPLICATE_NUMBER: 'الرقم مكرر داخل هذا الكشف.',
+    SEQ_GAP: 'التسلسل غير متصل قبل هذا السطر — تأكد أن الكشف كامل.',
+  } satisfies Record<SheetWarning, string>,
 
   // ---- driver accounting ----
   driversButton: 'حساب السائقين',
@@ -1175,6 +1242,18 @@ export const AR = {
     WAGE_PAID:
       'هذه النقلة تمت المحاسبة عليها والمبلغ مقفل. ألغِ تأكيد الاستلام أولاً ثم عدّل الأجر.',
     WAGE_MISSING: 'لا أجر مكتوباً لهذه النقلة بعد. اكتب الأجر أولاً ثم أكّد الاستلام.',
+    SHEET_SCANNED:
+      'الملف صورة ممسوحة (PDF) لا نصاً يُقرأ حرفاً بحرف، والنقل عن صورة قد يخطئ بحرف ' +
+      'واحد يكفي لمشكلة كبيرة. اطلب من الجهة المرسلة ملف الإكسل أو الوورد الأصلي ثم ارفعه.',
+    SHEET_OLD_EXCEL:
+      'الملف بصيغة إكسل قديمة (xls) لا تُقرأ حرفياً. افتحه في إكسل واحفظه بصيغة xlsx ثم أعد الرفع.',
+    SHEET_UNREADABLE:
+      'تعذّرت قراءة الملف حرفياً. الصيغ المقبولة: إكسل حديث (xlsx) أو جدول وورد (docx) أو ' +
+      'ملف نصي (csv) بترميز UTF-8. أعد حفظ الكشف بإحداها ثم أعد الرفع.',
+    SHEET_EMPTY:
+      'قُرئ الملف ولم يُعثر فيه على عمود أرقام حاويات. تأكد أن الملف يحوي جدول الدفعة نفسه ثم أعد الرفع.',
+    SHEET_TOO_BIG:
+      'الملف يحمل أكثر من 2000 سطر وهذا أكبر من أي دفعة واحدة. قسّم الكشف على ملفات أصغر ثم ارفع كل جزء وحده.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
   errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>

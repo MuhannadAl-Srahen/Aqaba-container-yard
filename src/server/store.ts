@@ -1,5 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type {
+  BatchDto,
+  BatchMatch,
+  BatchRowDto,
+  BatchRowStatus,
+  BatchSummaryDto,
   BillKind,
   CardSheetRow,
   CarrierDto,
@@ -30,6 +35,7 @@ import type {
 } from '../shared/types';
 import { HANDLING, OWNER_ID, PERMISSIONS } from '../shared/types';
 import type { Standing } from '../shared/rules';
+import type { SheetRow } from '../shared/customsSheet';
 import { hashSecret } from './auth';
 
 /** How a movement names the owner, who is not a row in `users`. */
@@ -2149,4 +2155,180 @@ export function lastExitMovementId(db: DatabaseSync, id: number): number | null 
     )
     .get(id) as { id: number } | undefined;
   return row === undefined ? null : row.id;
+}
+
+// ------------------------------------------------------ دفعات كشف الجمارك ----
+// The transfer sheet, kept as the paper's literal mirror. A row stores what
+// the sheet said and NOTHING about arrival: whether the container has come is
+// computed here, at read time, by joining its normalized number against the
+// yard book — so delete, restore and unexit all heal the statuses by
+// themselves, and the gate's own transactions are never touched.
+
+export interface NewBatch {
+  name: string;
+  filename: string;
+  at: string;
+  /** Who uploaded — null for the owner, as movements record it. */
+  createdBy: number | null;
+}
+
+export function insertBatch(db: DatabaseSync, batch: NewBatch): number {
+  const result = db
+    .prepare('INSERT INTO batches (name, filename, created_at, created_by) VALUES (?, ?, ?, ?)')
+    .run(batch.name, batch.filename, batch.at, batch.createdBy);
+  return Number(result.lastInsertRowid);
+}
+
+export function insertBatchRows(
+  db: DatabaseSync,
+  batchId: number,
+  rows: readonly SheetRow[],
+): void {
+  const insert = db.prepare(
+    `INSERT INTO batch_rows (batch_id, seq, number, size, size_raw, bill, line_op)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const row of rows) {
+    insert.run(batchId, row.seq, row.number, row.size, row.sizeRaw, row.bill, row.lineOp);
+  }
+}
+
+export function listBatches(db: DatabaseSync): BatchSummaryDto[] {
+  const rows = db
+    .prepare(
+      `SELECT b.id, b.name, b.filename, b.created_at, b.created_by,
+              COUNT(r.id) AS total,
+              COALESCE(SUM(EXISTS (
+                SELECT 1 FROM containers c
+                 WHERE c.number = r.number AND c.deleted_at IS NULL)), 0) AS arrived
+         FROM batches b
+         LEFT JOIN batch_rows r ON r.batch_id = b.id
+        WHERE b.deleted_at IS NULL
+        GROUP BY b.id
+        ORDER BY b.id DESC`,
+    )
+    .all() as unknown as Array<{
+    id: number;
+    name: string;
+    filename: string;
+    created_at: string;
+    created_by: number | null;
+    total: number;
+    arrived: number;
+  }>;
+  const names = listUserNames(db);
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    filename: row.filename,
+    createdAt: row.created_at,
+    createdBy: userLabel(names, row.created_by),
+    total: row.total,
+    arrived: row.arrived,
+  }));
+}
+
+interface BatchRowJoined {
+  id: number;
+  seq: number | null;
+  number: string;
+  size: number | null;
+  size_raw: string;
+  bill: string;
+  line_op: string;
+  container_id: number | null;
+  entered_at: string | null;
+  exited_at: string | null;
+  standing: number | null;
+}
+
+const toBatchRow = (row: BatchRowJoined): BatchRowDto => {
+  const status: BatchRowStatus =
+    row.container_id === null ? 'PENDING' : row.standing === 1 ? 'STANDING' : 'EXITED';
+  return {
+    id: row.id,
+    seq: row.seq,
+    number: row.number,
+    size: row.size === 20 ? 20 : row.size === 40 ? 40 : null,
+    sizeRaw: row.size_raw,
+    bill: row.bill,
+    lineOp: row.line_op,
+    status,
+    containerId: row.container_id,
+    enteredAt: row.entered_at,
+    exitedAt: row.exited_at,
+  };
+};
+
+export function getBatch(db: DatabaseSync, id: number): BatchDto | null {
+  const head = db
+    .prepare(
+      `SELECT id, name, filename, created_at, created_by
+         FROM batches WHERE id = ? AND deleted_at IS NULL`,
+    )
+    .get(id) as
+    | { id: number; name: string; filename: string; created_at: string; created_by: number | null }
+    | undefined;
+  if (head === undefined) return null;
+
+  // Each row meets the LATEST live visit of its number — a container that
+  // left and came back answers with the visit that is standing now.
+  const rows = db
+    .prepare(
+      `SELECT r.id, r.seq, r.number, r.size, r.size_raw, r.bill, r.line_op,
+              c.id AS container_id, c.entered_at, c.exited_at,
+              (c.zone IS NOT NULL) AS standing
+         FROM batch_rows r
+         LEFT JOIN containers c ON c.id = (
+           SELECT c2.id FROM containers c2
+            WHERE c2.number = r.number AND c2.deleted_at IS NULL
+            ORDER BY c2.entered_at DESC, c2.id DESC LIMIT 1)
+        WHERE r.batch_id = ?
+        ORDER BY r.id`,
+    )
+    .all(id) as unknown as BatchRowJoined[];
+
+  const names = listUserNames(db);
+  return {
+    id: head.id,
+    name: head.name,
+    filename: head.filename,
+    createdAt: head.created_at,
+    createdBy: userLabel(names, head.created_by),
+    rows: rows.map(toBatchRow),
+  };
+}
+
+export function softDeleteBatch(db: DatabaseSync, id: number, at: string): void {
+  db.prepare('UPDATE batches SET deleted_at = ? WHERE id = ?').run(at, id);
+}
+
+/**
+ * The gate's live question: does any live دفعة still EXPECT this number?
+ * A row already answered by a live yard record — standing or exited — is no
+ * longer open, so a stale sheet can never fill a bill onto a returning box.
+ * The newest batch answers when two sheets carry the same number.
+ */
+export function lookupOpenBatchRow(db: DatabaseSync, number: string): BatchMatch | null {
+  const row = db
+    .prepare(
+      `SELECT r.batch_id, b.name, r.size, r.bill
+         FROM batch_rows r
+         JOIN batches b ON b.id = r.batch_id AND b.deleted_at IS NULL
+        WHERE r.number = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM containers c
+             WHERE c.number = r.number AND c.deleted_at IS NULL)
+        ORDER BY b.id DESC, r.id LIMIT 1`,
+    )
+    .get(number) as
+    | { batch_id: number; name: string; size: number | null; bill: string }
+    | undefined;
+  if (row === undefined) return null;
+  return {
+    batchId: row.batch_id,
+    batchName: row.name,
+    size: row.size === 20 ? 20 : row.size === 40 ? 40 : null,
+    bill: row.bill,
+  };
 }
