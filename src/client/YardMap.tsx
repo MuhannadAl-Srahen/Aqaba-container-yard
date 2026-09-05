@@ -1,5 +1,6 @@
 import { memo, useState, type ReactElement } from 'react';
 import type { ContainerDto, Landmark, YardLayout, Zone, ZoneDef } from '../shared/types';
+import { TIERS } from '../shared/types';
 import { AR } from './ar';
 import { bayKey, maxStackOf, summarizeZone, zoneCells, type BayBand, type ZoneCell } from './mapModel';
 
@@ -18,6 +19,9 @@ const OUTER_PAD = 26;
 const PAD = 14;
 const TITLE_H = 44;
 const CELL_H = 66;
+
+/** The bay sheet reads C over B over A; its miniature reads the same. */
+const TIERS_TOP_DOWN = [...TIERS].reverse();
 
 /**
  * The drawing reads the theme's own variables, so the yard turns dark with
@@ -88,6 +92,14 @@ export interface MapProps {
    * fullness. A reading mode — while placing, the target colours return.
    */
   billPaint: ReadonlyMap<string, BayBand> | null;
+  /**
+   * عرض المحتويات — «تعرض ما داخل البلوك دون ما اكبس على البلوك»: when on,
+   * every loaded tile becomes a miniature of its own bay sheet — a square
+   * per slot, stacks across and the three tiers down, twenties and forties
+   * in their own inks — so the owner reads what stands inside without a tap.
+   * The old look is the default paint, untouched.
+   */
+  detail: boolean;
   movingId: number | null;
   onBayClick: (zone: Zone, bay: number) => void;
   /**
@@ -169,8 +181,15 @@ function RunCell(props: {
   const y = TITLE_H;
   const width = cellW * cell.bays.length - 4;
 
-  const fill =
-    bayBand !== null
+  // عرض المحتويات: a loaded tile is drawn as its own sheet in miniature —
+  // the fullness paint steps aside, because the squares themselves say it.
+  const detail = view.detail && !cell.empty;
+
+  const fill = detail
+    ? isTarget
+      ? C.targetFill
+      : C.free
+    : bayBand !== null
       ? `var(--yard-band-${String(bayBand.band)})`
       : isTarget
         ? C.targetFill
@@ -179,8 +198,9 @@ function RunCell(props: {
           : cell.full
             ? C.full
             : C.partial;
-  const textColor =
-    bayBand !== null
+  const textColor = detail
+    ? C.text
+    : bayBand !== null
       ? `var(--yard-band-${String(bayBand.band)}-text)`
       : cell.full && !isTarget
         ? C.fullText
@@ -194,11 +214,23 @@ function RunCell(props: {
         ? C.match
         : isTarget
           ? C.targetBorder
-          : cell.full
+          : cell.full && !detail
             ? C.full
-            : cell.empty
+            : cell.empty || detail
               ? C.freeBorder
               : C.partialBorder;
+
+  // The miniature's ink for one standing container: the moving or selected
+  // one wears the selection blue, a search hit its amber, and otherwise the
+  // class speaks — twenties and forties each in their own colour.
+  const boxInk = (container: ContainerDto): string =>
+    container.id === view.selectedId || container.id === view.movingId
+      ? C.selected
+      : view.matches.has(container.id)
+        ? C.match
+        : container.size === 40
+          ? 'var(--yard-box40)'
+          : 'var(--yard-box20)';
   const strong = holdsSelected || holdsMoving || holdsMatch || isTarget;
   // A note on any container here earns a dot: the crew writes the dents, the
   // opened locks and the customs holds there, and the map must not hide it.
@@ -226,12 +258,14 @@ function RunCell(props: {
         strokeWidth={strong ? 2.5 : 1.2}
         strokeDasharray={cell.empty && !strong ? '4 3' : undefined}
       />
-      {/* The ground's own numbers, exactly as the plan paints them. */}
+      {/* The ground's own numbers, exactly as the plan paints them. In the
+          contents view the number shrinks to the top edge — the miniature
+          needs the room. */}
       <text
         x={x + (width + 4) / 2}
-        y={y + 25}
+        y={detail ? y + 13 : y + 25}
         textAnchor="middle"
-        fontSize={15}
+        fontSize={detail ? 10.5 : 15}
         fontWeight={700}
         fill={textColor}
         direction="ltr"
@@ -242,21 +276,68 @@ function RunCell(props: {
           «لو كان عدد البوليصات في المكان لكانت افضل». Everywhere else, the
           count of boxes over what the block holds completed as its kind —
           for a full forty pair, the same «27/27» the twin tiles used to
-          repeat, said once. */}
-      <text
-        x={x + (width + 4) / 2}
-        y={y + 50}
-        textAnchor="middle"
-        fontSize={bayBand !== null ? 11 : 12}
-        fontWeight={bayBand !== null ? 700 : 600}
-        fill={textColor}
-        direction={bayBand !== null ? undefined : 'ltr'}
-      >
-        {bayBand !== null
-          ? AR.billCountCell(bayBand.bills)
-          : `${String(cell.boxes)} / ${String(cell.capacity)}`}
-      </text>
-      {noted && <circle cx={x + (width + 4) / 2} cy={y + CELL_H - 8} r={3.5} fill={C.match} />}
+          repeat, said once. The contents view drops the line: its squares
+          are the count. */}
+      {!detail && (
+        <text
+          x={x + (width + 4) / 2}
+          y={y + 50}
+          textAnchor="middle"
+          fontSize={bayBand !== null ? 11 : 12}
+          fontWeight={bayBand !== null ? 700 : 600}
+          fill={textColor}
+          direction={bayBand !== null ? undefined : 'ltr'}
+        >
+          {bayBand !== null
+            ? AR.billCountCell(bayBand.bills)
+            : `${String(cell.boxes)} / ${String(cell.capacity)}`}
+        </text>
+      )}
+      {/* عرض المحتويات: per bay of the tile, its sheet in miniature — stack 1
+          at the left and the face at the right, tier C over B over A, exactly
+          the grid a tap would open. A spanning forty shows in both bays it
+          covers, as the sheet itself does. */}
+      {detail &&
+        cell.bays.map((bay, at) => {
+          const stacks = [...(zone.stacks[String(bay)] ?? [])].sort((a, b) => a - b);
+          if (stacks.length === 0) return null;
+          const slots = new Map<string, ContainerDto>();
+          for (const container of view.loads.get(bayKey(zone.zone, bay)) ?? []) {
+            if (container.position !== null) {
+              slots.set(`${String(container.position.stack)}|${container.position.tier}`, container);
+            }
+          }
+          const sx = x + at * cellW + 4;
+          const colW = (cellW - 8) / stacks.length;
+          return (
+            <g key={bay}>
+              {stacks.map((stack, si) =>
+                TIERS_TOP_DOWN.map((tier, ti) => {
+                  const holder = slots.get(`${String(stack)}|${tier}`);
+                  return (
+                    <rect
+                      key={`${String(stack)}|${tier}`}
+                      x={sx + si * colW}
+                      y={y + 19 + ti * 14}
+                      width={Math.max(colW - 1.5, 1)}
+                      height={12.5}
+                      rx={1.5}
+                      fill={holder === undefined ? 'var(--yard-slot)' : boxInk(holder)}
+                    />
+                  );
+                }),
+              )}
+            </g>
+          );
+        })}
+      {noted && (
+        <circle
+          cx={detail ? x + width - 6 : x + (width + 4) / 2}
+          cy={detail ? y + 10 : y + CELL_H - 8}
+          r={3.5}
+          fill={C.match}
+        />
+      )}
       {/* The bill in play stands here: a gold count in the corner, so the
           crane sets the newcomer down beside its own group. */}
       {billCount !== undefined && (
@@ -406,6 +487,7 @@ const ZonePanel = memo(
     prev.view.targets === next.view.targets &&
     prev.view.billBays === next.view.billBays &&
     prev.view.billPaint === next.view.billPaint &&
+    prev.view.detail === next.view.detail &&
     prev.view.movingId === next.view.movingId &&
     prev.view.onBayClick === next.view.onBayClick &&
     prev.view.dragZones === next.view.dragZones,

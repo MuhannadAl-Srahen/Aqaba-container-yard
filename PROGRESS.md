@@ -2672,3 +2672,30 @@ armed inside the hold timer's own callback and torn down with the drag
 still reads as a scroll and cancels the lift; a pointercancel from the
 browser taking the gesture does the same; and Android's long-press
 context menu yields to the drag. 381 tests, gates green.
+
+## المرحلة 56 — البلاطة صورة مصغّرة عن ورقتها — 2026-09-05
+
+«بدي ازبط شكلها اكثر اذا في طريقة تقدر تعرض فيها ما داخل البلوك دون ما
+اكبس على البلوك» — with the standing warning that he may yet ask for the
+old look back, so the old look had to stay whole.
+
+A third paint joined the map's toggle: «المحتويات». In it, every loaded
+tile draws its own bay sheet in miniature — a square per slot, stacks
+across (stack 1 left, the face right, as the sheet itself reads) and the
+three tiers down, twenties in slate, forties in indigo showing in both
+halves of a welded pair exactly as the sheet shows them, empty slots
+faint. A search hit lights its own square amber; the selected or moving
+container lights blue; empty tiles keep the old dashed look, and the
+count line drops — the squares are the count. The choice persists per
+device (localStorage), and the OLD look stays the first button and the
+default, untouched: reverting is one tap, and a final revert would
+remove only the third button.
+
+Implementation: `MapProps.detail` + the miniature inside `RunCell`
+(YardMap.tsx), three-way paint state with persistence and a third legend
+in YardScreen, `detail: false` from SetupScreen, three CSS inks
+(--yard-box20/--yard-box40/--yard-slot, both themes), four Arabic
+strings. Verified by driving the real build headless against a THROWAWAY
+seeded DB (playwright-core + Edge): screenshots confirmed the geometry,
+the welded-pair forties, and the amber search glow — the live data was
+never touched. 381 tests, all gates green.

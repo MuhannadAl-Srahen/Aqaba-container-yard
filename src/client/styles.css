@@ -58,6 +58,11 @@
   --yard-selected: #0284c7;
   --yard-text: #0f172a;
   --yard-muted: #64748b;
+  /* عرض المحتويات: the tile as a miniature of the bay sheet — a square per
+     slot, twenties and forties in their own inks, empty slots faint. */
+  --yard-box20: #64748b;
+  --yard-box40: #4f46e5;
+  --yard-slot: #e2e8f0;
   /* The hangars and buildings hatch like the printed ASEZA plan. */
   --yard-landmark: #dbeafe;
   --yard-landmark-line: #3b82f6;
@@ -103,6 +108,9 @@
   --yard-selected: #38bdf8;
   --yard-text: #e8eef7;
   --yard-muted: #94a3b8;
+  --yard-box20: #8ba0b9;
+  --yard-box40: #818cf8;
+  --yard-slot: #24334d;
   --yard-landmark: #14243c;
   --yard-landmark-line: #4a7fd6;
 }

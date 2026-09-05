@@ -298,9 +298,27 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   /**
    * تلوين الخريطة: بالامتلاء كما كانت دائماً، أو بفئات البوالص — «تلون
-   * الخريطة بناءا على انو عدد البوليصات يعني فوق ال 5 او فوق ال 10».
+   * الخريطة بناءا على انو عدد البوليصات يعني فوق ال 5 او فوق ال 10» — أو
+   * عرض المحتويات: «تعرض ما داخل البلوك دون ما اكبس على البلوك». The choice
+   * is remembered on this device so the map opens the way he left it; the
+   * old look stays the first button and the default, untouched.
    */
-  const [paint, setPaint] = useState<'fill' | 'bills'>('fill');
+  const [paint, setPaint] = useState<'fill' | 'bills' | 'detail'>(() => {
+    try {
+      const saved = localStorage.getItem('yard-paint');
+      return saved === 'bills' || saved === 'detail' ? saved : 'fill';
+    } catch {
+      return 'fill';
+    }
+  });
+  const choosePaint = (value: 'fill' | 'bills' | 'detail'): void => {
+    setPaint(value);
+    try {
+      localStorage.setItem('yard-paint', value);
+    } catch {
+      // A browser that blocks storage keeps the choice for the session only.
+    }
+  };
   const billPaint = useMemo(
     () => (paint === 'bills' ? billBands(containers) : null),
     [paint, containers],
@@ -490,11 +508,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       targets,
       billBays: billMap !== null && billMap.size > 0 ? billMap : null,
       billPaint,
+      detail: paint === 'detail',
       movingId: moving?.id ?? null,
       onBayClick,
       dragZones,
     }),
-    [loads, selected, matches, searchActive, targets, billMap, billPaint, moving, onBayClick, dragZones],
+    [loads, selected, matches, searchActive, targets, billMap, billPaint, paint, moving, onBayClick, dragZones],
   );
 
   const openZone = openBay === null ? null : zoneOf(yardLayout, openBay.zone);
@@ -898,21 +917,23 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
-          {/* «تلون الخريطة بناءا على عدد البوليصات»: one map, two paints —
-              fullness as always, or the size class of each bay's biggest
-              bill. The legend follows whichever is on. */}
+          {/* One map, three paints: fullness as always, the size class of
+              each bay's biggest bill — «تلون الخريطة بناءا على عدد
+              البوليصات» — or the contents in miniature: «تعرض ما داخل البلوك
+              دون ما اكبس على البلوك». The legend follows whichever is on. */}
           <div className="flex gap-1 rounded-xl border border-line bg-sunken p-0.5">
             {(
               [
                 ['fill', AR.paintByFill],
                 ['bills', AR.paintByBills],
+                ['detail', AR.paintByDetail],
               ] as const
             ).map(([value, label]) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => {
-                  setPaint(value);
+                  choosePaint(value);
                 }}
                 className={
                   'rounded-lg px-2 py-0.5 text-xs font-bold transition-colors ' +
@@ -931,6 +952,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               <LegendChip color="var(--yard-band-2)" label={AR.legendBand2} />
               <LegendChip color="var(--yard-band-3)" label={AR.legendBand3} />
               <LegendChip color="var(--yard-band-4)" label={AR.legendBand4} />
+            </>
+          ) : paint === 'detail' ? (
+            <>
+              <LegendChip color="var(--yard-box20)" label={AR.legendBox20} />
+              <LegendChip color="var(--yard-box40)" label={AR.legendBox40} />
+              <LegendChip color="var(--yard-slot)" label={AR.legendSlotFree} />
             </>
           ) : (
             <>
