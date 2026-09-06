@@ -2981,3 +2981,30 @@ Tests: tests/unexit.test.ts «a cancelled exit is not a departure» (one
 row in the register, outCount 1, standing 0, one truck row, log intact);
 tests/tasks.test.ts done-many (closes the pending, skips the finished and
 the stranger, refuses a driver, 400 on nothing).
+
+## المرحلة 61 — أجور على سجلات محذوفة — 2026-09-06
+
+The second audit pass found one real money fault: CICU6968161 entered
+twice on 20/08 (the old size workaround), and the driver was paid 100 on
+the struck record AND 100 on the live one — the statement lists live
+hauls only, so the first figure sat invisible. His order: «أضيف طريقة
+لإلغاء أجر على سجل محذوف من كشف الحساب».
+
+- `store.listOrphanWages` (live wage rows whose container is deleted),
+  `GET /api/wages/orphans` and `POST /api/wages/void` (ACCOUNTING; a
+  live record is refused NOT_DELETED — its own clear/pay flows stand;
+  paid or not, the void goes through, since there is no haul to settle
+  it against). `OrphanWageRow` on the wire.
+- DriversScreen: an «أجور على سجلات محذوفة» section under the statement
+  for every ledger-keeper — direction, number, driver/plate, figure, the
+  receipt stamp if any, when the record was struck — and «إلغاء الأجر»
+  behind a danger Confirm whose sentence says outright that voiding a
+  paid figure recovers no money.
+- tests/drivers.test.ts: live → not an orphan and void refused; struck →
+  the statement drops it, the orphan list picks it up; voided although
+  paid; 404 on the second void; restored, the haul returns with no
+  figure.
+- Also from the audit talk: the exit-card serial can be reissued when
+  إلغاء الخروج voids the NEWEST card (MAX-based counter) — happened once
+  live (178/179 swapped on 01/09); offered a high-water-mark fix, awaiting
+  his word.

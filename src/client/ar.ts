@@ -684,6 +684,21 @@ export const AR = {
     trucks === 0
       ? `تم الدمج: صُحّح الاسم في ${String(hauls)} نقلة.`
       : `تم الدمج: صُحّح الاسم في ${String(hauls)} نقلة وفي ${String(trucks)} سيارة مسجلة.`,
+  /** «أضيف طريقة لإلغاء أجر على سجل محذوف من كشف الحساب». */
+  orphanWagesTitle: 'أجور على سجلات محذوفة',
+  orphanWagesHint:
+    'أجر كُتب — أو أُكّد استلامه — لنقلة حُذف سجلها بعد ذلك. الكشف لا يعرض النقلة ' +
+    'المحذوفة، فيبقى الأجر معلّقاً بلا صاحب حتى يُلغى من هنا.',
+  orphanWagesEmpty: 'لا أجور معلّقة على سجلات محذوفة.',
+  orphanDeletedOn: (date: string): string => `حُذف السجل في ${date}`,
+  voidWageAction: 'إلغاء الأجر',
+  voidWageTitle: 'إلغاء أجر على سجل محذوف',
+  voidWageBody: (number: string, amount: number, paid: boolean): string =>
+    paid
+      ? `الأجر ${String(amount)} على الحاوية ${ltrCode(number)} مؤكَّد الاستلام. إلغاؤه يحذفه من ` +
+        'الدفتر ولا يسترد ما دُفع — تسويته مع السائق بيدك.'
+      : `يُحذف الأجر ${String(amount)} المكتوب على الحاوية ${ltrCode(number)} من الدفتر.`,
+  wageVoided: 'تم إلغاء الأجر.',
   /** «ضعها تحت نفس رقم السيارة»: نقلة بلا اسم سائق تُنسب إلى لوحتها. */
   driverByTruck: (truck: string): string => `سيارة ${ltrCode(truck)} — بلا اسم سائق`,
   /** الصيغة داخل الجملة، حيث لا يستقيم عنوان المجموعة. */

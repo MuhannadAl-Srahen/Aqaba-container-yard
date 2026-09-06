@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { DriverHaulRow } from '../shared/types';
+import type { DriverHaulRow, OrphanWageRow } from '../shared/types';
 import { cardSerial } from '../shared/types';
 import { findTruck } from '../shared/fleet';
 import { ApiFailure, api, formatDateOnly } from './api';
@@ -695,6 +695,7 @@ export function DriversScreen(props: { isOwner: boolean; onBack: () => void }): 
         );
       })}
 
+      <OrphanWages />
       {props.isOwner && <MergeNames />}
 
       {error !== null && <p className="text-xs font-semibold text-red-600">{error}</p>}
@@ -994,5 +995,115 @@ function PrintDriver(props: {
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * أجور على سجلات محذوفة — «أضيف طريقة لإلغاء أجر على سجل محذوف من كشف
+ * الحساب»: a haul struck out after its figure was written (or paid) leaves
+ * that figure standing on nothing, and the statement above cannot show it.
+ * Listed here for anyone who keeps the ledger, and voided on confirmation.
+ */
+function OrphanWages(): ReactElement {
+  const queryClient = useQueryClient();
+  const orphans = useQuery({ queryKey: ['orphan-wages'], queryFn: api.orphanWages });
+  const [voiding, setVoiding] = useState<OrphanWageRow | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (toast === null) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 3500);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [toast]);
+
+  const rows = orphans.data?.rows ?? [];
+
+  const confirmVoid = (): void => {
+    if (voiding === null) return;
+    setBusy(true);
+    api
+      .voidWage({ containerId: voiding.containerId, direction: voiding.direction })
+      .then(() => {
+        setToast(AR.wageVoided);
+      })
+      .catch((failure: unknown) => {
+        setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+      })
+      .finally(() => {
+        setBusy(false);
+        setVoiding(null);
+        void queryClient.invalidateQueries({ queryKey: ['orphan-wages'] });
+        void queryClient.invalidateQueries({ queryKey: ['drivers'] });
+      });
+  };
+
+  return (
+    <section className="rounded-2xl border border-line bg-surface p-4">
+      <h2 className="text-sm font-extrabold text-ink">{AR.orphanWagesTitle}</h2>
+      <p className="mt-1 text-xs leading-6 text-muted">{AR.orphanWagesHint}</p>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-xs text-faint">{AR.orphanWagesEmpty}</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {rows.map((row) => (
+            <li
+              key={`${String(row.containerId)}|${row.direction}`}
+              className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-sunken px-3 py-2 text-sm"
+            >
+              <span className="rounded-lg bg-red-100 px-2 py-0.5 text-xs font-extrabold text-red-800 dark:bg-red-950 dark:text-red-200">
+                {row.direction === 'IN' ? AR.movementIn : AR.movementOut}
+              </span>
+              <span className="font-mono font-bold text-ink" dir="ltr">
+                {row.number}
+              </span>
+              <span className="text-muted">{row.driver !== '' ? row.driver : row.truck}</span>
+              <span className="font-bold text-ink" dir="ltr">
+                {String(row.amount)}
+              </span>
+              {row.paidAt !== null && (
+                <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                  {AR.paidMark}
+                  {row.paidBy === null ? '' : ` — ${AR.paidByLine(row.paidBy)}`}{' '}
+                  <bdi dir="ltr">{formatDateOnly(row.paidAt)}</bdi>
+                </span>
+              )}
+              <span className="text-xs text-faint">
+                {AR.orphanDeletedOn(formatDateOnly(row.deletedAt))}
+              </span>
+              <span className="ms-auto">
+                <Button
+                  kind="danger"
+                  disabled={busy}
+                  onClick={() => {
+                    setVoiding(row);
+                  }}
+                >
+                  {AR.voidWageAction}
+                </Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {voiding !== null && (
+        <Confirm
+          title={AR.voidWageTitle}
+          body={AR.voidWageBody(voiding.number, voiding.amount, voiding.paidAt !== null)}
+          confirmLabel={AR.voidWageAction}
+          danger
+          busy={busy}
+          onConfirm={confirmVoid}
+          onCancel={() => {
+            setVoiding(null);
+          }}
+        />
+      )}
+      {toast !== null && <Toast message={toast} />}
+    </section>
   );
 }

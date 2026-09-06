@@ -19,6 +19,7 @@ import type {
   Handling,
   LogReportRow,
   MachineReportRow,
+  OrphanWageRow,
   MovementDto,
   MovementType,
   Permission,
@@ -2350,4 +2351,39 @@ export function lookupOpenBatchRow(db: DatabaseSync, number: string): BatchMatch
     size: row.size === 20 ? 20 : row.size === 40 ? 40 : null,
     bill: row.bill,
   };
+}
+
+// ------------------------------------------------ أجور على سجلات محذوفة ----
+
+/**
+ * Every live figure whose haul no longer exists: the record was struck after
+ * the wage was written (or paid). `listHauls` reads live records only, so
+ * these would otherwise stand invisible — «أضيف طريقة لإلغاء أجر على سجل
+ * محذوف من كشف الحساب».
+ */
+export function listOrphanWages(db: DatabaseSync): OrphanWageRow[] {
+  const names = listUserNames(db);
+  const rows = db
+    .prepare(
+      `SELECT w.container_id AS containerId, w.direction AS direction, c.number AS number,
+              CASE w.direction WHEN 'IN' THEN c.truck_in ELSE c.truck_out END AS truck,
+              CASE w.direction WHEN 'IN' THEN c.driver_in ELSE c.driver_out END AS driver,
+              CASE w.direction WHEN 'IN' THEN c.entered_at ELSE c.exited_at END AS at,
+              w.amount AS amount, w.paid_at AS paidAt, w.paid_by AS paidBy,
+              c.deleted_at AS deletedAt
+         FROM wages w
+         JOIN containers c ON c.id = w.container_id
+        WHERE w.deleted_at IS NULL AND c.deleted_at IS NOT NULL
+        ORDER BY c.deleted_at DESC, w.container_id, w.direction`,
+    )
+    .all() as unknown as Array<Omit<OrphanWageRow, 'paidBy'> & { paidBy: number | null }>;
+  return rows.map((row) => ({
+    ...row,
+    paidBy:
+      row.paidAt === null
+        ? null
+        : row.paidBy === null
+          ? OWNER_NAME
+          : (names[String(row.paidBy)] ?? OWNER_NAME),
+  }));
 }

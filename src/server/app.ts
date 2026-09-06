@@ -30,7 +30,7 @@ import type {
   YardStateDto,
 } from '../shared/types';
 import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
-import type { DriverHaulRow } from '../shared/types';
+import type { DriverHaulRow, OrphanWageRow } from '../shared/types';
 import { normalizePlate, plateMatches } from '../shared/fleet';
 import { plainCode } from '../shared/bidi';
 import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
@@ -2053,6 +2053,31 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (store.getWage(db, body.containerId, body.direction) === null)
         refuse(409, 'WAGE_MISSING');
       store.setWagePaid(db, { ...body, at: now(), userId: actorId(actor) });
+      return { ok: true };
+    });
+  });
+
+  /**
+   * أجر على سجل محذوف — «أضيف طريقة لإلغاء أجر على سجل محذوف من كشف
+   * الحساب». A figure written or paid for a haul whose record was struck
+   * afterwards has no haul to hold it: the statement lists live records
+   * only, so it would sit invisible for ever. Listed here and voided on
+   * confirmation — paid or not, because there is nothing to settle it
+   * against; recovering money already handed over is the owner's affair.
+   * A LIVE record keeps its own clear/pay flows and is refused here.
+   */
+  app.get('/api/wages/orphans', (request): { rows: OrphanWageRow[] } => {
+    requirePerm(request, 'ACCOUNTING');
+    return { rows: store.listOrphanWages(db) };
+  });
+
+  app.post('/api/wages/void', (request) => {
+    requirePerm(request, 'ACCOUNTING');
+    const body = parseOrRefuse(wageKeySchema, request.body);
+    return transaction(db, () => {
+      if (store.getContainer(db, body.containerId) !== null) refuse(409, 'NOT_DELETED');
+      if (store.getWage(db, body.containerId, body.direction) === null) refuse(404, 'NOT_FOUND');
+      store.clearWage(db, body.containerId, body.direction, now());
       return { ok: true };
     });
   });

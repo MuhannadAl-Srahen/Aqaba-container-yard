@@ -3,7 +3,7 @@ import type { FastifyInstance, InjectOptions } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from '../src/server/db';
 import { buildApp } from '../src/server/app';
-import type { DriverHaulRow, Position } from '../src/shared/types';
+import type { DriverHaulRow, OrphanWageRow, Position } from '../src/shared/types';
 
 /**
  * محاسبة السائقين: every gate movement is one payable haul — the container's
@@ -354,5 +354,41 @@ describe('كشف حساب السائقين', () => {
       (await call({ method: 'GET', url: `/api/drivers?from=${WIDE.from}&to=${WIDE.to}` }))
         .status,
     ).toBe(403);
+  });
+});
+
+describe('أجر على سجل محذوف', () => {
+  it('surfaces a struck record’s figure — paid or not — and voids it on the ledger’s word', async () => {
+    const id = await gateIn('WAGE0099', { zone: 'B', bay: 5, stack: 1, tier: 'A' }, 'يزن ماهر');
+    const wage = { containerId: id, direction: 'IN' };
+    await call({ method: 'PUT', url: '/api/wages', payload: { ...wage, amount: 100 } });
+    await call({ method: 'POST', url: '/api/wages/pay', payload: { ...wage, paid: true } });
+
+    // Live: not an orphan, and voiding is refused — the live flows own it.
+    expect((await call({ method: 'GET', url: '/api/wages/orphans' })).body['rows']).toEqual([]);
+    const early = await call({ method: 'POST', url: '/api/wages/void', payload: wage });
+    expect(early.status).toBe(409);
+    expect(early.body['code']).toBe('NOT_DELETED');
+
+    // Struck: the statement drops the haul; the orphan list picks the figure up.
+    await call({ method: 'DELETE', url: `/api/containers/${String(id)}` });
+    expect(await listHauls()).toHaveLength(0);
+    const orphans = (await call({ method: 'GET', url: '/api/wages/orphans' })).body[
+      'rows'
+    ] as OrphanWageRow[];
+    expect(orphans).toHaveLength(1);
+    expect(orphans[0]).toMatchObject({ number: 'WAGE0099', direction: 'IN', driver: 'يزن ماهر', amount: 100 });
+    expect(orphans[0]?.paidAt).not.toBeNull();
+
+    // Voided although paid; gone; nothing left to void.
+    expect((await call({ method: 'POST', url: '/api/wages/void', payload: wage })).status).toBe(200);
+    expect((await call({ method: 'GET', url: '/api/wages/orphans' })).body['rows']).toEqual([]);
+    expect((await call({ method: 'POST', url: '/api/wages/void', payload: wage })).status).toBe(404);
+
+    // Restored, the haul is back with no figure — the void stands.
+    await call({ method: 'POST', url: `/api/containers/${String(id)}/restore`, payload: {} });
+    const back = await listHauls();
+    expect(back).toHaveLength(1);
+    expect(back[0]?.amount).toBeNull();
   });
 });

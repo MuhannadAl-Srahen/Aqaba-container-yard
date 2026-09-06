@@ -113,6 +113,27 @@ export interface DriverHaulRow {
 }
 
 /**
+ * أجر على سجل محذوف — a figure written, or even paid, for a haul whose record
+ * was struck afterwards. The statement lists live hauls only, so without
+ * this the figure would sit on nothing, unseen, for ever. Shown so it can be
+ * voided; the money side of a paid one is the owner's to settle.
+ */
+export interface OrphanWageRow {
+  readonly containerId: number;
+  readonly direction: HaulDirection;
+  readonly number: string;
+  readonly truck: string;
+  readonly driver: string;
+  /** The haul's own instant — entry or exit. */
+  readonly at: string;
+  readonly amount: number;
+  readonly paidAt: string | null;
+  readonly paidBy: string | null;
+  /** When the record was struck. */
+  readonly deletedAt: string;
+}
+
+/**
  * The bay's parity IS the container size: an odd bay takes a 20-footer; an
  * even bay is a 40-footer lying across the two odd bays around it (a 40 over
  * bays 01 and 03 is addressed as bay 02).

@@ -19,6 +19,7 @@ import type {
   MachineReportRow,
   MeDto,
   MovementDto,
+  OrphanWageRow,
   Permission,
   PermitDto,
   PermitReportRow,
@@ -410,6 +411,10 @@ export const api = {
     paid: boolean;
   }): Promise<{ ok: boolean }> =>
     request('/api/wages/pay', { method: 'POST', body: JSON.stringify(input) }),
+  /** أجور على سجلات محذوفة — listed so they can be voided, never lost unseen. */
+  orphanWages: (): Promise<{ rows: OrphanWageRow[] }> => request('/api/wages/orphans'),
+  voidWage: (input: { containerId: number; direction: HaulDirection }): Promise<{ ok: boolean }> =>
+    request('/api/wages/void', { method: 'POST', body: JSON.stringify(input) }),
   /**
    * تصحيح الفئة: the class is NEVER sent — the bay decides it, exactly as at
    * the gate. `to` is absent only for a departed record whose exit movement
