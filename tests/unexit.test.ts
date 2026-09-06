@@ -330,3 +330,38 @@ describe('undoing from the log', () => {
     expect(allowed.status).toBe(200);
   });
 });
+
+describe('a cancelled exit is not a departure', () => {
+  it('leaves the exit register, the daily count and the truck sheet — but not the log', async () => {
+    // Found live: exit → إلغاء الخروج → exit again printed TWO rows in كشف
+    // الخروج under the same exit card, and counted two departures.
+    const entered = await gateIn('BACK0009', slot(9, 1, 'A'));
+    await gateOut(entered.body.id);
+    await unexit(entered.body.id);
+    await gateOut(entered.body.id);
+
+    const range = {
+      from: new Date(Date.now() - 86_400_000).toISOString(),
+      to: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const q = `from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`;
+    const rowsOf = async (url: string): Promise<Array<Record<string, unknown>>> =>
+      ((await call({ method: 'GET', url })).body as unknown as { rows: Array<Record<string, unknown>> })
+        .rows;
+
+    const exits = await rowsOf(`/api/reports/gate?type=OUT&${q}`);
+    expect(exits).toHaveLength(1);
+    expect(exits[0]).toMatchObject({ number: 'BACK0009' });
+
+    const days = await rowsOf(`/api/reports/daily?${q}`);
+    expect(days).toHaveLength(1);
+    expect(days[0]).toMatchObject({ inCount: 1, outCount: 1, standing: 0 });
+
+    // Truck 522 only ever carried it OUT — one row, not two.
+    expect(await rowsOf(`/api/reports/truck?truck=522&${q}`)).toHaveLength(1);
+
+    // The history keeps every step: that is what the log is for.
+    const { movements } = await detail(entered.body.id);
+    expect(movements.map((movement) => movement.type)).toEqual(['IN', 'OUT', 'RETURN', 'OUT']);
+  });
+});

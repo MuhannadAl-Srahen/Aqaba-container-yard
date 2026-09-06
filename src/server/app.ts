@@ -1356,6 +1356,35 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   });
 
   /** «تم» — the driver's own hand, or the desk closing a task for him. */
+  /**
+   * «تحديد الكل ثم تم»: the desk closes many at once — a shift's finished
+   * work in one press. A task already closed is skipped and counted, not
+   * refused: the screen may be one poll behind the tablets.
+   */
+  app.post('/api/tasks/done-many', (request) => {
+    const actor = requireAuth(request);
+    if (!canRunTasks(actor)) refuse(403, 'FORBIDDEN');
+    const body = parseOrRefuse(
+      z.object({ ids: z.array(z.number().int().positive()).min(1).max(500) }),
+      request.body,
+    );
+    return transaction(db, () => {
+      const at = now();
+      let done = 0;
+      let skipped = 0;
+      for (const id of new Set(body.ids)) {
+        const task = store.getTask(db, id);
+        if (task === null || task.status !== 'PENDING') {
+          skipped += 1;
+          continue;
+        }
+        store.setTaskDone(db, id, at, actorId(actor));
+        done += 1;
+      }
+      return { done, skipped };
+    });
+  });
+
   app.post('/api/tasks/:id/done', (request) => {
     const actor = requireAuth(request);
     const id = idParam(request);

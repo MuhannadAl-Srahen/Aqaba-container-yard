@@ -2949,3 +2949,35 @@ registry; upload for owner + GATE_IN; both prefill doors.
   received → the registry turned to «وصل 1 من 124 · واصلة» on its own.
   دفعة 8 showed its four amber 45s; the scanned PDF got the refusal
   sentence verbatim; 390px phone shots clean.
+
+## المرحلة 60 — الخروج الملغى ليس خروجاً، و«تحديد الكل ثم تم» — 2026-09-06
+
+He sent كشف الخروج with two containers printed twice — same exit card,
+same truck, an hour and a half apart — and named the cause: «ما في تعديل
+الفئة ف الشباب كانوا يخرجوها ويردوا يدخلوها». The live book (read-only)
+told two different stories under that one complaint:
+
+- The doubled ROWS were one record each with OUT → RETURN → OUT — an
+  exit taken back with «إلغاء الخروج» and redone. Every departure reader
+  was movement-based, so the cancelled exit printed as a departure and
+  was counted as one. Fix in store.ts: one `OUT_STANDS` clause (no later
+  RETURN for that container, ordered by id so an edited instant cannot
+  fool it) applied to the exit register, the card book, the truck sheet,
+  the both-ways sheet and the daily instants — the operations log keeps
+  all three steps. Exactly two cancelled OUTs exist live, the two he saw.
+- The doubled RECORDS (CMAU0554877, ECMU2873921) are the workaround
+  itself: entered as a 40, «exited» ten minutes later on truck «00»,
+  entered again as a 20 — from before the staff knew «تصحيح الفئة»
+  exists on the card. No code: the two phantom exited records are his
+  to strike (spelled out in the reply); the standing 20s stay.
+- «تم» in bulk for the desk: POST /api/tasks/done-many (canRunTasks;
+  closed and unknown ids skipped and counted, never refused; one
+  transaction) + TaskMonitorScreen checkboxes on pending rows, «تحديد
+  الكل»/«إلغاء التحديد», «تم للمحدد (N)» behind a Confirm; the
+  selection empties when the filter changes.
+- Also the weight on driver task cards (76991fc, his previous order).
+
+Tests: tests/unexit.test.ts «a cancelled exit is not a departure» (one
+row in the register, outCount 1, standing 0, one truck row, log intact);
+tests/tasks.test.ts done-many (closes the pending, skips the finished and
+the stranger, refuses a driver, 400 on nothing).

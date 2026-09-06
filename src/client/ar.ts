@@ -583,6 +583,18 @@ export const AR = {
   taskTruckLine: (truck: string): string => `سيارة الخروج: ${ltrCode(truck)}`,
   /** «ضع الوزن ايضا عند المهام الخاصة بالأليات لانها مهمة». */
   taskWeightLine: (weight: string): string => `الوزن: ${ltrCode(weight)} كغم`,
+  /** «بدي خيار تحديد المهام لوضع تم عند مدخل البيانات… تحديد الكل ثم تم». */
+  taskSelectAll: 'تحديد الكل',
+  taskSelectNone: 'إلغاء التحديد',
+  taskSelectOne: 'تحديد المهمة',
+  taskDoneSelected: (n: number): string => `تم للمحدد (${String(n)})`,
+  taskDoneManyTitle: 'إنهاء المهام المحددة',
+  taskDoneManyBody: (n: number): string =>
+    `تُسجَّل ${String(n)} مهمة منجزة الآن باسمك. هل أُنجزت كلها فعلاً؟`,
+  taskDoneManyToast: (done: number, skipped: number): string =>
+    skipped === 0
+      ? `تم إنهاء ${String(done)} مهمة.`
+      : `تم إنهاء ${String(done)} مهمة، و${String(skipped)} منها كانت مغلقة من قبل.`,
 
   // ---- دفعات كشف الجمارك — الكشف يُقرأ حرفياً أو لا يُقرأ ----
   batchesButton: 'الدفعات',

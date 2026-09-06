@@ -18,6 +18,9 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
   const [machineFilter, setMachineFilter] = useState<Handling | 'ALL'>('ALL');
   const [status, setStatus] = useState<TaskStatus>('PENDING');
   const [rerouting, setRerouting] = useState<TaskDto | null>(null);
+  /** «تحديد الكل ثم تم»: the desk's selection, pending tasks only. */
+  const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
+  const [confirmingMany, setConfirmingMany] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -37,6 +40,42 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
     refetchInterval: 10_000,
   });
   const rows = query.data?.tasks ?? [];
+
+  // A selection belongs to the list it was made on: another filter, another
+  // status, and it starts empty — a stale tick must never close a task the
+  // desk is not looking at. Ids the poll has since removed fall away too.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [status, machineFilter]);
+  const pendingIds = rows.filter((task) => task.status === 'PENDING').map((task) => task.id);
+  const chosen = pendingIds.filter((id) => selected.has(id));
+
+  const toggle = (id: number): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const finishMany = (ids: readonly number[]): void => {
+    setBusy(true);
+    api
+      .taskDoneMany(ids)
+      .then((result) => {
+        setToast(AR.taskDoneManyToast(result.done, result.skipped));
+        setSelected(new Set());
+      })
+      .catch((failure: unknown) => {
+        setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+      })
+      .finally(() => {
+        setBusy(false);
+        setConfirmingMany(false);
+        void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      });
+  };
 
   const run = (work: Promise<unknown>, message: string): void => {
     setBusy(true);
@@ -112,6 +151,32 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
           </div>
         </div>
 
+        {/* The sweep: tick some or all, one «تم» for the lot. */}
+        {status === 'PENDING' && pendingIds.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2">
+            <Button
+              kind="quiet"
+              disabled={busy}
+              onClick={() => {
+                setSelected(
+                  chosen.length === pendingIds.length ? new Set() : new Set(pendingIds),
+                );
+              }}
+            >
+              {chosen.length === pendingIds.length ? AR.taskSelectNone : AR.taskSelectAll}
+            </Button>
+            <span className="ms-auto">
+              <Button
+                disabled={busy || chosen.length === 0}
+                onClick={() => {
+                  setConfirmingMany(true);
+                }}
+              >
+                {AR.taskDoneSelected(chosen.length)}
+              </Button>
+            </span>
+          </div>
+        )}
         {rows.length === 0 && (
           <p className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-faint">
             {AR.taskEmpty}
@@ -126,6 +191,18 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
             }
           >
             <div className="flex flex-wrap items-center gap-2 text-sm">
+              {task.status === 'PENDING' && (
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 accent-blue-600"
+                  aria-label={AR.taskSelectOne}
+                  checked={selected.has(task.id)}
+                  disabled={busy}
+                  onChange={() => {
+                    toggle(task.id);
+                  }}
+                />
+              )}
               <span
                 className={
                   'rounded-lg px-2 py-0.5 text-xs font-extrabold ' +
@@ -204,6 +281,20 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
         ))}
       </main>
 
+      {confirmingMany && chosen.length > 0 && (
+        <Confirm
+          title={AR.taskDoneManyTitle}
+          body={AR.taskDoneManyBody(chosen.length)}
+          confirmLabel={AR.taskDoneAction}
+          busy={busy}
+          onConfirm={() => {
+            finishMany(chosen);
+          }}
+          onCancel={() => {
+            setConfirmingMany(false);
+          }}
+        />
+      )}
       {rerouting !== null && (
         <Confirm
           title={AR.taskRerouteTitle}

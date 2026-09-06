@@ -1086,6 +1086,18 @@ interface GateRow {
   user_id: number | null;
 }
 
+/**
+ * An OUT movement that a later RETURN («إلغاء الخروج») took back is not a
+ * departure. The exit register, the daily counts, the truck sheet and the
+ * card book all skip it — the box never left, in the register's eyes — while
+ * the operations log, which is the history, still shows all three steps.
+ * Ordered by id rather than by `at`: an exit instant can be edited later.
+ * Found live: two exits cancelled and redone printed twice in كشف الخروج.
+ */
+const OUT_STANDS = `NOT EXISTS (
+         SELECT 1 FROM movements r
+          WHERE r.container_id = m.container_id AND r.type = 'RETURN' AND r.id > m.id)`;
+
 /** Every IN or OUT movement in [from, to), joined with its container's paperwork. */
 export function listGateMovements(
   db: DatabaseSync,
@@ -1112,6 +1124,7 @@ export function listGateMovements(
        FROM movements m
        JOIN containers k ON k.id = m.container_id
        WHERE m.type = ? AND m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
+         AND (m.type <> 'OUT' OR ${OUT_STANDS})
        ORDER BY m.at, m.id`,
     )
     .all(type, fromIso, toIso) as unknown as GateRow[];
@@ -1191,6 +1204,7 @@ export function bulkGateCards(
        FROM movements m
        JOIN containers k ON k.id = m.container_id
        WHERE m.type = ? AND m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
+         AND (m.type <> 'OUT' OR ${OUT_STANDS})
        ORDER BY (${serial} IS NULL), ${serialYear}, ${serial}, m.at`,
     )
     .all(type, fromIso, toIso) as unknown as Array<
@@ -1384,6 +1398,7 @@ export function listTruckMovements(
        JOIN containers k ON k.id = m.container_id
        WHERE m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
          AND ((m.type = 'IN' AND k.truck_in = ?) OR (m.type = 'OUT' AND k.truck_out = ?))
+         AND (m.type <> 'OUT' OR ${OUT_STANDS})
        ORDER BY m.at, m.id`,
     )
     .all(fromIso, toIso, truck, truck) as unknown as Array<MovementRow & GateRow>;
@@ -1428,6 +1443,7 @@ export function listMovementInstants(
       `SELECT m.type, m.at FROM movements m
        JOIN containers k ON k.id = m.container_id
        WHERE m.type IN ('IN', 'OUT') AND m.at < ? AND k.deleted_at IS NULL
+         AND (m.type <> 'OUT' OR ${OUT_STANDS})
        ORDER BY m.at`,
     )
     .all(toIso) as unknown as Array<{ type: 'IN' | 'OUT'; at: string }>;
@@ -1596,6 +1612,7 @@ export function listGateMovementsBoth(
        JOIN containers k ON k.id = m.container_id
        WHERE m.at >= ? AND m.at < ? AND m.type IN ('IN', 'OUT')
          AND k.deleted_at IS NULL
+         AND (m.type <> 'OUT' OR ${OUT_STANDS})
        ORDER BY m.at, m.id`,
     )
     .all(fromIso, toIso) as unknown as Array<MovementRow & GateRow>;

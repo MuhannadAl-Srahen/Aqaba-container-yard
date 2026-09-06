@@ -609,6 +609,10 @@ export const api = {
   taskDone: (id: number): Promise<TaskDto> =>
     request(`/api/tasks/${String(id)}/done`, { method: 'POST', body: JSON.stringify({}) }),
 
+  /** «تحديد الكل ثم تم» — the desk closes a whole selection at once. */
+  taskDoneMany: (ids: readonly number[]): Promise<{ done: number; skipped: number }> =>
+    request('/api/tasks/done-many', { method: 'POST', body: JSON.stringify({ ids }) }),
+
   taskUrgent: (id: number, urgent: boolean): Promise<TaskDto> =>
     request(`/api/tasks/${String(id)}/urgent`, { method: 'POST', body: JSON.stringify({ urgent }) }),
 

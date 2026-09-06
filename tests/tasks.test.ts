@@ -563,3 +563,53 @@ describe('accounts and sessions', () => {
     expect(horizonOf(clerk.cookie)).toBeLessThan(2 * 60 * 60 * 1000);
   });
 });
+
+describe('«تحديد الكل ثم تم» — the desk closes many at once', () => {
+  it('closes every pending task chosen, skips the closed and the unknown, refuses a driver', async () => {
+    const clerk = await hire('مدخل البيانات', '3333', ['GATE_IN'], '');
+    const driver = await hire('سائق الونش', '1111', ['MOVE'], 'CRANE');
+    await receive('TGHU1234565', at(1, 1), 'CRANE');
+    await receive('MSKU7654325', at(3, 1), 'CRANE');
+    await receive('TRLU5566770', at(5, 1), 'CRANE');
+    const queue = await tasksOf(driver.cookie);
+    expect(queue).toHaveLength(3);
+    const ids = queue.map((task) => task.id);
+    // The driver already finished one by hand.
+    await call({
+      method: 'POST',
+      url: `/api/tasks/${String(ids[0])}/done`,
+      payload: {},
+      cookie: driver.cookie,
+    });
+
+    // A driver may not sweep the queue; and nothing chosen is nothing asked.
+    const refused = await call({
+      method: 'POST',
+      url: '/api/tasks/done-many',
+      payload: { ids },
+      cookie: driver.cookie,
+    });
+    expect(refused.status).toBe(403);
+    const empty = await call({
+      method: 'POST',
+      url: '/api/tasks/done-many',
+      payload: { ids: [] },
+      cookie: clerk.cookie,
+    });
+    expect(empty.status).toBe(400);
+
+    // The desk sweeps: two still pending close, the finished one and a
+    // stranger are skipped and counted — never refused.
+    const swept = await call({
+      method: 'POST',
+      url: '/api/tasks/done-many',
+      payload: { ids: [...ids, 999_999] },
+      cookie: clerk.cookie,
+    });
+    expect(swept.status).toBe(200);
+    expect(swept.body).toEqual({ done: 2, skipped: 2 });
+    expect(await tasksOf(driver.cookie)).toHaveLength(0);
+    const done = await tasksOf(clerk.cookie, '?status=DONE');
+    expect(done.filter((task) => task.doneBy === 'مدخل البيانات')).toHaveLength(2);
+  });
+});
