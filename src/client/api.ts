@@ -252,7 +252,15 @@ export const api = {
       body: JSON.stringify({ to }),
     }),
 
-  exit: (id: number, gate: { truck: string; driver: string }): Promise<ContainerDto> =>
+  /**
+   * The machine rides with the departure: «اريد اختيار الألية التي سوف
+   * تخرج». Omitted, the server routes the loading task to whatever
+   * unloaded the box at entry.
+   */
+  exit: (
+    id: number,
+    gate: { truck: string; driver: string; machine?: Handling },
+  ): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}/exit`, {
       method: 'POST',
       body: JSON.stringify(gate),

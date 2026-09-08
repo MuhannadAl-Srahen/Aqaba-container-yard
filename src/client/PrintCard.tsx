@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, MovementDto } from '../shared/types';
+import { cardSerialText } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
 import { api } from './api';
@@ -123,7 +124,7 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
   const serial = move !== null ? move.card : kind === 'in' ? container.cardIn : container.cardOut;
   const serialYear =
     move !== null ? move.cardYear : kind === 'in' ? container.cardInYear : container.cardOutYear;
-  const serialText = serial === null ? '—' : String(serial).padStart(4, '0');
+  const serialText = serial === null ? '—' : cardSerialText(serial);
   const truck = kind === 'in' ? container.truckIn : container.truckOut;
   const driver = kind === 'in' ? container.driverIn : container.driverOut;
   const drops = move === null ? [] : dropsOf(move.note);
@@ -188,10 +189,10 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
             apart by their titles, which is how a person reads them anyway.
           */}
           <div className="flex items-stretch border-b-2 border-rule-strong bg-surface text-ink">
-            <div className="flex w-28 flex-col items-center justify-center gap-0.5 border-e border-rule-strong px-2 py-2.5">
+            <div className="flex min-w-28 flex-col items-center justify-center gap-0.5 border-e border-rule-strong px-2 py-2.5">
               <span className="text-[10px] font-semibold text-muted">{AR.cardNumber}</span>
               <span
-                className="gate-serial rounded-md border border-rule-strong px-2 font-mono text-2xl font-extrabold tabular-nums leading-7"
+                className="gate-serial rounded-md border border-rule-strong px-2 font-mono text-2xl font-extrabold tabular-nums whitespace-nowrap leading-7"
                 dir="ltr"
               >
                 {serialText}

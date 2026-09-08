@@ -1,7 +1,7 @@
 import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import type { PermitDto } from '../shared/types';
-import { cardSerial } from '../shared/types';
+import { cardSerial, cardSerialText } from '../shared/types';
 import { AR } from './ar';
 import { Button, useEscape } from './ui';
 
@@ -43,7 +43,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
   const yard = permit.yard;
   // The serial prints the way the gate cards print theirs: the number big,
   // the year on its own small line — sized for the box on paper.
-  const serialText = String(permit.serial).padStart(4, '0');
+  const serialText = cardSerialText(permit.serial);
 
   // The table wears the register's own ruling — «تماما مثل كشف البوليصة»,
   // the owner's word: the same header band, the same alternating rows, and
@@ -73,10 +73,10 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
 
           {/* The voucher strip: serial | bill | date. */}
           <div className="flex items-stretch border-b-2 border-rule-strong text-ink">
-            <div className="flex w-36 flex-col items-center justify-center gap-0.5 border-e border-rule-strong px-2 py-2">
+            <div className="flex min-w-36 flex-col items-center justify-center gap-0.5 border-e border-rule-strong px-2 py-2">
               <span className="text-[10px] font-semibold text-muted">{AR.permitSerial}</span>
               <span
-                className="gate-serial rounded-md border border-rule-strong px-2 font-mono text-xl font-extrabold tabular-nums leading-7"
+                className="gate-serial rounded-md border border-rule-strong px-2 font-mono text-xl font-extrabold tabular-nums whitespace-nowrap leading-7"
                 dir="ltr"
               >
                 {serialText}

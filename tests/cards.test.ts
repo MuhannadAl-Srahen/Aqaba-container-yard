@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from '../src/server/db';
 import { nextCardNumber } from '../src/server/store';
-import { cardSerial } from '../src/shared/types';
+import { cardSerial, cardSerialText } from '../src/shared/types';
 import { ammanYear } from '../src/shared/dates';
 
 /**
@@ -168,6 +168,11 @@ describe('the gate card serial', () => {
     expect(cardSerial(1, 2026)).toBe('0001/2026');
     expect(cardSerial(91, 2026)).toBe('0091/2026');
     expect(cardSerial(9999, 2026)).toBe('9999/2026');
+    // The year restarts the count, so four places carry the book for years;
+    // the day one does not, the number widens rather than losing a digit.
+    expect(cardSerial(10000, 2027)).toBe('10000/2027');
+    expect(cardSerialText(1)).toBe('0001');
+    expect(cardSerialText(12345)).toBe('12345');
     // A card from before the years were recorded still reads as a number.
     expect(cardSerial(7, null)).toBe('0007');
     // And no card at all is no text at all — the caller prints its own dash.

@@ -55,6 +55,39 @@ const MOVEMENT_TONES = {
   RETURN: 'emerald',
 } as const;
 
+/**
+ * أي آلية — the two machines as two wide buttons. The same choice serves the
+ * تجهيز that precedes an exit and the exit itself, because «ليس دائما التي
+ * ادخلتها هي نفسها التي سوف تخرجها»: the office names the machine, and that
+ * is the only way the yard is told which one is coming for the truck.
+ */
+function MachineChoice(props: {
+  value: Handling | null;
+  onChange: (machine: Handling) => void;
+}): ReactElement {
+  return (
+    <div className="flex gap-2">
+      {HANDLING.map((machine) => (
+        <button
+          key={machine}
+          type="button"
+          onClick={() => {
+            props.onChange(machine);
+          }}
+          className={
+            'flex-1 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors ' +
+            (props.value === machine
+              ? 'border-blue-700 bg-blue-700 text-white'
+              : 'border-line bg-sunken text-muted hover:border-blue-400')
+          }
+        >
+          {AR.machineName[machine]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** Addresses live in one isolated LTR run: nothing fuses, no arrow flips. */
 function Addr(props: { text: string }): ReactElement {
   return (
@@ -143,6 +176,8 @@ export function ContainerCard(props: {
   );
   /** آلية مهمة التجهيز — تفتح على مناولة الحاوية والكاتب حرّ في تبديلها. */
   const [prepareMachine, setPrepareMachine] = useState<Handling | null>(null);
+  /** والآلية التي ستحمّل الشاحنة عند الخروج — القاعدة نفسها. */
+  const [exitMachine, setExitMachine] = useState<Handling | null>(null);
   /**
    * A caller may ask the card to open already editing (the register row's
    * pencil does). It may not thereby hand the form to someone who has no
@@ -390,6 +425,7 @@ export function ContainerCard(props: {
               <Button
                 kind="quiet"
                 onClick={() => {
+                  setExitMachine(container.handling);
                   setConfirming('exit');
                 }}
                 disabled={busy}
@@ -563,6 +599,19 @@ export function ContainerCard(props: {
                   }}
                 />
               </Field>
+              {/* The machine that will load this truck. It opens on whatever
+                  unloaded the box, and the clerk switches it with one tap —
+                  the tablet on that machine is told the moment the exit is
+                  recorded. */}
+              <div>
+                <span className="mb-1.5 block text-sm font-semibold text-ink">
+                  {AR.exitMachineLabel}
+                </span>
+                <MachineChoice value={exitMachine} onChange={setExitMachine} />
+                <span className="mt-1 block text-xs text-faint">
+                  {AR.exitMachineHint}
+                </span>
+              </div>
             </div>
             <div className="mt-5 flex gap-2">
               <Button
@@ -574,6 +623,7 @@ export function ContainerCard(props: {
                     .exit(container.id, {
                       truck: truckOut.trim(),
                       driver: driverOut.trim(),
+                      ...(exitMachine === null ? {} : { machine: exitMachine }),
                     })
                     .then((departed) => {
                       // Straight to its exit card — the paper the driver takes.
@@ -605,24 +655,8 @@ export function ContainerCard(props: {
           <div className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-2xl">
             <h3 className="text-base font-extrabold text-ink">{AR.prepareTitle}</h3>
             <p className="mt-1 text-sm text-muted">{AR.prepareMachineLabel}</p>
-            <div className="mt-3 flex gap-2">
-              {HANDLING.map((machine) => (
-                <button
-                  key={machine}
-                  type="button"
-                  onClick={() => {
-                    setPrepareMachine(machine);
-                  }}
-                  className={
-                    'flex-1 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors ' +
-                    (prepareMachine === machine
-                      ? 'border-blue-700 bg-blue-700 text-white'
-                      : 'border-line bg-sunken text-muted hover:border-blue-400')
-                  }
-                >
-                  {AR.machineName[machine]}
-                </button>
-              ))}
+            <div className="mt-3">
+              <MachineChoice value={prepareMachine} onChange={setPrepareMachine} />
             </div>
             <div className="mt-5 flex gap-2">
               <Button

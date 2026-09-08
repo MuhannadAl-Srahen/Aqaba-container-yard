@@ -1,4 +1,5 @@
 import type { CardSheetRow } from '../shared/types';
+import { cardSerialText } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { plainCode } from '../shared/bidi';
 import { AR } from './ar';
@@ -70,7 +71,7 @@ const titleOf = (kind: CardKind): string =>
 
 function cardSection(kind: CardKind, card: CardSheetRow): string {
   const at = new Date(card.at);
-  const serialText = card.serial === null ? '—' : String(card.serial).padStart(4, '0');
+  const serialText = card.serial === null ? '—' : cardSerialText(card.serial);
   const dash = (value: string): string => (value === '' ? '—' : esc(value));
 
   const rows: string[] = [];
@@ -173,10 +174,11 @@ export function cardsBookHtml(
     `section:first-child{break-before:auto;page-break-before:auto}` +
     `.card{border:2px solid #334155;border-radius:8px;overflow:hidden}` +
     `.strip{display:flex;align-items:stretch;border-bottom:2px solid #334155}` +
-    `.serial{width:110px;border-inline-end:1px solid #334155;padding:8px 6px;text-align:center}` +
+    `.serial{min-width:110px;border-inline-end:1px solid #334155;padding:8px 6px;text-align:center}` +
     `.slbl{display:block;font-size:10px;color:#64748b;font-weight:600}` +
     `.snum{display:inline-block;direction:ltr;border:1px solid #334155;border-radius:6px;` +
-    `padding:0 8px;font-family:ui-monospace,Consolas,monospace;font-size:22px;font-weight:800;margin-top:2px}` +
+    `padding:0 8px;font-family:ui-monospace,Consolas,monospace;font-size:22px;font-weight:800;` +
+    `white-space:nowrap;margin-top:2px}` +
     `.syear{display:block;direction:ltr;font-size:10px;font-weight:700;color:#64748b}` +
     `.title{flex:1;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800}` +
     `.stamp{width:150px;border-inline-start:1px solid #334155;padding:8px 10px;font-size:12px}` +

@@ -383,10 +383,23 @@ export interface ContainerDto {
   readonly cardOutYear: number | null;
 }
 
-/** Up to four places, then the year it belongs to: «0091/2026». */
+/**
+ * The serial as every paper prints it: four places while the book is in
+ * four figures — «0091» — and its own full width once a year outgrows
+ * them. The count restarts each January, so four places will carry the
+ * book for years yet; padStart never truncates, so the day a yard writes
+ * its ten-thousandth card the number simply prints as 10000 rather than
+ * losing a digit. Every card, register and permit reads its serial here
+ * so that they can never disagree about one.
+ */
+export function cardSerialText(number: number): string {
+  return String(number).padStart(4, '0');
+}
+
+/** The serial, then the year it counts within: «0091/2026». */
 export function cardSerial(number: number | null, year: number | null): string | null {
   if (number === null) return null;
-  const padded = String(number).padStart(4, '0');
+  const padded = cardSerialText(number);
   return year === null ? padded : `${padded}/${String(year)}`;
 }
 

@@ -1,7 +1,7 @@
 import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, PermitDto } from '../shared/types';
-import { cardSerial } from '../shared/types';
+import { cardSerial, cardSerialText } from '../shared/types';
 import { findTruck } from '../shared/fleet';
 import { AR } from './ar';
 import { ApiFailure, api, formatDateOnly } from './api';
@@ -60,7 +60,7 @@ export function PermitSheet(props: {
   const priorPermits = new Map<number, string[]>();
   for (const row of already.data?.rows ?? []) {
     const list = priorPermits.get(row.containerId) ?? [];
-    list.push(`${String(row.serial).padStart(4, '0')}/${String(row.serialYear)}`);
+    list.push(`${cardSerialText(row.serial)}/${String(row.serialYear)}`);
     priorPermits.set(row.containerId, list);
   }
 

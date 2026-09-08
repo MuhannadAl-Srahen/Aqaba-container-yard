@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
 import { openDatabase } from '../src/server/db';
 import { buildApp } from '../src/server/app';
-import type { Handling, Permission, Position, TaskDto } from '../src/shared/types';
+import type { ContainerDto, Handling, Permission, Position, TaskDto } from '../src/shared/types';
 
 /**
  * مهام الآليات: the WhatsApp photo group, replaced. The gate acts and the
@@ -365,6 +365,60 @@ describe('the exit and the queue', () => {
     });
     expect(exit.status).toBe(200);
     expect(await tasksOf(ownerCookie, '?status=PENDING')).toHaveLength(0);
+  });
+
+  it('the exit names the machine that will load the truck, not the one that unloaded it', async () => {
+    // «ليس دائما التي ادخلتها هي نفسها التي سوف تخرجها» — the straddle
+    // stacked it, the crane is the one free when the truck comes.
+    const id = await receive('TGHU1234565', at(3, 2), 'STRADDLE');
+    const entry = (await tasksOf(ownerCookie, '?status=PENDING'))[0];
+    if (entry === undefined) throw new Error('no entry task');
+    await call({
+      method: 'POST',
+      url: `/api/tasks/${String(entry.id)}/done`,
+      payload: {},
+      cookie: ownerCookie,
+    });
+
+    const exit = await call({
+      method: 'POST',
+      url: `/api/containers/${String(id)}/exit`,
+      payload: { truck: '77-500', driver: 'سامر', machine: 'CRANE' },
+      cookie: ownerCookie,
+    });
+    expect(exit.status).toBe(200);
+
+    const pending = await tasksOf(ownerCookie, '?status=PENDING');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.kind).toBe('OUT');
+    expect(pending[0]?.machine).toBe('CRANE');
+    // المناولة is what unloaded the box at entry, and the entry card prints
+    // it: choosing a machine for the departure may never rewrite history.
+    expect((exit.body as ContainerDto).handling).toBe('STRADDLE');
+  });
+
+  it('a container with no machine on record still routes, once the clerk names one', async () => {
+    const id = await receive('TGHU1234565', at(7, 1));
+    const entry = (await tasksOf(ownerCookie, '?status=PENDING'))[0];
+    if (entry === undefined) throw new Error('no entry task');
+    await call({
+      method: 'POST',
+      url: `/api/tasks/${String(entry.id)}/done`,
+      payload: {},
+      cookie: ownerCookie,
+    });
+    db.prepare(`UPDATE containers SET handling = '' WHERE id = ?`).run(id);
+
+    const exit = await call({
+      method: 'POST',
+      url: `/api/containers/${String(id)}/exit`,
+      payload: { truck: '601', driver: '', machine: 'STRADDLE' },
+      cookie: ownerCookie,
+    });
+    expect(exit.status).toBe(200);
+    const pending = await tasksOf(ownerCookie, '?status=PENDING');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.machine).toBe('STRADDLE');
   });
 
   it('undoing an exit voids its unfinished task; deleting a record closes all', async () => {

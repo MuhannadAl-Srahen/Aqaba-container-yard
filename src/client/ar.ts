@@ -874,6 +874,9 @@ export const AR = {
   confirmExitBody: (number: string): string =>
     `هل تريد إخراج الحاوية ${number} من الساحة؟ يُخلى الموقع ويبقى السجل محفوظاً.`,
   exitDone: (number: string): string => `تم إخراج الحاوية ${number} من الساحة`,
+  /** «ليس دائما التي ادخلتها هي نفسها التي سوف تخرجها» — فيُسأل عند كل خروج. */
+  exitMachineLabel: "أي آلية ستُحمّل الشاحنة؟",
+  exitMachineHint: "تصل المهمة إلى شاشة الآلية المختارة فور تسجيل الخروج.",
 
   // ---- the printed gate cards ----
   cardInTitle: 'بطاقة دخول',

@@ -134,9 +134,19 @@ const gateInSchema = z.object({
  * carries ONE seal — the one recorded at the gate it came in through — and
  * that is the one every card and every register names from here on.
  */
+/** أي آلية تناول الحاوية — الونش أو العقرب. */
+const machineSchema = z.enum(HANDLING);
+
 const gateOutSchema = z.object({
   truck: z.string().trim().min(1).max(30),
   driver: z.string().trim().max(60).default(''),
+  /**
+   * «ليس دائما التي ادخلتها هي نفسها التي سوف تخرجها»: the clerk names
+   * the machine that will load this truck, because the office has no
+   * other way to tell it. Left unsaid, the work falls to whatever
+   * unloaded the box at entry — the behaviour that stood before.
+   */
+  machine: machineSchema.optional(),
 });
 
 /**
@@ -196,7 +206,6 @@ const userPatchSchema = z.object({
 });
 
 /** مهام الآليات: a تجهيز request, and the queue's own small verbs. */
-const machineSchema = z.enum(HANDLING);
 const prepareSchema = z.object({
   containerId: z.number().int().min(1),
   machine: machineSchema.optional(),
@@ -1332,14 +1341,17 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // The queue follows the gate: a pending تجهيز is now answered, and a
       // stale entry task dies with the visit. If NO تجهيز preceded this
       // exit, one is born right here — already pending, carrying the truck
-      // and the slot the box stood in, so nothing is ever missed.
+      // and the slot the box stood in, so nothing is ever missed. It goes to
+      // the machine the clerk named at the gate, and only failing that to
+      // the one that unloaded it: the yard's two machines take turns.
       const closedOut = store.closePendingTasks(db, id, 'OUT', at, actorId(actor), 'AUTO_EXIT');
       store.closePendingTasks(db, id, 'IN', at, actorId(actor), 'AUTO_EXIT');
-      if (closedOut === 0 && dto.handling !== null) {
+      const outMachine = gate.machine ?? dto.handling;
+      if (closedOut === 0 && outMachine !== null) {
         store.insertTask(db, {
           kind: 'OUT',
           containerId: id,
-          machine: dto.handling,
+          machine: outMachine,
           at,
           createdBy: actorId(actor),
           position,

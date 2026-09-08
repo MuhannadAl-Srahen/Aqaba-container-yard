@@ -3170,3 +3170,34 @@ Six orders in one message, all from watching his own crew work.
   call, one pending per machine, the gate sees and answers, an
   unconcerned clerk is refused, a second answer is 409, and a driver
   sees only his own machine's calls. 441 tests green.
+
+## المرحلة 66 — الآلية التي ستُخرجها، وخانة رقم لا تضيق — 2026-09-08
+
+Two orders, one of them a hole I left open in المرحلة 65.
+
+- **The exit names its own machine.** «وعند الأخرج ايضا اريد اختيار
+  الألية التي سوف تخرج… كيف يمكننا تبليغ الألية التي سوف تخرجها؟ لانه
+  ليس دائما التي ادختلها هي نفسها التي سوف تخرجها». He is right, and it
+  was the one direction the queue could not be told. `gateOutSchema`
+  gained an optional `machine`, and تسجيل الخروج asks «أي آلية ستُحمّل
+  الشاحنة؟» — opened on the container's مناولة, switched with one tap.
+  The born OUT task goes where the clerk said and only failing that to
+  whatever unloaded the box. The choice ROUTES and never rewrites: the
+  record's مناولة still says what came in, because the entry card
+  prints it. The same three-button picker now serves تجهيز and exit
+  alike (`MachineChoice`), so they cannot drift apart. A container with
+  no machine on record — the ten pre-v14 rows — now routes too, once a
+  hand names one.
+- **The serial box grows instead of clipping.** «وعند وصول السنة اريد
+  حلا». Nothing breaks at a year turn: the count restarts each January
+  and the year rides with the number, so 2026 and 2027 are ordinary
+  serials. The real edge was the PAPER — four figures at 20pt in a
+  112px cell, and at ~1350 cards a month this book passes 9999 in 2027.
+  One rule now, `cardSerialText` in the pure layer, read by the card,
+  the void stub, the permit, the permit sheet and the bulk book; the
+  cells became `min-w-*` (and `min-width` in the printed book's CSS)
+  with the number `nowrap`. Measured under print media: six figures
+  grew the cell 112→123px and clipped nothing.
+- 443 tests green. The exit's routing verified end to end on a scratch
+  yard: straddle in, crane chosen at the gate, the task on the crane's
+  queue alone, مناولة untouched.
