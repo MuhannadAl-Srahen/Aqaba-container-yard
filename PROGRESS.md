@@ -3054,3 +3054,31 @@ printed place was left, the entry card’s receipt sentence, and it is
 struck too: the line now rests on «بإشراف مندوب مديرية إدارة التخزين
 تحت وضع الرصاص الجمركي» alone. No printed paper names the company
 anywhere; a test asserts the word cannot appear on any card at all.
+
+## المرحلة 63 — بطاقة ملغاة تحفظ مكانها في التسلسل — 2026-09-08
+
+He audited the numbering himself: «هل في النظام فرغات في التسلسل؟» The
+read-only answer was that the live registers run unbroken except for six
+numbers — entry 1022 and 1031 (the two phantom records he struck on
+06/09) and exit 170, 171 (the same two) plus 174, 175 (the two exits
+cancelled with إلغاء الخروج on 01/09, whose papers are written nowhere
+at all). Then the order: «اريد ارجاع البطاقة لكي لا يختل الرقم التسلسلي
+ولكن محتوياتها اصفار».
+
+- `withVoidedSerials` in store.ts: any serial missing from a gate
+  register's own set of serials comes back as a STUB — the number, the
+  word «بطاقة ملغاة», and a dash in every other box. It covers both
+  causes without knowing either, needs no second query, and is correct
+  for whatever range was asked. Nothing is written to the database:
+  the stub is presentation over the numbers already there.
+- The first cut compared neighbouring rows and invented thirty stubs on
+  the practice yard, whose papers are deliberately backdated across
+  days so time order and serial order disagree — caught by
+  ownerTools.test.ts. It now reads the SET of serials and files each
+  stub after the paper whose number precedes it, leaving the sheet's own
+  order untouched.
+- A stub carries containerId 0, so the register draws no «بطاقة» and no
+  «تعديل» beside it, and it stays out of «المجموع: N حركة».
+- tests/serials.test.ts: a struck record's serial stands empty in its
+  place; a cancelled exit leaves its number standing while the departure
+  itself does not appear.

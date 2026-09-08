@@ -1132,7 +1132,7 @@ export function listGateMovements(
     )
     .all(type, fromIso, toIso) as unknown as GateRow[];
 
-  return rows.map((row) => ({
+  const mapped: GateReportRowInternal[] = rows.map((row) => ({
     containerId: row.container_id,
     at: row.at,
     card: type === 'IN' ? row.card_in : row.card_out,
@@ -1156,6 +1156,10 @@ export function listGateMovements(
     user: userLabel(names, row.user_id),
     enteredAt: row.entered_at,
   }));
+
+  // A number the register would otherwise skip stands in its own place,
+  // carrying nothing — the book never reads as though a page were torn out.
+  return withVoidedSerials(mapped);
 }
 
 export interface GateReportRowInternal {
@@ -1174,6 +1178,98 @@ export interface GateReportRowInternal {
   position: Position | null;
   user: string;
   enteredAt: string;
+  /** A voided serial standing in its own place, carrying nothing. */
+  voided?: boolean;
+}
+
+/**
+ * بطاقة ملغاة: the stub a numbered book keeps where a paper was spoiled —
+ * «اريد ارجاع البطاقة لكي لا يختل الرقم التسلسلي ولكن محتوياتها اصفار».
+ *
+ * A serial goes missing from a register two ways, and this covers both
+ * without needing to know which: the record that held it was struck out, or
+ * the paper was voided by «إلغاء الخروج» and its number is written nowhere
+ * at all. Either way nothing LIVE carries the number, so the sheet would
+ * skip from 1021 to 1023 — and the register would look tampered with.
+ *
+ * The holes are read off the rows themselves: any number between two
+ * neighbouring serials that no row carries. So the answer is always right
+ * for whatever range was asked for, and it needs no second query.
+ */
+function withVoidedSerials(rows: readonly GateReportRowInternal[]): GateReportRowInternal[] {
+  // The holes are read off the SET of serials, never off neighbouring rows:
+  // the sheet is ordered by time, and a record whose date was corrected by
+  // hand can sit far from its own number. Comparing neighbours invented
+  // thirty stubs on the practice yard, whose papers are deliberately
+  // backdated across days — the set cannot be fooled that way.
+  const present = new Map<number, Set<number>>();
+  for (const row of rows) {
+    if (row.card === null || row.cardYear === null) continue;
+    const year = present.get(row.cardYear) ?? new Set<number>();
+    year.add(row.card);
+    present.set(row.cardYear, year);
+  }
+
+  // Each stub is filed after the paper whose number comes just before it —
+  // by NUMBER, wherever that paper happens to sit. The sheet's own order is
+  // otherwise left exactly as it was; a stub must never re-sort the register.
+  const after = new Map<number, GateReportRowInternal[]>();
+  for (const [year, serials] of present) {
+    let low = Number.POSITIVE_INFINITY;
+    let high = 0;
+    for (const serial of serials) {
+      if (serial < low) low = serial;
+      if (serial > high) high = serial;
+    }
+    for (let serial = low + 1; serial < high; serial += 1) {
+      if (serials.has(serial)) continue;
+      let anchor = 0;
+      let anchorCard = -1;
+      for (let i = 0; i < rows.length; i += 1) {
+        const row = rows[i];
+        if (row === undefined || row.cardYear !== year || row.card === null) continue;
+        if (row.card < serial && row.card > anchorCard) {
+          anchorCard = row.card;
+          anchor = i;
+        }
+      }
+      const list = after.get(anchor) ?? [];
+      list.push({
+        containerId: 0,
+        // The instant of the paper before it: the stub is a number, not a
+        // movement, and this keeps it in place in a sheet ordered by time.
+        at: rows[anchor]?.at ?? new Date().toISOString(),
+        bill: '',
+        card: serial,
+        cardYear: year,
+        truck: '',
+        driver: '',
+        seal: '',
+        number: '',
+        weight: '',
+        notes: '',
+        size: 20,
+        position: null,
+        user: '',
+        enteredAt: '',
+        voided: true,
+      });
+      after.set(anchor, list);
+    }
+  }
+  if (after.size === 0) return [...rows];
+
+  const out: GateReportRowInternal[] = [];
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (row !== undefined) out.push(row);
+    const stubs = after.get(i);
+    if (stubs !== undefined) {
+      stubs.sort((a, b) => (a.card ?? 0) - (b.card ?? 0));
+      out.push(...stubs);
+    }
+  }
+  return out;
 }
 
 /**

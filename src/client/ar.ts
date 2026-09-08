@@ -871,6 +871,8 @@ export const AR = {
   cardNumber: 'الرقم',
   cardDay: 'اليوم',
   cardDate: 'التاريخ',
+  /** البيان of a stub kept so the numbering never breaks. */
+  statementVoid: 'بطاقة ملغاة',
   cardDriver: 'اسم السائق',
   /** «بدي تضيف خانة ب أسم الموظف الي عمل المعاملة او الأدخال». */
   cardUser: 'اسم الموظف',

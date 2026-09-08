@@ -78,7 +78,30 @@ function gateModel(
     AR.colUser,
     AR.colNotes,
   ];
-  const body = rows.map((row, index) => [
+  const body = rows.map((row, index) =>
+    // بطاقة ملغاة: the serial keeps its seat in the sequence and says what it
+    // is; every other box on the line is empty, because nothing was written
+    // on that paper — «محتوياتها اصفار».
+    row.voided === true
+      ? [
+          cellText(String(index + 1)),
+          cellText(AR.statementVoid),
+          cellText(dash),
+          cellText(dash),
+          cellText(dash),
+          cellLtr(dash),
+          cellLtr(cardSerial(row.card, row.cardYear) ?? dash),
+          cellLtr(dash),
+          cellText(dash),
+          cellLtr(dash),
+          cellText(dash),
+          cellText(dash),
+          cellLtr(dash),
+          ...(out ? [cellText(dash, -1)] : []),
+          cellText(dash),
+          cellText(dash),
+        ]
+      : [
     cellText(String(index + 1)),
     cellText(out ? AR.statementOut : AR.statementIn),
     ...stampCells(new Date(row.at)),
@@ -106,10 +129,11 @@ function gateModel(
     cellText(row.user),
     cellWrap(row.notes === '' ? dash : row.notes),
   ]);
+  // A voided stub is a number, not a movement: it holds its place in the
+  // sequence and stays out of the count.
+  const moved = rows.filter((row) => row.voided !== true).length;
   const footer =
-    rows.length === 0
-      ? null
-      : [cellText(AR.totalRow), cellText(AR.movementsCount(rows.length))];
+    rows.length === 0 ? null : [cellText(AR.totalRow), cellText(AR.movementsCount(moved))];
   return { head, body, footer, counted: true };
 }
 
@@ -641,7 +665,9 @@ export function ReportsScreen(props: {
                   : tab === 'truck'
                     ? truckRow?.containerId
                     : gate.data?.rows[rowIndex]?.containerId;
-            if (containerId === undefined) return null;
+            // A voided serial has no record behind it: no card to print and
+            // nothing to edit.
+            if (containerId === undefined || containerId === 0) return null;
             const kind =
               tab === 'out' || truckRow?.statement === 'OUT' ? ('out' as const) : ('in' as const);
             return (

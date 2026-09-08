@@ -1771,7 +1771,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         user: row.user,
         // Calendar days, not elapsed 24-hour blocks: a box that came in last
         // night and left this morning stayed a day, and the yard bills a day.
-        dwellDays: type === 'OUT' ? daysBetween(row.enteredAt, row.at) : null,
+        // A voided stub is no stay at all.
+        dwellDays: type === 'OUT' && row.voided !== true ? daysBetween(row.enteredAt, row.at) : null,
+        ...(row.voided === true ? { voided: true } : {}),
       }),
     );
     return { rows };

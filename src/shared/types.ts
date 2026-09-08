@@ -400,6 +400,14 @@ export interface GateReportRow {
   readonly user: string;
   /** Days in the yard — exits only. */
   readonly dwellDays: number | null;
+  /**
+   * بطاقة ملغاة — a serial the register would otherwise skip: its record was
+   * struck out, or its paper was voided by «إلغاء الخروج». The owner's rule:
+   * «اريد ارجاع البطاقة لكي لا يختل الرقم التسلسلي ولكن محتوياتها اصفار».
+   * The row carries the NUMBER and nothing else, so the count runs 1, 2, 3
+   * down the page with no hole and no invented content.
+   */
+  readonly voided?: boolean;
 }
 
 /**

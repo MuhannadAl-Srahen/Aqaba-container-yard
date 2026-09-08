@@ -221,3 +221,75 @@ describe('الرقم التسلسلي لا يُعطى مرتين', () => {
     expect((await detail(two.id)).cardOut).toBe(2);
   });
 });
+
+describe('بطاقة ملغاة — the stub that keeps the numbering whole', () => {
+  it('a struck record’s serial stands in its own place, carrying nothing', async () => {
+    // Three entries, the middle one struck out: its number would otherwise
+    // vanish and the register would read 1, 3 — «لكي لا يختل الرقم التسلسلي».
+    await gateIn('VOID0000001', 1);
+    const second = (await gateIn('VOID0000002', 3)).id;
+    await gateIn('VOID0000003', 5);
+    await call({ method: 'DELETE', url: `/api/containers/${String(second)}` });
+
+    const range = {
+      from: new Date(Date.now() - 86_400_000).toISOString(),
+      to: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const report = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=IN&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    const rows = (report.body as { rows: Array<Record<string, unknown>> }).rows;
+    // Two real papers and the stub between them, in serial order.
+    expect(rows.map((row) => row['card'])).toEqual([1, 2, 3]);
+    expect(rows[0]?.['number']).toBe('VOID0000001');
+    expect(rows[2]?.['number']).toBe('VOID0000003');
+
+    const stub = rows[1];
+    expect(stub?.['voided']).toBe(true);
+    // It carries the NUMBER and nothing else — no container to open, no
+    // paperwork invented, no stay counted.
+    expect(stub?.['containerId']).toBe(0);
+    expect(stub?.['number']).toBe('');
+    expect(stub?.['bill']).toBe('');
+    expect(stub?.['truck']).toBe('');
+    expect(stub?.['position']).toBeNull();
+    expect(stub?.['dwellDays']).toBeNull();
+
+    // A live register is untouched by this: the other two are real rows.
+    expect(rows.filter((row) => row['voided'] === true)).toHaveLength(1);
+  });
+
+  it('an exit taken back leaves its number standing, empty, in the exit register', async () => {
+    const one = (await gateIn('VOID0000004', 7)).id;
+    const two = (await gateIn('VOID0000005', 9)).id;
+    // The first exit takes card 1, is cancelled, and a second exit follows —
+    // so card 1 belongs to nobody and card 2 is the next paper printed.
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(one)}/exit`,
+      payload: { truck: '60-22222', driver: '' },
+    });
+    await call({ method: 'POST', url: `/api/containers/${String(one)}/unexit`, payload: {} });
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(two)}/exit`,
+      payload: { truck: '60-33333', driver: '' },
+    });
+
+    const range = {
+      from: new Date(Date.now() - 86_400_000).toISOString(),
+      to: new Date(Date.now() + 86_400_000).toISOString(),
+    };
+    const report = await call({
+      method: 'GET',
+      url: `/api/reports/gate?type=OUT&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
+    });
+    const rows = (report.body as { rows: Array<Record<string, unknown>> }).rows;
+    // The cancelled exit is not a departure, so only one real row — but its
+    // voided number still holds its seat before it.
+    const real = rows.filter((row) => row['voided'] !== true);
+    expect(real).toHaveLength(1);
+    expect(real[0]?.['number']).toBe('VOID0000005');
+  });
+});
