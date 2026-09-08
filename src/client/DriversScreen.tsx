@@ -5,7 +5,7 @@ import type { DriverHaulRow, OrphanWageRow } from '../shared/types';
 import { cardSerial } from '../shared/types';
 import { findTruck } from '../shared/fleet';
 import { ApiFailure, api, formatDateOnly } from './api';
-import { ammanToday, monthStart, rangeInstants } from './sheetKit';
+import { ammanToday, sheetStart, rangeInstants } from './sheetKit';
 import { AR } from './ar';
 import { Button, Confirm, Field, Toast, inputClass, useEscape } from './ui';
 
@@ -127,7 +127,7 @@ interface DriverGroup {
 
 export function DriversScreen(props: { isOwner: boolean; onBack: () => void }): ReactElement {
   const queryClient = useQueryClient();
-  const [from, setFrom] = useState(monthStart());
+  const [from, setFrom] = useState(sheetStart());
   const [to, setTo] = useState(ammanToday());
   /** «بدي القدرة البحث عن اسم السايق او رقم سيارته». */
   const [term, setTerm] = useState('');

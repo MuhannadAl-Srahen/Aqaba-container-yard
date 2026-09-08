@@ -49,8 +49,20 @@ export function ammanToday(): string {
   }).format(new Date());
 }
 
-export function monthStart(): string {
-  return `${ammanToday().slice(0, 8)}01`;
+/**
+ * The day the yard's book opens — the owner's own start: «ما بدي يكون بداية
+ * كل شهر بدي من اول ما بلشنا اي من تاريح 11/8 الى التاريخ الحالي». Every
+ * sheet opens on the WHOLE record rather than on the current month, so the
+ * first thing he sees is everything, and narrowing is his choice.
+ */
+export const YARD_START = '2026-08-11';
+
+/** The default start of a sheet's range: the yard's own first day. */
+export function sheetStart(): string {
+  // Never later than today: a range whose start is in the future shows
+  // nothing at all, which is what a clock skew would otherwise cause.
+  const today = ammanToday();
+  return YARD_START <= today ? YARD_START : today;
 }
 
 /** The Amman midnight instants bounding [from, to] inclusive. */

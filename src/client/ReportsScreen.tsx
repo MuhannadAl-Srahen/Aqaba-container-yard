@@ -28,7 +28,7 @@ import {
   dash,
   dayFormat,
   dateFormat,
-  monthStart,
+  sheetStart,
   rangeInstants,
   stampCells,
   type TableCell,
@@ -390,7 +390,7 @@ export function ReportsScreen(props: {
 }): ReactElement {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>(props.initialBill === undefined ? 'in' : 'bill');
-  const [from, setFrom] = useState(monthStart());
+  const [from, setFrom] = useState(sheetStart());
   const [to, setTo] = useState(ammanToday());
   /** «عرض الكل»: the whole register regardless of the period pickers. */
   const [all, setAll] = useState(false);

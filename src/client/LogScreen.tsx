@@ -14,7 +14,7 @@ import {
   cellText,
   cellWrap,
   dash,
-  monthStart,
+  sheetStart,
   rangeInstants,
   stampCells,
   type TableModel,
@@ -110,7 +110,7 @@ export function LogScreen(props: {
   onBack: () => void;
 }): ReactElement {
   const queryClient = useQueryClient();
-  const [from, setFrom] = useState(monthStart());
+  const [from, setFrom] = useState(sheetStart());
   const [to, setTo] = useState(ammanToday());
   /** «عرض الكل»: the whole log regardless of the period pickers. */
   const [all, setAll] = useState(false);

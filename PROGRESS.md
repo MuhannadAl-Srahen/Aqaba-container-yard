@@ -3033,3 +3033,11 @@ Two papers, his words: «على بطاقة الدخول بدي تضيف خانة
   a GATE_IN hand by taking their cookie by hand — the shared helper
   holds one cookie from setup); the bulk book prints the clerk on the
   entry card and not on the exit (bulkCards.test.ts). 434 tests green.
+
+Mid-stage he added: «بالنسبة لتاريخ الموجود بالتقارير ما بدي يكون بداية
+كل شهر بدي من اول ما بلشنا اي من تاريح 11/8 الى التاريخ الحالي». So
+`monthStart` became `sheetStart` — a constant `YARD_START = 2026-08-11`
+clamped never to run past today — and the reports, the log and the
+driver statement all open on the WHOLE book instead of the current
+month. tests/sheetRange.test.ts locks the date and the Amman-midnight
+instants around it.
