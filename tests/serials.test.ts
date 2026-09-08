@@ -260,7 +260,7 @@ describe('بطاقة ملغاة — the stub that keeps the numbering whole', ()
     expect(rows.filter((row) => row['voided'] === true)).toHaveLength(1);
   });
 
-  it('an exit taken back leaves its number standing, empty, in the exit register', async () => {
+  it('the exit register keeps its own holes — the owner asked for the entry cards alone', async () => {
     const one = (await gateIn('VOID0000004', 7)).id;
     const two = (await gateIn('VOID0000005', 9)).id;
     // The first exit takes card 1, is cancelled, and a second exit follows —
@@ -286,10 +286,10 @@ describe('بطاقة ملغاة — the stub that keeps the numbering whole', ()
       url: `/api/reports/gate?type=OUT&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
     });
     const rows = (report.body as { rows: Array<Record<string, unknown>> }).rows;
-    // The cancelled exit is not a departure, so only one real row — but its
-    // voided number still holds its seat before it.
-    const real = rows.filter((row) => row['voided'] !== true);
-    expect(real).toHaveLength(1);
-    expect(real[0]?.['number']).toBe('VOID0000005');
+    // The cancelled exit is not a departure, and its voided number is NOT
+    // stubbed: the exit register still shows its hole, by his own scope.
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.['number']).toBe('VOID0000005');
+    expect(rows.some((row) => row['voided'] === true)).toBe(false);
   });
 });

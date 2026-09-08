@@ -1157,9 +1157,12 @@ export function listGateMovements(
     enteredAt: row.entered_at,
   }));
 
-  // A number the register would otherwise skip stands in its own place,
-  // carrying nothing — the book never reads as though a page were torn out.
-  return withVoidedSerials(mapped);
+  // A number the ENTRY register would otherwise skip stands in its own
+  // place, carrying nothing, so the count of entry cards never reads as
+  // though a page were torn out. The exit register keeps its holes: the
+  // owner asked for the two entry cards by name and no more — «لا اريد
+  // الستة». Turning it on there later is this one condition.
+  return type === 'IN' ? withVoidedSerials(mapped) : mapped;
 }
 
 export interface GateReportRowInternal {
