@@ -957,7 +957,7 @@ interface MovementRow {
 }
 
 /** One movement as the wire carries it — a MOVE brings its card along. */
-function movementOf(row: MovementRow): MovementDto {
+function movementOf(row: MovementRow, names: Readonly<Record<string, string>>): MovementDto {
   return {
     id: row.id,
     type: row.type as MovementType,
@@ -967,6 +967,7 @@ function movementOf(row: MovementRow): MovementDto {
     note: row.note,
     card: row.card,
     cardYear: row.card_year,
+    user: userLabel(names, row.user_id),
   };
 }
 
@@ -974,14 +975,15 @@ export function getMovement(db: DatabaseSync, id: number): MovementDto | null {
   const row = db.prepare('SELECT * FROM movements WHERE id = ?').get(id) as
     | unknown as MovementRow
     | undefined;
-  return row === undefined ? null : movementOf(row);
+  return row === undefined ? null : movementOf(row, listUserNames(db));
 }
 
 export function listMovements(db: DatabaseSync, containerId: number): MovementDto[] {
   const rows = db
     .prepare('SELECT * FROM movements WHERE container_id = ? ORDER BY at, id')
     .all(containerId) as unknown as MovementRow[];
-  return rows.map(movementOf);
+  const names = listUserNames(db);
+  return rows.map((row) => movementOf(row, names));
 }
 
 /**
@@ -1194,6 +1196,7 @@ export function bulkGateCards(
       : 'm.from_zone AS z, m.from_bay AS b, m.from_stack AS s, m.from_tier AS t';
   const serial = type === 'IN' ? 'k.card_in' : 'k.card_out';
   const serialYear = type === 'IN' ? 'k.card_in_year' : 'k.card_out_year';
+  const names = listUserNames(db);
   const rows = db
     .prepare(
       `SELECT m.container_id, m.at, ${positionColumns},
@@ -1201,7 +1204,7 @@ export function bulkGateCards(
               k.number, k.size, k.bill, k.weight, k.notes, k.handling,
               k.truck_in, k.driver_in, k.seal_in, k.card_in, k.card_in_year,
               k.truck_out, k.driver_out, k.card_out, k.card_out_year,
-              k.entered_at
+              k.entered_at, m.user_id
        FROM movements m
        JOIN containers k ON k.id = m.container_id
        WHERE m.type = ? AND m.at >= ? AND m.at < ? AND k.deleted_at IS NULL
@@ -1243,6 +1246,9 @@ export function bulkGateCards(
       handling: type === 'IN' ? ((row.handling ?? null) as CardSheetRow['handling']) : null,
       truck: type === 'IN' ? row.truck_in : row.truck_out,
       driver: type === 'IN' ? row.driver_in : row.driver_out,
+      // Who did this very paperwork — the movement's own hand, not the
+      // container's, so a card reprinted years later still names them.
+      user: userLabel(names, row.user_id),
       slot:
         slotOf(row.live_zone, row.live_bay, row.live_stack, row.live_tier) ??
         slotOf(row.z, row.b, row.s, row.t),
@@ -1300,6 +1306,9 @@ export function bulkMoveCards(db: DatabaseSync, fromIso: string, toIso: string):
       handling: null,
       truck: '',
       driver: '',
+      // A move card names no employee on the paper; the field rides along
+      // empty so one shape serves all three kinds.
+      user: '',
       slot: null,
       from: slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier),
       to: slotOf(row.to_zone, row.to_bay, row.to_stack, row.to_tier),

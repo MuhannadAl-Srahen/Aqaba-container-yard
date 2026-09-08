@@ -287,6 +287,10 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
                 weight stays, because the crane wants to know what it lifts. */}
             {move === null && row(AR.cardTruck, truck === '' ? '—' : truck, { ltr: true })}
             {move === null && row(AR.cardDriver, driver === '' ? '—' : driver)}
+            {/* Who did the paperwork — «أسم الموظف الي عمل المعاملة او
+                الأدخال». Read off the gate MOVEMENT, so a card reprinted
+                years later still names the hand that received the box. */}
+            {kind === 'in' && row(AR.cardUser, gateMove === undefined ? '—' : gateMove.user)}
             {row(AR.cardNotes, container.notes === '' ? '—' : container.notes, { wide: true })}
             {/* Gravity: lifting this one brought the stack above it down a
                 tier, and the crew needs the paper to say which ones and where

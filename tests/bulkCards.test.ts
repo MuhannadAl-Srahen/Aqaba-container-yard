@@ -55,6 +55,7 @@ const gateIn = async (number: string, bay: number): Promise<number> => {
       truck: '60-11111',
       seal: 'JO500',
       driver: 'أبو خالد',
+    user: 'ايمن عنبر',
       weight: '',
       handling: 'CRANE',
     },
@@ -90,6 +91,8 @@ describe('بيانات البطاقات دفعة واحدة', () => {
     expect(rows[0]?.slot?.bay).toBe(1);
     expect(rows[0]?.truck).toBe('60-11111');
     expect(rows[0]?.photoIds).toEqual([]);
+    // The hand that received it, resolved from the movement — the owner here.
+    expect(rows[0]?.user).toBe(store.OWNER_NAME);
     expect(rows.some((row) => row.containerId === first)).toBe(true);
   });
 
@@ -209,6 +212,7 @@ describe('كتاب البطاقات — the client-written book', () => {
     handling: 'CRANE',
     truck: '60-11111',
     driver: 'أبو خالد',
+    user: 'ايمن عنبر',
     slot: { zone: 'B', bay: 3, stack: 1, tier: 'A' } as Position,
     from: null,
     to: null,
@@ -229,11 +233,15 @@ describe('كتاب البطاقات — the client-written book', () => {
     expect(html).toContain('2026');
   });
 
-  it('the entry card carries the receipt and the handling; the exit does not', () => {
+  it('the entry card carries the receipt, the handling and the clerk; the exit does not', () => {
     const entry = cardsBookHtml('in', [card({})], new Map());
     const exit = cardsBookHtml('out', [card({ handling: null })], new Map());
     expect(entry).toContain('class="statement"');
     expect(exit).not.toContain('class="statement"');
+    // «أسم الموظف الي عمل المعاملة او الأدخال» — on the entry card alone.
+    expect(entry).toContain('اسم الموظف');
+    expect(entry).toContain('ايمن عنبر');
+    expect(exit).not.toContain('اسم الموظف');
   });
 
   it('a move card names its two slots and its drops', () => {

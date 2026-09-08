@@ -3008,3 +3008,28 @@ hauls only, so the first figure sat invisible. His order: «أضيف طريقة
   إلغاء الخروج voids the NEWEST card (MAX-based counter) — happened once
   live (178/179 swapped on 01/09); offered a high-water-mark fix, awaiting
   his word.
+
+## المرحلة 62 — اسم الموظف على بطاقة الدخول، ورأس التصريح — 2026-09-08
+
+Two papers, his words: «على بطاقة الدخول بدي تضيف خانة ب أسم الموظف الي
+عمل المعاملة او الأدخال» and, on the permit, «بدي نزيل هاي: مؤسسة الحق /
+تصريح تحميل وخروج داخلي من الساحة (2) وبدي نحط بدالها فقط تصريح خروج من
+ساحة (2)».
+
+- `MovementDto` gains `user` (the resolved label, as report rows carry
+  it) — so the card reads the hand off the GATE MOVEMENT, not off the
+  session or the container: a reprint years later names whoever
+  received the box, a struck-out account keeps its name on its paper,
+  and the owner's own entries read «المالك». `CardSheetRow` gains it
+  too, so the owner's bulk card book prints exactly what the single
+  card does; the move card carries it empty (that paper names none).
+- PrintCard + cardsPrint: «اسم الموظف» on the ENTRY card alone, beneath
+  the driver. Offered the exit and move cards in the reply, not taken.
+- PrintPermit: the two heading lines collapse to one — `permitOrg` is
+  deleted from ar.ts and `permitTitle` now reads «تصريح خروج من ساحة
+  (2)». The permit's sentence, its table, the signature line and the
+  buttons are untouched.
+- Tests: the gate movement carries its clerk (api.test.ts, signing in as
+  a GATE_IN hand by taking their cookie by hand — the shared helper
+  holds one cookie from setup); the bulk book prints the clerk on the
+  entry card and not on the exit (bulkCards.test.ts). 434 tests green.

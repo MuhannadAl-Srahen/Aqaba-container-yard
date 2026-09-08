@@ -64,12 +64,11 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
       <style>{'@media print { @page { size: A4 portrait; margin: 12mm; } }'}</style>
       <div className="max-h-full w-full max-w-2xl overflow-y-auto">
         <div className="print-area gate-card paper-light overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
-          {/* The organisation over the title, as the owner spelled the head:
-              «مؤسسة الحق» then the permit's own name with its yard. No fill
+          {/* One heading line, as the owner now wants the head to read: the
+              organisation line and the long title are both struck. No fill
               behind it — «ما بدي يصرف حبر» applies to every paper alike. */}
           <div className="border-b-2 border-rule-strong px-3 py-3 text-center">
-            <p className="text-xl font-extrabold text-ink">{AR.permitOrg}</p>
-            <p className="mt-1 text-base font-bold text-ink">{AR.permitTitle(yard)}</p>
+            <p className="text-xl font-extrabold text-ink">{AR.permitTitle(yard)}</p>
           </div>
 
           {/* The voucher strip: serial | bill | date. */}

@@ -429,6 +429,8 @@ export interface CardSheetRow {
   /** Empty on a move card: nothing left the yard. */
   readonly truck: string;
   readonly driver: string;
+  /** Who did the paperwork this card is about — printed on the entry card. */
+  readonly user: string;
   /** Entry/exit cards: where it stands — or the slot it left from. */
   readonly slot: Position | null;
   /** Move cards only: the two slots the paper exists to name. */
@@ -638,6 +640,11 @@ export interface MovementDto {
    */
   readonly card: number | null;
   readonly cardYear: number | null;
+  /**
+   * Who did it — the resolved name label, the way report rows carry `user`.
+   * The gate card prints it: «أسم الموظف الي عمل المعاملة او الأدخال».
+   */
+  readonly user: string;
 }
 
 /**

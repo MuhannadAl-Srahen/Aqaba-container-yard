@@ -97,6 +97,9 @@ function cardSection(kind: CardKind, card: CardSheetRow): string {
   if (kind !== 'move') {
     rows.push(row(AR.cardTruck, dash(card.truck), { ltr: true }), row(AR.cardDriver, dash(card.driver)));
   }
+  // The hand that did the paperwork, on the entry card exactly as the single
+  // card prints it — the bulk book and the one paper must never disagree.
+  if (kind === 'in') rows.push(row(AR.cardUser, dash(card.user)));
   rows.push(row(AR.cardNotes, dash(card.notes), { wide: true }));
   const drops = kind === 'move' ? dropsOf(card.note) : [];
   if (drops.length > 0) {

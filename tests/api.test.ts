@@ -1697,3 +1697,78 @@ describe('search', () => {
     expect((result.body as { results: unknown[] }).results).toHaveLength(0);
   });
 });
+
+describe('اسم الموظف على بطاقة الدخول', () => {
+  it('the gate movement carries the hand that did it, and a struck-out account keeps its name on the paper', async () => {
+    // A clerk receives a box; the movement — not the container — is what the
+    // card reads, so a reprint years later still names them.
+    await call({
+      method: 'POST',
+      url: '/api/users',
+      payload: { name: 'ايمن عنبر', pin: '7788', permissions: ['GATE_IN'] },
+    });
+    const staff = (await call({ method: 'GET', url: '/api/users' })).body as {
+      users: Array<{ id: number; name: string }>;
+    };
+    const clerk = staff.users.find((user) => user.name === 'ايمن عنبر');
+    const ownerCookie = cookie;
+    // The shared helper carries one cookie set at setup; signing in as
+    // somebody else means taking their cookie by hand.
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/login',
+      payload: { userId: clerk?.id, pin: '7788' },
+    });
+    expect(login.statusCode).toBe(200);
+    const header = login.headers['set-cookie'];
+    cookie = (Array.isArray(header) ? header[0] : header)?.split(';')[0] ?? cookie;
+    const entered = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: {
+        number: 'CLRK0000001',
+        size: 20,
+        bill: '3210',
+        notes: '',
+        position: { zone: 'B', bay: 1, stack: 1, tier: 'A' },
+        truck: '60-11111',
+        seal: 'JO500',
+        driver: '',
+        weight: '',
+        handling: 'CRANE',
+      },
+    });
+    expect(entered.status).toBe(201);
+    const id = (entered.body as { id: number }).id;
+
+    const detail = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
+    const movements = (detail.body as { movements: Array<{ type: string; user: string }> })
+      .movements;
+    expect(movements[0]?.type).toBe('IN');
+    expect(movements[0]?.user).toBe('ايمن عنبر');
+
+    // The owner's own hand reads as the role label, never as a blank.
+    cookie = ownerCookie;
+    const mine = await call({
+      method: 'POST',
+      url: '/api/containers',
+      payload: {
+        number: 'CLRK0000002',
+        size: 20,
+        bill: '3210',
+        notes: '',
+        position: { zone: 'B', bay: 3, stack: 1, tier: 'A' },
+        truck: '60-11111',
+        seal: 'JO500',
+        driver: '',
+        weight: '',
+        handling: 'CRANE',
+      },
+    });
+    const mineId = (mine.body as { id: number }).id;
+    const mineDetail = await call({ method: 'GET', url: `/api/containers/${String(mineId)}` });
+    expect(
+      (mineDetail.body as { movements: Array<{ user: string }> }).movements[0]?.user,
+    ).not.toBe('');
+  });
+});

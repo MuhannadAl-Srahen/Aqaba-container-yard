@@ -51,10 +51,12 @@ export const AR = {
   themeSystem: 'حسب الجهاز',
 
   // ---- تصريح تحميل وخروج داخلي ----
-  /** The company line the permit paper opens with — the owner's own words. */
-  permitOrg: 'مؤسسة الحق',
-  permitTitle: (yard: number): string =>
-    `تصريح تحميل وخروج داخلي من الساحة (${String(yard)})`,
+  /**
+   * The permit paper's one heading. It used to open with «مؤسسة الحق» over
+   * «تصريح تحميل وخروج داخلي من الساحة (2)»; the owner struck both — «بدي
+   * نزيل هاي… وبدي نحط بدالها فقط تصريح خروج من ساحة (2)».
+   */
+  permitTitle: (yard: number): string => `تصريح خروج من ساحة (${String(yard)})`,
   permitSentence: (yard: number): string =>
     `يسمح بتحميل وإخراج الحاويات المبينة أدناه من ساحة رقم (${String(yard)}) ` +
     'إلى داخل موقع المقص فقط.',
@@ -870,6 +872,8 @@ export const AR = {
   cardDay: 'اليوم',
   cardDate: 'التاريخ',
   cardDriver: 'اسم السائق',
+  /** «بدي تضيف خانة ب أسم الموظف الي عمل المعاملة او الأدخال». */
+  cardUser: 'اسم الموظف',
   cardTruck: 'رقم السيارة',
   cardSize: 'فئة الحاوية',
   cardWeight: 'الوزن بالكغم',
