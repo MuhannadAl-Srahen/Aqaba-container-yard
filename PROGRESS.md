@@ -3140,3 +3140,33 @@ carried for weeks: «اريد ان يكون النظام على الهاتف م�
 - Not taken, by his word: normalising truck plates — «اغلبهم سيارات غير
   اردنية… ونحن نختص فقط بالدخول». And the bill typo he had already
   corrected himself.
+
+## المرحلة 65 — النداء يمشي في الاتجاهين، والوزن يُقرأ دفعة واحدة — 2026-09-08
+
+Six orders in one message, all from watching his own crew work.
+
+- **نداء إدخال شاحنة (v28)**: a new `gate_calls` ledger and three routes.
+  The machine driver presses «إدخال شاحنة» and every GATE_IN hand gets a
+  RED PULSING banner at the top of the screen that does not time out
+  until somebody presses «سجّلتها» — «بدي تنبيه واضح مو صوت لانو ما في
+  صوت بالجهاز». One pending call per machine: a second press is the same
+  truck. Answered, never deleted; the wipe takes practice calls.
+- **The driver's own alert stops vanishing.** It faded after fifteen
+  seconds, which on a silent tablet mounted on a crane means it never
+  happened. It is now amber, pulsing, and stands until he opens the
+  queue or closes it himself.
+- **«عرض الموقع» switches the map to the contents paint** and selects the
+  container instead of opening a bay sheet — the picture he sent back
+  with «مثل ما هي بالصورة افضل».
+- **عرض الأوزان in the bay sheet**: a button beside «تحديد للنقل» turns
+  every cell's third line from the bill into the WEIGHT, so a whole bay
+  answers the crane's question at once instead of one container at a
+  time.
+- **كشف الرُّكود**: a reports tab over the standing snapshot, cut at a
+  span he picks (7/15/21/30 days) and led by the dwell. His yard today:
+  65 containers past three weeks, 300 between two and three.
+  StandingReportRow gained the weight for it.
+- tests/tasks.test.ts: the call's whole contract — only a machine may
+  call, one pending per machine, the gate sees and answers, an
+  unconcerned clerk is refused, a second answer is 409, and a driver
+  sees only his own machine's calls. 441 tests green.

@@ -41,7 +41,7 @@ import {
  * operations log lives on its own screen.
  */
 
-type Tab = 'in' | 'out' | 'standing' | 'daily' | 'machines' | 'truck' | 'bill' | 'permits';
+type Tab = 'in' | 'out' | 'standing' | 'aging' | 'daily' | 'machines' | 'truck' | 'bill' | 'permits';
 
 /** The bill cell is a doorway: tap it, get that bill's own sheet. */
 const billCell = (bill: string, onBill: (bill: string) => void): TableCell =>
@@ -164,6 +164,45 @@ function standingModel(
     // Ordered by the instant, not by the two digits the text starts with.
     cellLtr(dateFormat.format(new Date(row.enteredAt)), Date.parse(row.enteredAt)),
     cellText(AR.daysCount(row.dwellDays), row.dwellDays),
+    cellText(row.user),
+    cellWrap(row.notes === '' ? dash : row.notes),
+  ]);
+  const footer =
+    rows.length === 0 ? null : [cellText(AR.totalRow), cellText(AR.standingCount(rows.length))];
+  return { head, body, footer, counted: true };
+}
+
+/**
+ * كشف الرُّكود — «65 حاوية واقفة أكثر من ثلاثة أسابيع» when he asked for it.
+ * The same standing rows, cut to what has sat longer than the chosen span
+ * and LED by the dwell: the sheet exists to answer «ما الذي لم يتحرك»,
+ * so the number of days is the first thing on the line.
+ */
+function agingModel(
+  rows: readonly StandingReportRow[],
+  onBill: (bill: string) => void,
+): TableModel {
+  const head = [
+    AR.colSeq,
+    AR.colDwell,
+    AR.colNumber,
+    AR.colSlot,
+    AR.colSize,
+    AR.colBill,
+    AR.colDate,
+    AR.colWeight,
+    AR.colUser,
+    AR.colNotes,
+  ];
+  const body = rows.map((row, index) => [
+    cellText(String(index + 1)),
+    cellText(AR.daysCount(row.dwellDays), row.dwellDays),
+    cellLtr(row.number),
+    cellLtr(row.position === null ? dash : positionLabel(row.position)),
+    cellText(String(row.size)),
+    billCell(row.bill, onBill),
+    cellLtr(dateFormat.format(new Date(row.enteredAt)), Date.parse(row.enteredAt)),
+    cellNumeric(row.weight, dash),
     cellText(row.user),
     cellWrap(row.notes === '' ? dash : row.notes),
   ]);
@@ -356,6 +395,7 @@ const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['in', AR.reportIn],
   ['out', AR.reportOut],
   ['standing', AR.reportStanding],
+  ['aging', AR.reportAging],
   ['bill', AR.reportBill],
   ['daily', AR.reportDaily],
   ['machines', AR.reportMachines],
@@ -420,6 +460,8 @@ export function ReportsScreen(props: {
   const [to, setTo] = useState(ammanToday());
   /** «عرض الكل»: the whole register regardless of the period pickers. */
   const [all, setAll] = useState(false);
+  /** كشف الرُّكود: how long is «long» — his to choose, a week by default. */
+  const [agingDays, setAgingDays] = useState(15);
   const [truck, setTruck] = useState('');
   /** The carrier whose whole fleet the truck register is showing; 0 = by plate. */
   const [carrier, setCarrier] = useState(0);
@@ -533,7 +575,7 @@ export function ReportsScreen(props: {
   const standing = useQuery({
     queryKey: ['report-standing'],
     queryFn: api.reportStanding,
-    enabled: tab === 'standing',
+    enabled: tab === 'standing' || tab === 'aging',
     refetchInterval: (query) => liveFor(query.state.data?.rows.length),
   });
   const billReport = useQuery({
@@ -593,6 +635,14 @@ export function ReportsScreen(props: {
         return gateModel(gate.data?.rows ?? [], tab === 'out', openTruck, openBill);
       case 'standing':
         return standingModel(standing.data?.rows ?? [], openBill);
+      case 'aging':
+        return agingModel(
+          (standing.data?.rows ?? [])
+            .filter((row) => row.dwellDays >= agingDays)
+            .slice()
+            .sort((left, right) => right.dwellDays - left.dwellDays),
+          openBill,
+        );
       case 'daily':
         return dailyModel(daily.data?.rows ?? []);
       case 'machines':
@@ -736,7 +786,9 @@ export function ReportsScreen(props: {
       onBack={props.onBack}
       actions={cardActions}
       rangeless={
-        tab === 'standing'
+        tab === 'aging'
+          ? AR.agingNow
+          : tab === 'standing'
           ? AR.standingNow
           : tab === 'bill'
             ? billReady
@@ -774,7 +826,30 @@ export function ReportsScreen(props: {
         </div>
       }
       extraFilters={
-        tab === 'truck' ? (
+        tab === 'aging' ? (
+          /* كشف الرُّكود: «أطول من» — a week, two, three, a month. The sheet
+             is the same standing snapshot cut at the span he picks. */
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-bold text-muted">{AR.agingPick}</span>
+            {[7, 15, 21, 30].map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => {
+                  setAgingDays(days);
+                }}
+                className={
+                  'rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ' +
+                  (agingDays === days
+                    ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                    : 'bg-sunken text-muted hover:bg-line')
+                }
+              >
+                {AR.agingDays(days)}
+              </button>
+            ))}
+          </div>
+        ) : tab === 'truck' ? (
           <>
             {/* «كشف سيارات بناءً على الناقل»: pick the carrier and the sheet
                 gathers every plate of his fleet, however the gate spelled it. */}

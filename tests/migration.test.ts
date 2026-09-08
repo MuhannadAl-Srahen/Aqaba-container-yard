@@ -114,6 +114,7 @@ describe('schema v9 — the cutover to the official yard', () => {
       'carriers',
       'containers',
       'custom_zones',
+      'gate_calls',
       'movements',
       'permit_items',
       'permits',
@@ -126,7 +127,7 @@ describe('schema v9 — the cutover to the official yard', () => {
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(27);
+    ).toBe(28);
     db.close();
   });
 
@@ -220,6 +221,7 @@ describe('schema v9 — the cutover to the official yard', () => {
       'carriers',
       'containers',
       'custom_zones',
+      'gate_calls',
       'movements',
       'permit_items',
       'permits',

@@ -2543,3 +2543,85 @@ export function permitsOfContainers(
     at: string;
   }>;
 }
+
+// ------------------------------------------------------ نداء إدخال شاحنة ----
+// The machine calls the gate: a truck is standing here, come and record it.
+// Answered, never deleted — the same work-ledger discipline as the tasks.
+
+export interface GateCallRow {
+  readonly id: number;
+  readonly at: string;
+  /** Who called — the driver's name, resolved. */
+  readonly by: string;
+  readonly machine: string;
+  readonly status: 'PENDING' | 'DONE';
+  readonly doneAt: string | null;
+  readonly doneBy: string | null;
+}
+
+interface GateCallDb {
+  id: number;
+  at: string;
+  by_user: number | null;
+  machine: string;
+  status: string;
+  done_at: string | null;
+  done_by: number | null;
+}
+
+const toGateCall = (row: GateCallDb, names: Readonly<Record<string, string>>): GateCallRow => ({
+  id: row.id,
+  at: row.at,
+  by: userLabel(names, row.by_user),
+  machine: row.machine,
+  status: row.status === 'DONE' ? 'DONE' : 'PENDING',
+  doneAt: row.done_at,
+  doneBy: row.done_at === null ? null : userLabel(names, row.done_by),
+});
+
+export function insertGateCall(
+  db: DatabaseSync,
+  call: { at: string; byId: number | null; machine: string },
+): number {
+  const result = db
+    .prepare('INSERT INTO gate_calls (at, by_user, machine) VALUES (?, ?, ?)')
+    .run(call.at, call.byId, call.machine);
+  return Number(result.lastInsertRowid);
+}
+
+/** One PENDING call per machine at a time: a second press is not a second truck. */
+export function pendingGateCall(db: DatabaseSync, machine: string): GateCallRow | null {
+  const row = db
+    .prepare("SELECT * FROM gate_calls WHERE machine = ? AND status = 'PENDING' ORDER BY id LIMIT 1")
+    .get(machine) as GateCallDb | undefined;
+  return row === undefined ? null : toGateCall(row, listUserNames(db));
+}
+
+export function listGateCalls(db: DatabaseSync, status: 'PENDING' | 'DONE'): GateCallRow[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM gate_calls WHERE status = ?
+        ORDER BY ${status === 'PENDING' ? 'id' : 'done_at DESC, id DESC'} LIMIT 50`,
+    )
+    .all(status) as unknown as GateCallDb[];
+  const names = listUserNames(db);
+  return rows.map((row) => toGateCall(row, names));
+}
+
+export function getGateCall(db: DatabaseSync, id: number): GateCallRow | null {
+  const row = db.prepare('SELECT * FROM gate_calls WHERE id = ?').get(id) as GateCallDb | undefined;
+  return row === undefined ? null : toGateCall(row, listUserNames(db));
+}
+
+export function answerGateCall(
+  db: DatabaseSync,
+  id: number,
+  at: string,
+  byId: number | null,
+): void {
+  db.prepare("UPDATE gate_calls SET status = 'DONE', done_at = ?, done_by = ? WHERE id = ?").run(
+    at,
+    byId,
+    id,
+  );
+}

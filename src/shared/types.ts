@@ -118,6 +118,22 @@ export interface DriverHaulRow {
  * this the figure would sit on nothing, unseen, for ever. Shown so it can be
  * voided; the money side of a paid one is the owner's to settle.
  */
+/**
+ * نداء إدخال شاحنة — the signal that runs from the machine to the office: a
+ * truck stands at the yard waiting to be recorded. Answered by whoever
+ * enters it; the driver watches his own call go out.
+ */
+export interface GateCallRow {
+  readonly id: number;
+  readonly at: string;
+  /** The driver who called, by name. */
+  readonly by: string;
+  readonly machine: string;
+  readonly status: 'PENDING' | 'DONE';
+  readonly doneAt: string | null;
+  readonly doneBy: string | null;
+}
+
 export interface OrphanWageRow {
   readonly containerId: number;
   readonly direction: HaulDirection;
@@ -459,6 +475,8 @@ export interface StandingReportRow {
   readonly position: Position | null;
   readonly seal: string;
   readonly enteredAt: string;
+  /** As the scale ticket was copied at the gate; '' when none arrived. */
+  readonly weight: string;
   /** Calendar days from the entry to today. */
   readonly dwellDays: number;
   /** Who received it at the gate. */

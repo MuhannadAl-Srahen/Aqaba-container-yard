@@ -323,6 +323,11 @@ export const AR = {
 
   // ---- النقل الجماعي — «بدي انقل كمية من الحاويات مره وحده» ----
   selectForMove: 'تحديد للنقل',
+  /** «ممكن عند فتح الباي تحط جنب زر النقل عرض الأوزان». */
+  showWeights: 'عرض الأوزان',
+  hideWeights: 'إخفاء الأوزان',
+  /** A container whose scale ticket never arrived. */
+  noWeight: 'بلا وزن',
   selectAllBay: 'تحديد الكل',
   selectCancel: 'إلغاء التحديد',
   moveSelected: (count: number): string => `نقل المحدد (${String(count)})`,
@@ -876,6 +881,21 @@ export const AR = {
   cardNumber: 'الرقم',
   cardDay: 'اليوم',
   cardDate: 'التاريخ',
+  // ---- نداء إدخال شاحنة ----
+  /** «عند مستخدمين الآليات كبسة ادخال الشاحنة». */
+  callGateAction: 'إدخال شاحنة',
+  callGateTitle: 'نداء إدخال شاحنة',
+  callGateBody: 'يصل النداء إلى مدخلي البيانات ليسجّلوا دخول الشاحنة الواقفة عندك.',
+  callGateSent: 'وصل النداء إلى المكتب.',
+  callGateStanding: 'نداؤك ما زال معلّقاً عند المكتب.',
+  /** The office banner — «بدي تنبيه واضح مو صوت لانو ما في صوت بالجهاز». */
+  callGateAlert: (machine: string, count: number): string =>
+    count === 1
+      ? `${machine}: شاحنة تنتظر التسجيل.`
+      : `${machine}: ${String(count)} شاحنات تنتظر التسجيل.`,
+  callGateAnswer: 'سجّلتها',
+  callGateAnswered: 'تم إغلاق النداء.',
+  callGateWaiting: (name: string): string => `ناداك ${name}`,
   /** الهاتف: كل شاشات الرأس تحت زر واحد. */
   menuButton: 'القائمة',
   /** البيان of a stub kept so the numbering never breaks. */
@@ -971,6 +991,16 @@ export const AR = {
   },
   machinesReportEmpty: 'لا مهام منجزة في هذه الفترة.',
   reportStanding: 'كشف الحاويات في الساحة',
+  /** كشف الرُّكود: الأرض المشغولة منذ زمن — «اعمله اذا سمحت». */
+  reportAging: 'كشف الرُّكود',
+  agingNow: 'الواقف منذ زمن — الوضع الحالي، غير مقيّد بفترة',
+  agingHint: 'الحاويات الواقفة منذ مدة أطول من المختارة، الأقدم أولاً.',
+  agingPick: 'أطول من',
+  agingDays: (days: number): string => `${String(days)} يوماً`,
+  agingEmpty: (days: number): string =>
+    `لا حاوية واقفة أكثر من ${String(days)} يوماً.`,
+  agingCount: (n: number, days: number): string =>
+    `${String(n)} حاوية واقفة أكثر من ${String(days)} يوماً`,
   standingNow: 'الوضع الحالي — غير مقيّد بفترة',
   standingCount: (n: number): string => `${String(n)} حاوية في الساحة`,
   rangeFrom: 'من',

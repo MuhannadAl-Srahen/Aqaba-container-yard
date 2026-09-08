@@ -37,6 +37,7 @@ import type {
 } from '../shared/types';
 import { daysBetween } from '../shared/dates';
 import type { SheetRow } from '../shared/customsSheet';
+import type { GateCallRow } from '../shared/types';
 import { AR } from './ar';
 
 /**
@@ -619,6 +620,14 @@ export const api = {
 
   taskDone: (id: number): Promise<TaskDto> =>
     request(`/api/tasks/${String(id)}/done`, { method: 'POST', body: JSON.stringify({}) }),
+
+  // ---- نداء إدخال شاحنة ----
+  /** The machine calls the gate; a second press returns the standing call. */
+  callGate: (): Promise<GateCallRow> => request('/api/gate-calls', { method: 'POST', body: JSON.stringify({}) }),
+  gateCalls: (status: 'PENDING' | 'DONE' = 'PENDING'): Promise<{ calls: GateCallRow[] }> =>
+    request(`/api/gate-calls?status=${status}`),
+  answerGateCall: (id: number): Promise<GateCallRow> =>
+    request(`/api/gate-calls/${String(id)}/done`, { method: 'POST', body: JSON.stringify({}) }),
 
   /** «تحديد الكل ثم تم» — the desk closes a whole selection at once. */
   taskDoneMany: (ids: readonly number[]): Promise<{ done: number; skipped: number }> =>

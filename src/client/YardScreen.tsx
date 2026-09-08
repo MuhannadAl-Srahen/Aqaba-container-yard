@@ -224,14 +224,41 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       if (!tasksView) setTaskAlert(count - before);
     }
   }, [driverQueue.data, driverMachine, tasksView]);
+  /**
+   * نداء إدخال شاحنة، من الجهة الأخرى: every gate hand watches for a machine
+   * calling. The banner is LOUD ON PURPOSE and does not time out — «بدي تنبيه
+   * واضح مو صوت لانو ما في صوت بالجهاز»: it stands, red and pulsing, until
+   * somebody answers it.
+   */
+  const gateHand = isOwner || may('GATE_IN');
+  const gateCalls = useQuery({
+    queryKey: ['gate-calls', 'office'],
+    queryFn: () => api.gateCalls('PENDING'),
+    enabled: gateHand,
+    refetchInterval: 10_000,
+  });
+  const pendingCalls = gateHand ? (gateCalls.data?.calls ?? []) : [];
+
+  const answerCall = (id: number): void => {
+    api
+      .answerGateCall(id)
+      .then(() => {
+        setToast(AR.callGateAnswered);
+      })
+      .catch((failure: unknown) => {
+        setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+      })
+      .finally(() => {
+        void queryClient.invalidateQueries({ queryKey: ['gate-calls'] });
+      });
+  };
+
   useEffect(() => {
+    // The banner used to fade after fifteen seconds. It no longer does: the
+    // tablets are SILENT — «ما في صوت بالجهاز» — so the picture is the whole
+    // alert, and an alert that vanishes while the man is up on the machine
+    // never happened at all. It goes when he opens the queue or closes it.
     if (taskAlert === null) return;
-    const timer = window.setTimeout(() => {
-      setTaskAlert(null);
-    }, 15_000);
-    return () => {
-      window.clearTimeout(timer);
-    };
   }, [taskAlert]);
 
   /**
@@ -810,11 +837,14 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         onShowSlot={(task) => {
           if (task.position === null) return;
           followSelection(task.position.zone);
-          // The sheet is always an odd bay's; a forty's even address is read
-          // through the odd bay under its lower half.
-          const sheetBay = task.position.bay % 2 === 1 ? task.position.bay : task.position.bay - 1;
-          setOpenBay({ zone: task.position.zone, bay: sheetBay });
-          setBayHighlight(task.containerId);
+          // «ما يفتح عندك الباي انما يغير الخريطة الى كشف المحتويات»: the
+          // driver wants the box IN ITS YARD, not a bay sheet — the contents
+          // paint draws every container as its own square, and the selected
+          // one stands apart in it. The card opens beside it with the number,
+          // the weight and the bill, which is the picture he approved.
+          choosePaint('detail');
+          const box = containers.find((container) => container.id === task.containerId) ?? null;
+          if (box !== null) setSelected(box);
           setTasksView(false);
         }}
         onShowCard={(task) => {
@@ -1727,12 +1757,42 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
         />
       )}
+      {/* نداء الآلية إلى البوابة: أحمرُ نابض لا يزول حتى يجيبه أحد — لا
+          يعتمد على صوت، فالأجهزة عندهم صامتة. */}
+      {pendingCalls.length > 0 && (
+        <div className="fixed inset-x-0 top-2 z-50 flex justify-center px-3">
+          <div className="flex w-full max-w-md flex-col gap-2 rounded-2xl border-4 border-red-500 bg-red-50 p-3 shadow-2xl motion-safe:animate-pulse dark:bg-red-950">
+            {pendingCalls.map((call) => (
+              <div key={call.id} className="flex flex-wrap items-center gap-2">
+                <span className="text-base font-extrabold text-red-800 dark:text-red-200">
+                  {AR.callGateAlert(AR.machineName[call.machine as 'CRANE' | 'STRADDLE'] ?? call.machine, 1)}
+                </span>
+                <span className="text-xs font-bold text-red-700 dark:text-red-300">
+                  {AR.callGateWaiting(call.by)}
+                </span>
+                <span className="ms-auto">
+                  <Button
+                    onClick={() => {
+                      answerCall(call.id);
+                    }}
+                  >
+                    {AR.callGateAnswer}
+                  </Button>
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* لافتة وصول مهمة — تعلو أي شاشة كان عليها السائق، وتُفتح منها
           القائمة مباشرة؛ الرنة والاهتزاز انطلقا لحظةَ رصد الوصول. */}
       {taskAlert !== null && driverMachine !== null && !tasksView && (
         <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-          <div className="flex w-full max-w-md flex-wrap items-center gap-3 rounded-2xl border-2 border-amber-400 bg-surface p-3 shadow-2xl">
-            <span className="text-sm font-bold text-ink">{AR.taskArrived(taskAlert)}</span>
+          <div className="flex w-full max-w-md flex-wrap items-center gap-3 rounded-2xl border-4 border-amber-500 bg-amber-50 p-3 shadow-2xl motion-safe:animate-pulse dark:bg-amber-950">
+            <span className="text-base font-extrabold text-amber-900 dark:text-amber-100">
+              {AR.taskArrived(taskAlert)}
+            </span>
             <span className="ms-auto flex gap-2">
               <Button
                 onClick={() => {

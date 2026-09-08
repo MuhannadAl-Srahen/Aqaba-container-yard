@@ -31,6 +31,7 @@ export function TasksScreen(props: {
   const queryClient = useQueryClient();
   const [toast, setToast] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<TaskDto | null>(null);
+  const [callingGate, setCallingGate] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -55,6 +56,35 @@ export function TasksScreen(props: {
   });
 
   const rows = pending.data?.tasks ?? [];
+
+  /**
+   * «كبسة ادخال الشاحنة»: the call runs the other way — the machine tells
+   * the office a truck is standing here to be recorded. His own pending
+   * call shows on the button, so a second press is never a second truck.
+   */
+  const calls = useQuery({
+    queryKey: ['gate-calls', props.machine],
+    queryFn: () => api.gateCalls('PENDING'),
+    refetchInterval: 15_000,
+  });
+  const myCall = (calls.data?.calls ?? [])[0] ?? null;
+
+  const callGate = (): void => {
+    setBusy(true);
+    api
+      .callGate()
+      .then(() => {
+        setToast(AR.callGateSent);
+      })
+      .catch((failure: unknown) => {
+        setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+      })
+      .finally(() => {
+        setBusy(false);
+        setCallingGate(false);
+        void queryClient.invalidateQueries({ queryKey: ['gate-calls'] });
+      });
+  };
 
   const doneToday = (finished.data?.tasks ?? []).filter(
     (task) => task.doneAt !== null && formatDateOnly(task.doneAt) === formatDateOnly(new Date().toISOString()),
@@ -93,6 +123,25 @@ export function TasksScreen(props: {
       </header>
 
       <main className="mx-auto max-w-2xl space-y-4 p-4">
+        {/* The call to the office stands above the queue: it is the one thing
+            on this screen the driver starts himself. */}
+        <div className="rounded-2xl border border-line bg-surface p-3 shadow-sm">
+          <Button
+            full
+            disabled={busy || myCall !== null}
+            onClick={() => {
+              setCallingGate(true);
+            }}
+          >
+            {AR.callGateAction}
+          </Button>
+          {myCall !== null && (
+            <p className="mt-2 text-center text-sm font-bold text-amber-700 dark:text-amber-300">
+              {AR.callGateStanding}
+            </p>
+          )}
+        </div>
+
         <h2 className="text-sm font-extrabold text-muted">{AR.taskPendingTitle}</h2>
         {rows.length === 0 && (
           <p className="rounded-xl border border-dashed border-line p-6 text-center text-sm text-faint">
@@ -218,6 +267,18 @@ export function TasksScreen(props: {
           }}
           onCancel={() => {
             setConfirming(null);
+          }}
+        />
+      )}
+      {callingGate && (
+        <Confirm
+          title={AR.callGateTitle}
+          body={AR.callGateBody}
+          confirmLabel={AR.callGateAction}
+          busy={busy}
+          onConfirm={callGate}
+          onCancel={() => {
+            setCallingGate(false);
           }}
         />
       )}

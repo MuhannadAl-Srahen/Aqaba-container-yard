@@ -98,6 +98,12 @@ export function BaySheet(props: {
   const [hoverCell, setHoverCell] = useState<string | null>(null);
   /** Dragged past the card: the sheet steps aside so the map shows through. */
   const [peek, setPeek] = useState(false);
+  /**
+   * عرض الأوزان: «تبعين الآليات بسألونا عن اوزان الحاويات اذا بدو يخرج وحده
+   * مثلا وقدامها حاويات». The weight used to cost a tap into each container
+   * in turn; here the whole bay answers at once.
+   */
+  const [weights, setWeights] = useState(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
   const holdTimer = useRef<number | null>(null);
   const downAt = useRef<{ x: number; y: number; container: ContainerDto } | null>(null);
@@ -471,13 +477,26 @@ export function BaySheet(props: {
           >
             {container.size === 40 ? AR.size40Chip : AR.size20Chip}
           </span>
-          {container.bill !== '' && (
+          {/* The third line answers whichever question is open: the bill by
+              default, the WEIGHT while «عرض الأوزان» is on — the crane's own
+              question, asked of a whole bay at once instead of one container
+              at a time. */}
+          {weights ? (
             <span
-              className="w-full truncate font-mono text-[13px] font-bold leading-4 text-muted"
+              className="w-full truncate rounded bg-amber-100 px-1 font-mono text-[13px] font-extrabold leading-4 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
               dir="ltr"
             >
-              {container.bill}
+              {container.weight === '' ? AR.noWeight : container.weight}
             </span>
+          ) : (
+            container.bill !== '' && (
+              <span
+                className="w-full truncate font-mono text-[13px] font-bold leading-4 text-muted"
+                dir="ltr"
+              >
+                {container.bill}
+              </span>
+            )
           )}
         </button>
       );
@@ -564,10 +583,34 @@ export function BaySheet(props: {
           </span>
         </div>
 
+        {/* عرض الأوزان — open to everyone who can see the bay: the driver
+            asking «كم وزنها» is usually not the one allowed to move it. */}
+        {props.load.length > 0 && !canGroup && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              kind="quiet"
+              onClick={() => {
+                setWeights(!weights);
+              }}
+            >
+              {weights ? AR.hideWeights : AR.showWeights}
+            </Button>
+          </div>
+        )}
+
         {/* النقل الجماعي: mark the group here, name the destination on the
             map — «خط الباي احيانا بكون فيه 6 حاويات بمكان غير صحيح». */}
         {canGroup && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button
+              kind="quiet"
+              disabled={props.load.length === 0}
+              onClick={() => {
+                setWeights(!weights);
+              }}
+            >
+              {weights ? AR.hideWeights : AR.showWeights}
+            </Button>
             {!selecting ? (
               <Button
                 kind="quiet"

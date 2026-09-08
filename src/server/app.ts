@@ -1046,6 +1046,58 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   });
 
+  // ─── نداء إدخال شاحنة: الآلية تنادي البوابة ──────────────────────────────
+
+  /**
+   * The driver presses once; every gate hand sees it until one of them
+   * answers. One pending call per machine — «كبسة ادخال الشاحنة» pressed
+   * twice is the same truck, not two.
+   */
+  app.post('/api/gate-calls', (request, reply) => {
+    const actor = requireAuth(request);
+    if (actor.machine === '') refuse(403, 'FORBIDDEN');
+    return transaction(db, () => {
+      const standing = store.pendingGateCall(db, actor.machine);
+      if (standing !== null) return standing;
+      const id = store.insertGateCall(db, {
+        at: now(),
+        byId: actorId(actor),
+        machine: actor.machine,
+      });
+      void reply.status(201);
+      const call = store.getGateCall(db, id);
+      if (call === null) throw new Error('unreachable');
+      return call;
+    });
+  });
+
+  /** The office watches this; the driver watches his own call's answer. */
+  app.get('/api/gate-calls', (request) => {
+    const actor = requireAuth(request);
+    if (actor.machine === '' && !canRunTasks(actor)) refuse(403, 'FORBIDDEN');
+    const query = request.query as { status?: string };
+    const status = query.status === 'DONE' ? ('DONE' as const) : ('PENDING' as const);
+    const rows = store.listGateCalls(db, status);
+    return {
+      calls: actor.machine === '' ? rows : rows.filter((row) => row.machine === actor.machine),
+    };
+  });
+
+  /** «دخلتها»: the clerk answers, and the banner goes out on every screen. */
+  app.post('/api/gate-calls/:id/done', (request) => {
+    const actor = requireAuth(request);
+    if (!canRunTasks(actor)) refuse(403, 'FORBIDDEN');
+    const id = idParam(request);
+    return transaction(db, () => {
+      const call = store.getGateCall(db, id);
+      if (call === null) refuse(404, 'NOT_FOUND');
+      if (call === null) throw new Error('unreachable');
+      if (call.status !== 'PENDING') refuse(409, 'TASK_CLOSED');
+      store.answerGateCall(db, id, now(), actorId(actor));
+      return store.getGateCall(db, id);
+    });
+  });
+
   app.post('/api/logout', (_request, reply) => {
     reply.clearCookie(SESSION_COOKIE, { path: '/' });
     return { ok: true };
@@ -1810,6 +1862,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         position: container.position,
         seal: container.sealIn,
         enteredAt: container.enteredAt,
+        weight: container.weight,
         dwellDays: daysBetween(container.enteredAt, at),
         user: container.user,
         notes: container.notes,

@@ -613,3 +613,85 @@ describe('«تحديد الكل ثم تم» — the desk closes many at once', (
     expect(done.filter((task) => task.doneBy === 'مدخل البيانات')).toHaveLength(2);
   });
 });
+
+describe('نداء إدخال شاحنة — الآلية تنادي البوابة', () => {
+  it('the driver calls once, the gate answers, and a second press is the same truck', async () => {
+    const driver = await hire('سائق العقرب', '2222', ['MOVE'], 'STRADDLE');
+    const clerk = await hire('مدخل البيانات', '3333', ['GATE_IN'], '');
+    const accounting = await hire('محاسب', '4444', ['ACCOUNTING'], '');
+
+    // Only a machine account may call — an office hand has nobody to call.
+    expect(
+      (await call({ method: 'POST', url: '/api/gate-calls', payload: {}, cookie: clerk.cookie }))
+        .status,
+    ).toBe(403);
+
+    const made = await call({
+      method: 'POST',
+      url: '/api/gate-calls',
+      payload: {},
+      cookie: driver.cookie,
+    });
+    expect(made.status).toBe(201);
+    const id = (made.body as { id: number }).id;
+    expect((made.body as { machine: string }).machine).toBe('STRADDLE');
+    expect((made.body as { by: string }).by).toBe('سائق العقرب');
+
+    // Pressed again while it stands: the same call, not a second truck.
+    const again = await call({
+      method: 'POST',
+      url: '/api/gate-calls',
+      payload: {},
+      cookie: driver.cookie,
+    });
+    expect((again.body as { id: number }).id).toBe(id);
+
+    // The gate sees it; a clerk with neither gate nor task rights does not.
+    const seen = await call({ method: 'GET', url: '/api/gate-calls', cookie: clerk.cookie });
+    expect((seen.body as { calls: unknown[] }).calls).toHaveLength(1);
+    expect(
+      (await call({ method: 'GET', url: '/api/gate-calls', cookie: accounting.cookie })).status,
+    ).toBe(403);
+
+    // Answered by the hand that recorded the truck, and it goes out.
+    const answered = await call({
+      method: 'POST',
+      url: `/api/gate-calls/${String(id)}/done`,
+      payload: {},
+      cookie: clerk.cookie,
+    });
+    expect(answered.status).toBe(200);
+    expect((answered.body as { status: string }).status).toBe('DONE');
+    expect((answered.body as { doneBy: string }).doneBy).toBe('مدخل البيانات');
+    expect(
+      ((await call({ method: 'GET', url: '/api/gate-calls', cookie: clerk.cookie })).body as {
+        calls: unknown[];
+      }).calls,
+    ).toHaveLength(0);
+
+    // Answering twice tells the screen it is behind; and now the driver may
+    // call again, because the truck he called about has been recorded.
+    const twice = await call({
+      method: 'POST',
+      url: `/api/gate-calls/${String(id)}/done`,
+      payload: {},
+      cookie: clerk.cookie,
+    });
+    expect(twice.status).toBe(409);
+    const fresh = await call({
+      method: 'POST',
+      url: '/api/gate-calls',
+      payload: {},
+      cookie: driver.cookie,
+    });
+    expect((fresh.body as { id: number }).id).not.toBe(id);
+
+    // A driver sees only his own machine's calls.
+    const crane = await hire('سائق الونش', '1111', [], 'CRANE');
+    expect(
+      ((await call({ method: 'GET', url: '/api/gate-calls', cookie: crane.cookie })).body as {
+        calls: unknown[];
+      }).calls,
+    ).toHaveLength(0);
+  });
+});

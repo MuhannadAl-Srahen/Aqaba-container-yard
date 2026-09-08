@@ -510,7 +510,24 @@ export function migrate(db: DatabaseSync, file: string): void {
     CREATE INDEX IF NOT EXISTS idx_batch_rows_batch ON batch_rows (batch_id);
     CREATE INDEX IF NOT EXISTS idx_batch_rows_number ON batch_rows (number);
 
-    PRAGMA user_version = 27;
+    -- v28: نداء إدخال شاحنة — the signal that runs the other way. The gate
+    -- tells the machines what to lift; this is the machine telling the gate
+    -- that a truck stands in front of it waiting to be recorded: «عند
+    -- مستخدمين الآليات كبسة ادخال الشاحنة ويصل اشعار عند مدخلين البيانات
+    -- انهم يدخلوها». A call is ANSWERED, never deleted — it is a work
+    -- ledger like the tasks, and no deleted_at is wanted here either.
+    CREATE TABLE IF NOT EXISTS gate_calls (
+      id      INTEGER PRIMARY KEY AUTOINCREMENT,
+      at      TEXT    NOT NULL,
+      by_user INTEGER REFERENCES users (id),
+      machine TEXT    NOT NULL,
+      status  TEXT    NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'DONE')),
+      done_at TEXT,
+      done_by INTEGER REFERENCES users (id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_gate_calls_status ON gate_calls (status, id);
+
+    PRAGMA user_version = 28;
   `);
 
   // v26 upgrade: drivers joined the staff. A users table from before the
