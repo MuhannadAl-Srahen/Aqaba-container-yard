@@ -3086,3 +3086,13 @@ at all). Then the order: «اريد ارجاع البطاقة لكي لا يخت
   one condition in listGateMovements turns them on there.
 - tests/serials.test.ts: a struck record’s serial stands empty in its
   place; the exit register still shows its own hole.
+
+Then «اريد القدرة على طباعة البطاقة الملغاة»: PrintVoidCard.tsx — the
+stub's own paper, in the gate card's shape and ruling so it files beside
+its siblings. The serial where it always stands, the title «بطاقة
+ملغاة», one sentence saying the card was issued and then voided with no
+container recorded on it, every box a dash, the directorate's signature
+box, and a print button. A separate component rather than a mode of
+PrintCard because it has no container behind it at all — nothing to
+fetch and nothing to invent. The register's voided row draws «بطاقة»
+alone (never «تعديل»).

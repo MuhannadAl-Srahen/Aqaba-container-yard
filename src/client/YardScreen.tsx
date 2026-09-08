@@ -12,6 +12,7 @@ import { YardMap } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard, type CardJob } from './PrintCard';
+import { PrintVoidCard } from './PrintVoidCard';
 import { PrintPermit } from './PrintPermit';
 import { PermitSheet } from './PermitSheet';
 import { FillSheet } from './FillSheet';
@@ -107,6 +108,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * moved many times.
    */
   const [printCard, setPrintCard] = useState<CardJob | null>(null);
+  /** بطاقة ملغاة: the empty stub of a voided serial, printable like any card. */
+  const [voidCard, setVoidCard] = useState<{ serial: number; serialYear: number | null } | null>(
+    null,
+  );
   /** تصريح تحميل وخروج داخلي: the paper on screen, and the issue form. */
   const [permitPrint, setPermitPrint] = useState<PermitDto | null>(null);
   const [permitCreate, setPermitCreate] = useState<{
@@ -751,6 +756,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           void api.detail(containerId).then(({ container }) => {
             setPrintCard({ kind, container });
           });
+        }}
+        onVoidCard={(serial, serialYear) => {
+          // The stub's own paper: nothing to fetch, the number IS the paper.
+          setVoidCard({ serial, serialYear });
         }}
         onEdit={(containerId) => {
           // «تعديل بيانات الصف … دون الرجوع الى مكان وجود الحاوية»: the
@@ -1642,6 +1651,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           {...printCard}
           onClose={() => {
             setPrintCard(null);
+          }}
+        />
+      )}
+      {voidCard !== null && (
+        <PrintVoidCard
+          serial={voidCard.serial}
+          serialYear={voidCard.serialYear}
+          onClose={() => {
+            setVoidCard(null);
           }}
         />
       )}

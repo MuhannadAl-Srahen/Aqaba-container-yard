@@ -394,6 +394,8 @@ export function ReportsScreen(props: {
   initialBill?: string | undefined;
   /** Reprint a gate card straight from the row it is on. */
   onCard: (kind: 'in' | 'out', containerId: number) => void;
+  /** The empty stub of a voided serial — it has a paper but no record. */
+  onVoidCard: (serial: number, serialYear: number | null) => void;
   /** The register row's pencil: the container's card opens editing at once. */
   onEdit: (containerId: number) => void;
   /** Open a permit's paper from its register row. */
@@ -665,9 +667,29 @@ export function ReportsScreen(props: {
                   : tab === 'truck'
                     ? truckRow?.containerId
                     : gate.data?.rows[rowIndex]?.containerId;
-            // A voided serial has no record behind it: no card to print and
-            // nothing to edit.
-            if (containerId === undefined || containerId === 0) return null;
+            // A voided serial has no record behind it — nothing to edit and
+            // nothing to open. It has a PAPER, though: the empty stub that
+            // keeps the file's numbering whole.
+            if (containerId === 0) {
+              const stub = gate.data?.rows[rowIndex];
+              if (stub?.card === undefined || stub.card === null) return null;
+              const serial = stub.card;
+              const year = stub.cardYear;
+              return (
+                <span className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      props.onVoidCard(serial, year);
+                    }}
+                    className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
+                  >
+                    {AR.cardAction}
+                  </button>
+                </span>
+              );
+            }
+            if (containerId === undefined) return null;
             const kind =
               tab === 'out' || truckRow?.statement === 'OUT' ? ('out' as const) : ('in' as const);
             return (
