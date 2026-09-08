@@ -6,7 +6,7 @@ import { AR } from './ar';
 import { Button, useEscape } from './ui';
 
 /**
- * تصريح تحميل وخروج داخلي — the permission paper مؤسسة الحق issues for one
+ * تصريح خروج من الساحة — the permission paper the yard issues for one
  * bill: the containers listed below may be loaded and taken out of the yard,
  * to موقع المقص only. Headed by the organisation and the permission sentence,
  * numbered per year like the gate cards, and closed by the storage

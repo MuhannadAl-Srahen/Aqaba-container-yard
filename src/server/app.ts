@@ -823,7 +823,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   });
 
   /**
-   * تصريح تحميل وخروج داخلي — the permission paper مؤسسة الحق issues for one
+   * تصريح خروج من الساحة — the permission paper the yard issues for one
    * bill: load the containers listed and take them to موقع المقص only. The
    * paper authorizes; it moves nothing — the actual departures still happen
    * at the gate one by one. Issued under GATE_OUT: it is exit paperwork.

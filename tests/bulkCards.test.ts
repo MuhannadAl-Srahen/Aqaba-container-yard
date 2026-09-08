@@ -253,7 +253,9 @@ describe('كتاب البطاقات — the client-written book', () => {
     // the directorate's, on every kind of card.
     for (const paper of [entry, exit, moved]) {
       expect(paper).toContain('توقيع موظف مديرية إدارة التخزين');
-      expect(paper).not.toContain('توقيع شركة الحق');
+      // «هل يوجد اي مكان ذكر فيه مؤسسة الحق؟» — nowhere on any printed
+      // paper: not the signature box, and not the receipt sentence either.
+      expect(paper).not.toContain('الحق');
     }
   });
 

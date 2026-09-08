@@ -889,12 +889,14 @@ export const AR = {
   cardIssuedAt: 'تاريخ إصدار البطاقة',
   cardNotes: 'ملاحظات',
   /**
-   * The receipt line the storage directorate and الحق sign under. The date is
-   * left open on the paper so it is filled in by hand at the gate.
+   * The receipt line the storage directorate signs under. It named the
+   * company beside the directorate until the owner struck that name from
+   * the papers — «وازل توقيع مؤسسة الحق من اي مكان ايضا» — so the sentence
+   * now rests on the directorate's supervision alone.
    */
   cardStatement:
     'تم استلام وتخزين الحاوية المبينة معلوماتها أدناه في الموقع المخصص ' +
-    'بإشراف مندوب مديرية إدارة التخزين وشركة الحق تحت وضع الرصاص الجمركي:',
+    'بإشراف مندوب مديرية إدارة التخزين تحت وضع الرصاص الجمركي:',
   /**
    * The one signature box the gate cards carry. A second box, «توقيع شركة
    * الحق», stood beside it until the owner struck the company's name from

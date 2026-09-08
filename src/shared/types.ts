@@ -544,7 +544,7 @@ export interface BatchMatch {
 }
 
 /**
- * تصريح تحميل وخروج داخلي: the paper مؤسسة الحق issues for one bill of
+ * تصريح خروج من الساحة: the paper the yard issues for one bill of
  * lading — permission to load the containers listed on it out of the yard
  * and into موقع المقص only. A numbered ledger of its own, counted per year
  * like the gate cards, and the paper itself carries the storage-directorate
