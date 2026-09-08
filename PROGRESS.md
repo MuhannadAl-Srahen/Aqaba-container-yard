@@ -3049,6 +3049,8 @@ it (different hands on a real shift); the move card, an internal
 operations paper, names none. And «وازل توقيع مؤسسة الحق من اي مكان
 ايضا» — the second signature box, «توقيع شركة الحق», is struck from
 every card, single and bulk, leaving the directorate's box alone;
-`cardSupervisorSign` is deleted from ar.ts. The receipt sentence on the
-entry card still reads «بإشراف مندوب مديرية إدارة التخزين وشركة الحق»;
-flagged to him rather than rewritten unasked.
+`cardSupervisorSign` is deleted from ar.ts. He then asked «هل يوجد اي مكان ذكر فيه مؤسسة الحق؟» — exactly one
+printed place was left, the entry card’s receipt sentence, and it is
+struck too: the line now rests on «بإشراف مندوب مديرية إدارة التخزين
+تحت وضع الرصاص الجمركي» alone. No printed paper names the company
+anywhere; a test asserts the word cannot appear on any card at all.
