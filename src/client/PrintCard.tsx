@@ -9,7 +9,7 @@ import { Button, useEscape } from './ui';
 
 /**
  * The gate card, a proper voucher: serial and date strip, the paperwork in a
- * clean two-column grid, and the two signature boxes. Rendered as an
+ * clean two-column grid, and the directorate’s signature box. Rendered as an
  * overlay; printing isolates it through the .print-area CSS.
  *
  * Three papers come off this one shape: the entry card, the exit card, and
@@ -288,9 +288,11 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
             {move === null && row(AR.cardTruck, truck === '' ? '—' : truck, { ltr: true })}
             {move === null && row(AR.cardDriver, driver === '' ? '—' : driver)}
             {/* Who did the paperwork — «أسم الموظف الي عمل المعاملة او
-                الأدخال». Read off the gate MOVEMENT, so a card reprinted
-                years later still names the hand that received the box. */}
-            {kind === 'in' && row(AR.cardUser, gateMove === undefined ? '—' : gateMove.user)}
+                الأدخال», and «بدي كمان اسم الموظف على بطاقة الخروج». Read
+                off THIS card's own gate movement, so the entry card names
+                who received the box and the exit card who released it, and
+                a reprint years later still names them. */}
+            {move === null && row(AR.cardUser, gateMove === undefined ? '—' : gateMove.user)}
             {row(AR.cardNotes, container.notes === '' ? '—' : container.notes, { wide: true })}
             {/* Gravity: lifting this one brought the stack above it down a
                 tier, and the crew needs the paper to say which ones and where
@@ -321,15 +323,13 @@ export function PrintCard(props: CardJob & { onClose: () => void }): ReactElemen
               )}
           </div>
 
+          {/* One signature box now: «وازل توقيع مؤسسة الحق من اي مكان» —
+              the second box was the company's and is struck from both gate
+              cards, so the paper is signed by the directorate alone. */}
           <div className="flex border-t-2 border-rule-strong">
-            {[AR.cardWorkerSign, AR.cardSupervisorSign].map((sign, index) => (
-              <div
-                key={sign}
-                className={`gate-sign h-24 flex-1 p-2.5${index === 0 ? ' border-e border-line-strong' : ''}`}
-              >
-                <p className="text-[12px] font-bold text-muted">{sign}</p>
-              </div>
-            ))}
+            <div className="gate-sign h-24 flex-1 p-2.5">
+              <p className="text-[12px] font-bold text-muted">{AR.cardWorkerSign}</p>
+            </div>
           </div>
 
           <p className="border-t border-line px-3 py-1 text-[10px] text-faint">

@@ -18,7 +18,7 @@ import { downloadBlob } from './sheetKit';
  *
  * The card mirrors the single `PrintCard` paper: the voucher strip (serial,
  * title, day/date/time), the receipt statement on entry cards, the hero
- * container number, the labelled grid, the two signature boxes — and, when
+ * container number, the labelled grid, the signature box — and, when
  * the owner asks, each entry card's photos as the pages behind it.
  */
 
@@ -97,9 +97,9 @@ function cardSection(kind: CardKind, card: CardSheetRow): string {
   if (kind !== 'move') {
     rows.push(row(AR.cardTruck, dash(card.truck), { ltr: true }), row(AR.cardDriver, dash(card.driver)));
   }
-  // The hand that did the paperwork, on the entry card exactly as the single
-  // card prints it — the bulk book and the one paper must never disagree.
-  if (kind === 'in') rows.push(row(AR.cardUser, dash(card.user)));
+  // The hand that did the paperwork, on both gate cards exactly as the single
+  // card prints them — the bulk book and the one paper must never disagree.
+  if (kind !== 'move') rows.push(row(AR.cardUser, dash(card.user)));
   rows.push(row(AR.cardNotes, dash(card.notes), { wide: true }));
   const drops = kind === 'move' ? dropsOf(card.note) : [];
   if (drops.length > 0) {
@@ -129,7 +129,8 @@ function cardSection(kind: CardKind, card: CardSheetRow): string {
     (kind === 'in' ? `<p class="statement">${esc(AR.cardStatement)}</p>` : '') +
     `<div class="hero"><p class="hlbl">${esc(AR.containerNumber)}</p><p class="hnum">${esc(card.number)}</p></div>` +
     `<div class="grid">${rows.join('')}</div>` +
-    `<div class="signs"><div>${esc(AR.cardWorkerSign)}</div><div>${esc(AR.cardSupervisorSign)}</div></div>` +
+    // One box: the company's signature is struck from every gate card.
+    `<div class="signs"><div>${esc(AR.cardWorkerSign)}</div></div>` +
     `</section>`
   );
 }

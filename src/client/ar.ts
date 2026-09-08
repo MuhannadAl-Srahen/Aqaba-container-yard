@@ -895,8 +895,12 @@ export const AR = {
   cardStatement:
     'تم استلام وتخزين الحاوية المبينة معلوماتها أدناه في الموقع المخصص ' +
     'بإشراف مندوب مديرية إدارة التخزين وشركة الحق تحت وضع الرصاص الجمركي:',
+  /**
+   * The one signature box the gate cards carry. A second box, «توقيع شركة
+   * الحق», stood beside it until the owner struck the company's name from
+   * the papers: «وازل توقيع مؤسسة الحق من اي مكان ايضا».
+   */
   cardWorkerSign: 'توقيع موظف مديرية إدارة التخزين',
-  cardSupervisorSign: 'توقيع شركة الحق',
   printCardIn: 'طباعة بطاقة دخول',
   printCardOut: 'طباعة بطاقة خروج',
 

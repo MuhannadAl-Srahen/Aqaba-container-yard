@@ -55,7 +55,6 @@ const gateIn = async (number: string, bay: number): Promise<number> => {
       truck: '60-11111',
       seal: 'JO500',
       driver: 'أبو خالد',
-    user: 'ايمن عنبر',
       weight: '',
       handling: 'CRANE',
     },
@@ -110,6 +109,9 @@ describe('بيانات البطاقات دفعة واحدة', () => {
     expect(rows[0]?.serial).toBe(1);
     expect(rows[0]?.truck).toBe('60-22222');
     expect(rows[0]?.driver).toBe('أبو علي');
+    // The EXIT card names who released it, not who received it: the two are
+    // different people on a real shift, so the field follows its own movement.
+    expect(rows[0]?.user).toBe(store.OWNER_NAME);
     expect(rows[0]?.slot?.bay).toBe(1);
     // The exit card still says when it went INTO store.
     expect(rows[0]?.enteredAt).not.toBe('');
@@ -233,15 +235,26 @@ describe('كتاب البطاقات — the client-written book', () => {
     expect(html).toContain('2026');
   });
 
-  it('the entry card carries the receipt, the handling and the clerk; the exit does not', () => {
+  it('the receipt and the handling are the entry card’s; the clerk is on both gate cards', () => {
     const entry = cardsBookHtml('in', [card({})], new Map());
     const exit = cardsBookHtml('out', [card({ handling: null })], new Map());
+    const moved = cardsBookHtml('move', [card({ user: '' })], new Map());
     expect(entry).toContain('class="statement"');
     expect(exit).not.toContain('class="statement"');
-    // «أسم الموظف الي عمل المعاملة او الأدخال» — on the entry card alone.
+    // «أسم الموظف الي عمل المعاملة او الأدخال» + «بدي كمان اسم الموظف على
+    // بطاقة الخروج» — the gate cards name their own hand; the move card
+    // stays an internal operations paper and names none.
     expect(entry).toContain('اسم الموظف');
     expect(entry).toContain('ايمن عنبر');
-    expect(exit).not.toContain('اسم الموظف');
+    expect(exit).toContain('اسم الموظف');
+    expect(exit).toContain('ايمن عنبر');
+    expect(moved).not.toContain('اسم الموظف');
+    // «وازل توقيع مؤسسة الحق من اي مكان ايضا» — one signature box remains,
+    // the directorate's, on every kind of card.
+    for (const paper of [entry, exit, moved]) {
+      expect(paper).toContain('توقيع موظف مديرية إدارة التخزين');
+      expect(paper).not.toContain('توقيع شركة الحق');
+    }
   });
 
   it('a move card names its two slots and its drops', () => {

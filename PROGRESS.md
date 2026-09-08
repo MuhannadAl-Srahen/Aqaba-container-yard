@@ -3041,3 +3041,14 @@ clamped never to run past today — and the reports, the log and the
 driver statement all open on the WHOLE book instead of the current
 month. tests/sheetRange.test.ts locks the date and the Amman-midnight
 instants around it.
+
+Two follow-ups the same evening: «بدي كمان اسم الموظف على بطاقة الخروج»
+— the field now rides both gate cards, each reading its OWN movement, so
+the entry card names who received the box and the exit card who released
+it (different hands on a real shift); the move card, an internal
+operations paper, names none. And «وازل توقيع مؤسسة الحق من اي مكان
+ايضا» — the second signature box, «توقيع شركة الحق», is struck from
+every card, single and bulk, leaving the directorate's box alone;
+`cardSupervisorSign` is deleted from ar.ts. The receipt sentence on the
+entry card still reads «بإشراف مندوب مديرية إدارة التخزين وشركة الحق»;
+flagged to him rather than rewritten unasked.
