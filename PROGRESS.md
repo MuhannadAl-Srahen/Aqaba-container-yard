@@ -3124,6 +3124,19 @@ carried for weeks: «اريد ان يكون النظام على الهاتف م�
   the issue sheet marks every container that already holds a live permit
   with its serial, and says the reprint button costs no new number. 86
   containers in his book carry two papers or more.
+- **The map on a phone.** Two more faults the same measurement caught.
+  The camera floor was a constant 0.2 while the yard needs 0.13 to fit a
+  393-pixel screen, so the drawing was rendered 572 pixels wide and cut
+  at both edges; the floor is now the FIT itself whenever the fit is
+  smaller, so the whole yard is always reachable. And fitting a 4:1 yard
+  into a 1:2 screen leaves a thread nobody can read, so the map now
+  OPENS at a legible 0.45 anchored at zone A bay 01, with «⊡» still one
+  tap from the whole yard. A ResizeObserver re-fit was tried between
+  those two and reverted in the same session: the map loses a few pixels
+  of height whenever the header gains a line as data lands, and treating
+  that as a resize threw away both the opening view and the user's own
+  zoom. It now waits for one real measurement and then leaves the camera
+  alone.
 - Not taken, by his word: normalising truck plates — «اغلبهم سيارات غير
   اردنية… ونحن نختص فقط بالدخول». And the bill typo he had already
   corrected himself.

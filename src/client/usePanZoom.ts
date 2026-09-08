@@ -14,6 +14,11 @@ export interface PanZoom {
 
 const MIN_SCALE = 0.2;
 const MAX_SCALE = 5;
+/**
+ * Below this the bay numbers are grey mush — measured on the drawing itself,
+ * where a bay band is 58 yard units and needs about 25 screen pixels to read.
+ */
+const LEGIBLE_SCALE = 0.45;
 /** Finger movement below this is a tap, not a drag. */
 const TAP_SLOP_PX = 8;
 
@@ -39,19 +44,34 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
   /** Where the gesture started, for the tap-vs-drag distance. */
   const downAt = useRef<PointerState | null>(null);
 
-  const clampScale = (scale: number): number => Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+  /**
+   * The floor a gesture may not go below — and it is NOT a constant.
+   *
+   * The yard is some 2860 units wide. A desk screen fits it at about 0.48,
+   * so the 0.2 floor never showed; a phone needs 0.13, so the floor held the
+   * drawing at 0.2 and the yard was rendered 572 pixels wide inside a
+   * 393-pixel screen — cut off at both edges, on the one screen he uses most
+   * while walking the ground. The floor is now the FIT itself whenever the
+   * fit is smaller: the whole yard is always reachable, and no gesture can
+   * shrink it past the point where it all shows.
+   */
+  const floorRef = useRef(MIN_SCALE);
+
+  const clampScale = (scale: number): number =>
+    Math.min(MAX_SCALE, Math.max(floorRef.current, scale));
 
   /** Fit the whole yard in the container, centered — the home view. */
   const fit = useCallback(() => {
     const el = containerRef.current;
     if (el === null || contentWidth === 0 || contentHeight === 0) return;
     const pad = 24;
-    const scale = clampScale(
-      Math.min(
-        (el.clientWidth - pad) / contentWidth,
-        (el.clientHeight - pad) / contentHeight,
-      ),
+    const raw = Math.min(
+      (el.clientWidth - pad) / contentWidth,
+      (el.clientHeight - pad) / contentHeight,
     );
+    floorRef.current = Math.min(MIN_SCALE, raw);
+    const scale = Math.min(MAX_SCALE, Math.max(floorRef.current, raw));
+    console.log('[pz] FIT raw=' + String(raw) + ' stack=' + String(new Error('t').stack).slice(0, 300));
     setView({
       x: (el.clientWidth - contentWidth * scale) / 2,
       y: (el.clientHeight - contentHeight * scale) / 2,
@@ -59,10 +79,82 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
     });
   }, [contentWidth, contentHeight]);
 
-  // First layout and any yard reshape both deserve a fresh fit.
+  /**
+   * The view the app OPENS on. The yard is four times wider than it is deep,
+   * and a phone is twice as deep as it is wide, so fitting the whole drawing
+   * on one leaves a thread of a yard adrift in an empty screen — everything
+   * visible and nothing readable. The opening view keeps the bay numbers
+   * legible instead and starts at the top of the drawing; «⊡» still pulls
+   * back to the whole yard whenever he wants it, and the floor above lets it.
+   */
+  const open = useCallback(() => {
+    const el = containerRef.current;
+    if (el === null || contentWidth === 0 || contentHeight === 0) return;
+    const pad = 24;
+    const raw = Math.min(
+      (el.clientWidth - pad) / contentWidth,
+      (el.clientHeight - pad) / contentHeight,
+    );
+    floorRef.current = Math.min(MIN_SCALE, raw);
+    console.log('[pz] open raw=' + String(raw) + ' cw=' + String(el.clientWidth));
+    if (raw >= LEGIBLE_SCALE) {
+      fit();
+      return;
+    }
+    const scale = Math.min(MAX_SCALE, LEGIBLE_SCALE);
+    const wide = contentWidth * scale > el.clientWidth;
+    setView({
+      // Anchored at the drawing's own beginning — zone A, bay 01 — rather
+      // than its middle: the yard is read from its first bay, and landing
+      // in the middle of zone A means nothing to anyone.
+      x: wide ? pad / 2 : (el.clientWidth - contentWidth * scale) / 2,
+      y: pad / 2,
+      scale,
+    });
+  }, [contentWidth, contentHeight, fit]);
+
+  // First real layout OPENS; a genuine reshape after that re-fits.
+  const opened = useRef(false);
+  const shapeRef = useRef(0);
   useEffect(() => {
+    const el = containerRef.current;
+    if (el === null || el.clientWidth === 0) return;
+    if (!opened.current) {
+      opened.current = true;
+      shapeRef.current = contentWidth * contentHeight;
+      open();
+      return;
+    }
+    // Only a real reshape of the YARD — a zone added, the contents paint
+    // scaling the drawing — takes the camera home again.
+    const shape = contentWidth * contentHeight;
+    if (shape === shapeRef.current) return;
+    shapeRef.current = shape;
     fit();
-  }, [fit]);
+  }, [fit, open, contentWidth, contentHeight]);
+
+  /**
+   * The box is often zero-sized when the effects first run, and the opening
+   * view needs one real measurement. This waits for it — and does nothing
+   * afterwards. Re-fitting on later resizes was tried and reverted: the map
+   * loses a few pixels of height whenever the header gains a line as the
+   * data lands, which is not a resize the user made, and treating it as one
+   * threw away both the opening view and whatever he had zoomed to. «⊡»
+   * takes the whole yard back in one tap, and now reaches it at any size.
+   */
+  useEffect(() => {
+    const el = containerEl;
+    if (el === null || opened.current || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      if (opened.current || el.clientWidth === 0 || el.clientHeight === 0) return;
+      opened.current = true;
+      open();
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+    };
+  }, [containerEl, open]);
 
   const zoomAt = useCallback((clientX: number, clientY: number, factor: number) => {
     const el = containerRef.current;
