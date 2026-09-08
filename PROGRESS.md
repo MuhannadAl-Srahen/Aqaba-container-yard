@@ -3079,6 +3079,10 @@ at all). Then the order: «اريد ارجاع البطاقة لكي لا يخت
   order untouched.
 - A stub carries containerId 0, so the register draws no «بطاقة» and no
   «تعديل» beside it, and it stays out of «المجموع: N حركة».
-- tests/serials.test.ts: a struck record's serial stands empty in its
-  place; a cancelled exit leaves its number standing while the departure
-  itself does not appear.
+- Scoped on his correction — «لا لا ليس الستة… اريد ارجاع البطاقتان»:
+  the stubs are the ENTRY register’s alone, the two cards he named. The
+  exit register keeps its four holes (170, 171 from the same struck
+  records; 174, 175 voided by إلغاء الخروج) until he says otherwise —
+  one condition in listGateMovements turns them on there.
+- tests/serials.test.ts: a struck record’s serial stands empty in its
+  place; the exit register still shows its own hole.
