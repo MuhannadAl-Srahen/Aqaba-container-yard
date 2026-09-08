@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ContainerDto, Permission, PermitDto, Position, Zone } from '../shared/types';
+import type {
+  ContainerDto,
+  GateCallRow,
+  Permission,
+  PermitDto,
+  Position,
+  Zone,
+} from '../shared/types';
 import { composeLayout, yardSlice, yardsOf } from '../shared/layout';
 import { bayLabel, positionLabel, yardOf } from '../shared/address';
 import { ltrCode } from '../shared/bidi';
@@ -968,6 +975,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   } else {
     screen = (
     <div className="flex h-dvh flex-col bg-canvas">
+      {pendingCalls.length > 0 && (
+        <div className="shrink-0 px-3 pt-2 lg:px-5">
+          <GateCallBar calls={pendingCalls} onAnswer={answerCall} />
+        </div>
+      )}
       <header className="z-10 border-b border-line bg-surface px-3 py-2 shadow-sm lg:px-5">
         <div className="flex flex-wrap items-center gap-2 lg:gap-4">
           <h1 className="text-base font-extrabold text-ink lg:text-lg">{AR.appName}</h1>
@@ -1757,30 +1769,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
         />
       )}
-      {/* نداء الآلية إلى البوابة: أحمرُ نابض لا يزول حتى يجيبه أحد — لا
-          يعتمد على صوت، فالأجهزة عندهم صامتة. */}
-      {pendingCalls.length > 0 && (
+      {/* على غير الخريطة يطفو النداء معلّقاً في أعلى الشاشة؛ أما على
+          الخريطة فيجلس شريطاً فوق الرأس (انظر callBanner). */}
+      {!mapShown && pendingCalls.length > 0 && (
         <div className="fixed inset-x-0 top-2 z-50 flex justify-center px-3">
-          <div className="flex w-full max-w-md flex-col gap-2 rounded-2xl border-4 border-red-500 bg-red-50 p-3 shadow-2xl motion-safe:animate-pulse dark:bg-red-950">
-            {pendingCalls.map((call) => (
-              <div key={call.id} className="flex flex-wrap items-center gap-2">
-                <span className="text-base font-extrabold text-red-800 dark:text-red-200">
-                  {AR.callGateAlert(AR.machineName[call.machine as 'CRANE' | 'STRADDLE'] ?? call.machine, 1)}
-                </span>
-                <span className="text-xs font-bold text-red-700 dark:text-red-300">
-                  {AR.callGateWaiting(call.by)}
-                </span>
-                <span className="ms-auto">
-                  <Button
-                    onClick={() => {
-                      answerCall(call.id);
-                    }}
-                  >
-                    {AR.callGateAnswer}
-                  </Button>
-                </span>
-              </div>
-            ))}
+          <div className="w-full max-w-md">
+            <GateCallBar calls={pendingCalls} onAnswer={answerCall} />
           </div>
         </div>
       )}
@@ -1820,6 +1814,41 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 }
 
 /** One yard's remaining room, sized to be read across the office. */
+/**
+ * نداء إدخال شاحنة كما يراه المكتب: أحمرُ نابض لا يزول حتى يجيبه أحد — لا
+ * يعتمد على صوت، فأجهزتهم صامتة. يُعرض في مكانين: شريطاً فوق رأس الخريطة
+ * يدفع الصفحة للأسفل فلا يغطي البحث ولا القائمة، ومعلّقاً في أعلى بقية
+ * الشاشات حيث لا رأس يقف فوقه.
+ */
+function GateCallBar(props: {
+  calls: readonly GateCallRow[];
+  onAnswer: (id: number) => void;
+}): ReactElement {
+  return (
+    <div className="flex w-full flex-col gap-2 rounded-2xl border-4 border-red-500 bg-red-50 p-3 shadow-lg motion-safe:animate-pulse dark:bg-red-950">
+      {props.calls.map((call) => (
+        <div key={call.id} className="flex flex-wrap items-center gap-2">
+          <span className="text-base font-extrabold text-red-800 dark:text-red-200">
+            {AR.callGateAlert(AR.machineName[call.machine as 'CRANE' | 'STRADDLE'] ?? call.machine, 1)}
+          </span>
+          <span className="text-xs font-bold text-red-700 dark:text-red-300">
+            {AR.callGateWaiting(call.by)}
+          </span>
+          <span className="ms-auto">
+            <Button
+              onClick={() => {
+                props.onAnswer(call.id);
+              }}
+            >
+              {AR.callGateAnswer}
+            </Button>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function FreeChip(props: { label: string; onClick: () => void }): ReactElement {
   return (
     <button

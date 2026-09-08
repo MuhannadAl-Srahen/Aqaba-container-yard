@@ -3201,3 +3201,15 @@ Two orders, one of them a hole I left open in المرحلة 65.
 - 443 tests green. The exit's routing verified end to end on a scratch
   yard: straddle in, crane chosen at the gate, the task on the crane's
   queue alone, مناولة untouched.
+- **The gate call banner stopped covering the header.** He asked whether
+  the on-screen alerts actually work, so both were driven end to end on a
+  scratch yard with two real accounts in two browser contexts: the driver
+  pressed «إدخال شاحنة» and the clerk's screen raised the red pulsing bar
+  within one poll; the clerk gated a container in and the driver's map
+  raised «وصل أمر جديد بحاوية»; «سجّلتها» cleared it. Both work. What the
+  screenshots showed is that the red bar was `fixed top-2` and sat ON the
+  header — over the search box and the nav on a desktop, over the whole
+  top strip including «القائمة» on a 393px phone. It is now one component
+  (`GateCallBar`) placed twice: a bar above the map's header that pushes
+  the page down and covers nothing, and the floating copy only on the
+  screens that have no header of their own to sit above.
