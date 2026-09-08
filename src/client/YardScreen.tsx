@@ -155,6 +155,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
+  /** الهاتف: كل شاشات الرأس تحت زر واحد، فيبقى الرأس سطراً والخريطة هي الشاشة. */
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Who is working: the header, the sheets and the card only offer what this
   // person is allowed to do. The server is still the one that refuses.
@@ -256,6 +258,136 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     !tasksView &&
     !monitorView &&
     !batchesView;
+
+  /**
+   * The screens this person may open, as a LIST. The header spreads it
+   * across the bar on a desk screen and folds it under «القائمة» on a
+   * phone — one source, so the two can never offer different doors.
+   */
+  const navItems: Array<{
+    key: string;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+  }> = [];
+  if (me !== null && me.machine !== '') {
+    navItems.push({
+      key: 'my-tasks',
+      label:
+        pendingCount > 0 ? `${AR.myTasksButton} (${String(pendingCount)})` : AR.myTasksButton,
+      onClick: () => {
+        setTasksView(true);
+      },
+    });
+  }
+  if (isOwner || may('GATE_IN') || may('GATE_OUT')) {
+    navItems.push({
+      key: 'tasks',
+      label: AR.tasksButton,
+      onClick: () => {
+        setMonitorView(true);
+      },
+    });
+  }
+  if (isOwner || may('GATE_IN') || may('REPORTS')) {
+    navItems.push({
+      key: 'batches',
+      label: AR.batchesButton,
+      onClick: () => {
+        setBatchesView(true);
+      },
+    });
+  }
+  if (may('ACCOUNTING')) {
+    navItems.push({
+      key: 'drivers',
+      label: AR.driversButton,
+      onClick: () => {
+        setDriversView(true);
+      },
+    });
+  }
+  if (may('REPORTS')) {
+    navItems.push(
+      {
+        key: 'reports',
+        label: AR.reports,
+        onClick: () => {
+          setReporting(true);
+        },
+      },
+      {
+        key: 'log',
+        label: AR.logButton,
+        onClick: () => {
+          setLogView(true);
+        },
+      },
+    );
+  }
+  if (isOwner) {
+    navItems.push(
+      {
+        key: 'users',
+        label: AR.usersButton,
+        onClick: () => {
+          setUsersView(true);
+        },
+      },
+      {
+        key: 'carriers',
+        label: AR.carriersButton,
+        onClick: () => {
+          setCarriersView(true);
+        },
+      },
+      {
+        key: 'zones',
+        label: AR.zonesButton,
+        onClick: () => {
+          setZonesView(true);
+        },
+      },
+    );
+  }
+  navItems.push({
+    key: 'backup',
+    label: backingUp ? AR.backupWorking : AR.backup,
+    disabled: backingUp,
+    onClick: () => {
+      setBackingUp(true);
+      api
+        .backup()
+        .then(({ blob, filename }) => {
+          // Two copies from one tap: the server kept its own, and this one
+          // lands in the browser's downloads.
+          downloadBlob(blob, filename);
+          setToast(AR.backupDone);
+          setBackingUp(false);
+        })
+        .catch((failure: unknown) => {
+          setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+          setBackingUp(false);
+        });
+    },
+  });
+  if (isOwner) {
+    // Temporary, for the training period — see OwnerToolsScreen.
+    navItems.push({
+      key: 'tools',
+      label: AR.toolsButton,
+      onClick: () => {
+        setToolsView(true);
+      },
+    });
+  }
+  navItems.push({
+    key: 'logout',
+    label: AR.logout,
+    onClick: () => {
+      void api.logout().then(props.onUnauthorized);
+    },
+  });
 
   // The map is the shared picture of the ground, so it is the fastest poll:
   // whatever the gate does has to reach the office within a few seconds.
@@ -996,138 +1128,70 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
           {/* Only what this person may actually do reaches the header. The
               server refuses the rest regardless — this is just courtesy. */}
-          <div className="ms-auto flex items-center gap-1.5">
+          {/* Only what this person may actually do reaches the header. The
+              server refuses the rest regardless — this is just courtesy.
+
+              The buttons are a LIST, not a row of JSX, because they are
+              rendered twice: spread across the bar on a desk screen, and
+              folded under «القائمة» on a phone. They used to be one
+              unwrapped row, and every feature added another button to it —
+              1004 pixels of them inside a 393-pixel screen, which is why the
+              yard looked torn open on his phone: «عند اضافة اي شيئ عند
+              الخريطة يصبح العرض سيئ». */}
+          <div className="ms-auto flex flex-wrap items-center justify-end gap-1.5">
             <ThemePicker />
-            {me !== null && me.machine !== '' && (
+            <div className="hidden flex-wrap items-center justify-end gap-1.5 lg:flex">
+              {navItems.map((item) => (
+                <Button key={item.key} kind="quiet" disabled={item.disabled ?? false} onClick={item.onClick}>
+                  {item.label}
+                </Button>
+              ))}
+              <span className="hidden text-xs font-bold text-muted lg:block">{me?.name}</span>
+            </div>
+            {/* الهاتف: زر واحد يفتح كل الشاشات، فيبقى الرأس سطراً واحداً
+                والخريطة هي الشاشة — «افتح الهاتف اكثر في حال كان في تجول
+                في الساحة». */}
+            <div className="relative lg:hidden">
               <Button
                 kind="quiet"
                 onClick={() => {
-                  setTasksView(true);
+                  setMenuOpen(!menuOpen);
                 }}
               >
-                {pendingCount > 0 ? `${AR.myTasksButton} (${String(pendingCount)})` : AR.myTasksButton}
+                {AR.menuButton}
               </Button>
-            )}
-            {(isOwner || may('GATE_IN') || may('GATE_OUT')) && (
-              <Button
-                kind="quiet"
-                onClick={() => {
-                  setMonitorView(true);
-                }}
-              >
-                {AR.tasksButton}
-              </Button>
-            )}
-            {(isOwner || may('GATE_IN') || may('REPORTS')) && (
-              <Button
-                kind="quiet"
-                onClick={() => {
-                  setBatchesView(true);
-                }}
-              >
-                {AR.batchesButton}
-              </Button>
-            )}
-            {may('ACCOUNTING') && (
-              <Button
-                kind="quiet"
-                onClick={() => {
-                  setDriversView(true);
-                }}
-              >
-                {AR.driversButton}
-              </Button>
-            )}
-            {may('REPORTS') && (
-              <>
-                <Button
-                  kind="quiet"
-                  onClick={() => {
-                    setReporting(true);
-                  }}
-                >
-                  {AR.reports}
-                </Button>
-                <Button
-                  kind="quiet"
-                  onClick={() => {
-                    setLogView(true);
-                  }}
-                >
-                  {AR.logButton}
-                </Button>
-              </>
-            )}
-            {isOwner && (
-              <>
-                <Button
-                  kind="quiet"
-                  onClick={() => {
-                    setUsersView(true);
-                  }}
-                >
-                  {AR.usersButton}
-                </Button>
-                <Button
-                  kind="quiet"
-                  onClick={() => {
-                    setCarriersView(true);
-                  }}
-                >
-                  {AR.carriersButton}
-                </Button>
-                <Button
-                  kind="quiet"
-                  onClick={() => {
-                    setZonesView(true);
-                  }}
-                >
-                  {AR.zonesButton}
-                </Button>
-                <Button
-                  kind="quiet"
-                  disabled={backingUp}
-                  onClick={() => {
-                    setBackingUp(true);
-                    api
-                      .backup()
-                      .then(({ blob, filename }) => {
-                        // Two copies from one tap: the server kept its own,
-                        // and this one lands in the browser's downloads.
-                        downloadBlob(blob, filename);
-                        setToast(AR.backupDone);
-                        setBackingUp(false);
-                      })
-                      .catch((failure: unknown) => {
-                        setToast(
-                          failure instanceof ApiFailure ? failure.arabic : AR.networkError,
-                        );
-                        setBackingUp(false);
-                      });
-                  }}
-                >
-                  {backingUp ? AR.backupWorking : AR.backup}
-                </Button>
-                {/* Temporary, for the training period — see OwnerToolsScreen. */}
-                <Button
-                  kind="quiet"
-                  onClick={() => {
-                    setToolsView(true);
-                  }}
-                >
-                  {AR.toolsButton}
-                </Button>
-              </>
-            )}
-            <span className="hidden text-xs font-bold text-muted lg:block">{me?.name}</span>
-            <Button
-              kind="quiet"
-              onClick={() => {
-                void api.logout().then(props.onUnauthorized);
-              }}
-            >
-              {AR.logout}
-            </Button>
+              {menuOpen && (
+                <>
+                  <button
+                    type="button"
+                    aria-label={AR.close}
+                    className="fixed inset-0 z-20 cursor-default"
+                    onClick={() => {
+                      setMenuOpen(false);
+                    }}
+                  />
+                  <div className="absolute end-0 z-30 mt-1 max-h-[70dvh] w-56 overflow-y-auto rounded-xl border border-line bg-surface p-1 shadow-2xl">
+                    {me?.name !== undefined && me.name !== '' && (
+                      <p className="px-3 py-1.5 text-xs font-bold text-faint">{me.name}</p>
+                    )}
+                    {navItems.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        disabled={item.disabled ?? false}
+                        className="block w-full rounded-lg px-3 py-2.5 text-start text-sm font-semibold text-ink hover:bg-sunken disabled:opacity-40"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          item.onClick();
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 

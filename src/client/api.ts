@@ -490,6 +490,12 @@ export const api = {
     request('/api/permits', { method: 'POST', body: JSON.stringify(input) }),
 
   /** كشف خروج وتحميل داخلي: the permits issued in a period. */
+  /** أي من هذه الحاويات له تصريح حيّ بالفعل — the second-paper warning. */
+  permitsFor: (
+    ids: readonly number[],
+  ): Promise<{ rows: Array<{ containerId: number; serial: number; serialYear: number; at: string }> }> =>
+    request(`/api/permits/for?ids=${ids.join(',')}`),
+
   reportPermits: (fromIso: string, toIso: string): Promise<{ rows: PermitReportRow[] }> =>
     request(
       `/api/permits?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,

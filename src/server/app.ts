@@ -898,6 +898,21 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return { rows: store.listPermits(db, range.from, range.to) };
   });
 
+  /**
+   * أي من هذه الحاويات له تصريح حيّ — the warning the issue screen shows
+   * before a second paper is stamped for the same box.
+   */
+  app.get('/api/permits/for', (request) => {
+    requirePerm(request, 'GATE_OUT');
+    const query = request.query as { ids?: string };
+    const ids = (query.ids ?? '')
+      .split(',')
+      .map((part) => Number(part.trim()))
+      .filter((id) => Number.isInteger(id) && id > 0)
+      .slice(0, 500);
+    return { rows: store.permitsOfContainers(db, ids) };
+  });
+
   /** One permit, exactly as issued — for reprinting from its register row. */
   app.get('/api/permits/:id', (request): PermitDto => {
     requirePerm(request, 'REPORTS');

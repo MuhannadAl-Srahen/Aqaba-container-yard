@@ -3096,3 +3096,34 @@ box, and a print button. A separate component rather than a mode of
 PrintCard because it has no container behind it at all — nothing to
 fetch and nothing to invent. The register's voided row draws «بطاقة»
 alone (never «تعديل»).
+
+## المرحلة 64 — الهاتف يستعيد شاشته، والعدّاد لا ينزل — 2026-09-08
+
+Four orders in one message, and one of them explains a complaint he has
+carried for weeks: «اريد ان يكون النظام على الهاتف معروض بشكل جيد… عند
+اضافة اي شيئ عند الخريطة يصبح العرض سيئ».
+
+- **The phone.** Measured on his own screen size (Poco X5 Pro 5G, 393 CSS
+  px): the document was **1016 px wide** — the page scrolled sideways and
+  the yard sat torn in half. The cause was one row: the header's button
+  group was `flex items-center` with NO wrap, 1004 px of buttons, and
+  every feature shipped added another one. So his observation was
+  literally true. The group is now a LIST rendered twice — spread across
+  the bar on a desk screen, folded under «القائمة» on a phone — and both
+  wrappers wrap, so no future button can prise the page open again.
+- **قفل رقم بطاقة الخروج**: `nextCardNumber` now keeps a high-water mark
+  per kind and year in `settings` and takes the greater of it and the
+  records. إلغاء الخروج voids a card by clearing it off the record, so
+  cancelling the NEWEST departure used to drop the maximum and hand an
+  already-printed number to the next box out. The wipe clears the marks
+  with the other counters.
+- **The exit register's four holes** become «بطاقة ملغاة» like the entry
+  book's two — one condition removed. Interior holes only, which is what
+  keeps a one-day range from inventing three hundred stubs.
+- **تنبيه التصريح المكرر**: `permitsOfContainers` + GET /api/permits/for;
+  the issue sheet marks every container that already holds a live permit
+  with its serial, and says the reprint button costs no new number. 86
+  containers in his book carry two papers or more.
+- Not taken, by his word: normalising truck plates — «اغلبهم سيارات غير
+  اردنية… ونحن نختص فقط بالدخول». And the bill typo he had already
+  corrected himself.

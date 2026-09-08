@@ -117,6 +117,10 @@ export function registerOwnerTools(
       // One counter per year now, so the wipe clears the whole family.
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
       db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
+      // The high-water marks are counters too: practice data must not leave
+      // the real book starting at four hundred.
+      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_high\\_%' ESCAPE '\\'");
+      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_high\\_%' ESCAPE '\\'");
       db.exec(
         "DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements', 'permits', 'permit_items', 'tasks', 'batches', 'batch_rows')",
       );

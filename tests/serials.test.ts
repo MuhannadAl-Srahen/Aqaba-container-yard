@@ -260,22 +260,23 @@ describe('بطاقة ملغاة — the stub that keeps the numbering whole', ()
     expect(rows.filter((row) => row['voided'] === true)).toHaveLength(1);
   });
 
-  it('the exit register keeps its own holes — the owner asked for the entry cards alone', async () => {
+  it('a cancelled exit leaves its number standing, empty, in the exit register', async () => {
     const one = (await gateIn('VOID0000004', 7)).id;
     const two = (await gateIn('VOID0000005', 9)).id;
-    // The first exit takes card 1, is cancelled, and a second exit follows —
-    // so card 1 belongs to nobody and card 2 is the next paper printed.
-    await call({
-      method: 'POST',
-      url: `/api/containers/${String(one)}/exit`,
-      payload: { truck: '60-22222', driver: '' },
-    });
-    await call({ method: 'POST', url: `/api/containers/${String(one)}/unexit`, payload: {} });
-    await call({
-      method: 'POST',
-      url: `/api/containers/${String(two)}/exit`,
-      payload: { truck: '60-33333', driver: '' },
-    });
+    const three = (await gateIn('VOID0000006', 11)).id;
+    const out = async (id: number, truck: string): Promise<void> => {
+      await call({
+        method: 'POST',
+        url: `/api/containers/${String(id)}/exit`,
+        payload: { truck, driver: '' },
+      });
+    };
+    // Cards 1, 2, 3 — then the middle departure is taken back, so 2 belongs
+    // to nobody and sits between two real papers.
+    await out(one, '60-22222');
+    await out(two, '60-33333');
+    await out(three, '60-44444');
+    await call({ method: 'POST', url: `/api/containers/${String(two)}/unexit`, payload: {} });
 
     const range = {
       from: new Date(Date.now() - 86_400_000).toISOString(),
@@ -286,10 +287,53 @@ describe('بطاقة ملغاة — the stub that keeps the numbering whole', ()
       url: `/api/reports/gate?type=OUT&from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`,
     });
     const rows = (report.body as { rows: Array<Record<string, unknown>> }).rows;
-    // The cancelled exit is not a departure, and its voided number is NOT
-    // stubbed: the exit register still shows its hole, by his own scope.
-    expect(rows).toHaveLength(1);
-    expect(rows[0]?.['number']).toBe('VOID0000005');
-    expect(rows.some((row) => row['voided'] === true)).toBe(false);
+    const real = rows.filter((row) => row['voided'] !== true);
+    expect(real.map((row) => row['number'])).toEqual(['VOID0000004', 'VOID0000006']);
+    const stub = rows.find((row) => row['voided'] === true);
+    expect(stub?.['card']).toBe(2);
+    expect(stub?.['number']).toBe('');
+    expect(stub?.['dwellDays']).toBeNull();
+  });
+});
+
+describe('قفل رقم بطاقة الخروج — العدّاد لا ينزل', () => {
+  /**
+   * «إلغاء الخروج» clears the exit card off the record. Reading the records
+   * alone, cancelling the NEWEST departure dropped the maximum and handed
+   * its number to the next box out — two papers, one number. The mark
+   * remembers what was issued even when nothing carries it any more.
+   */
+  it('a cancelled newest exit does not hand its number to the next departure', async () => {
+    const one = (await gateIn('HIGH0000001', 1)).id;
+    const two = (await gateIn('HIGH0000002', 3)).id;
+
+    const first = await call({
+      method: 'POST',
+      url: `/api/containers/${String(one)}/exit`,
+      payload: { truck: '60-22222', driver: '' },
+    });
+    expect((first.body as unknown as ContainerDto).cardOut).toBe(1);
+
+    // Taken back at once: nothing else has left, so the records now hold no
+    // exit card at all — the old rule would start again at 1.
+    await call({ method: 'POST', url: `/api/containers/${String(one)}/unexit`, payload: {} });
+    expect((await detail(one)).cardOut).toBeNull();
+
+    const second = await call({
+      method: 'POST',
+      url: `/api/containers/${String(two)}/exit`,
+      payload: { truck: '60-33333', driver: '' },
+    });
+    expect((second.body as unknown as ContainerDto).cardOut).toBe(2);
+
+    // And 1 belongs to nobody, for ever: nothing carries it.
+    expect((await detail(one)).cardOut).toBeNull();
+  });
+
+  it('the entry count climbs the same way when a record is struck', async () => {
+    const only = (await gateIn('HIGH0000003', 5)).id;
+    await call({ method: 'DELETE', url: `/api/containers/${String(only)}` });
+    // The struck record keeps its 1, so the next is 2 — as it always was.
+    expect((await gateIn('HIGH0000004', 7)).cardIn).toBe(2);
   });
 });

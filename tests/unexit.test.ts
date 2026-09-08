@@ -180,13 +180,17 @@ describe('taking an exit back', () => {
     expect(back.body.code).toBe('NOT_EXITED');
   });
 
-  it('lets it leave again afterwards, with a fresh card', async () => {
+  it('lets it leave again afterwards, under a NEW number', async () => {
     const entered = await gateIn('BACK0009', slot(15, 1, 'A'));
     await gateOut(entered.body.id);
     await unexit(entered.body.id);
     const again = await gateOut(entered.body.id);
     expect(again.status).toBe(200);
-    expect(again.body.cardOut).toBe(1);
+    // Card 1 was printed once and voided; the second departure takes 2.
+    // This used to read 1 — cancelling the newest exit dropped the count
+    // and handed a number that had already been printed to another paper.
+    // «قفل رقم بطاقة الخروج فلا ينزل العدّاد أبداً».
+    expect(again.body.cardOut).toBe(2);
     expect(again.body.exitedAt).not.toBeNull();
   });
 

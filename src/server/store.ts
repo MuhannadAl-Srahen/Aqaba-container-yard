@@ -1019,7 +1019,28 @@ export function nextCardNumber(db: DatabaseSync, kind: 'in' | 'out', year: numbe
       `SELECT MAX(${serial}) AS top FROM containers WHERE ${stamped} = ?`,
     )
     .get(year) as { top: number | null };
-  return (row.top ?? 0) + 1;
+
+  /**
+   * The high-water mark, so a count can only ever climb.
+   *
+   * Reading the records alone was one path short. «إلغاء الخروج» VOIDS an
+   * exit card — it clears the number off the record — so cancelling the
+   * NEWEST departure dropped the maximum, and the next box out was handed a
+   * number already printed and carried away on somebody's paper. Two papers,
+   * one number, which is the one thing this book may never do. The mark
+   * remembers what was issued even when nothing carries it any more.
+   */
+  const key = `card_${kind}_high_${String(year)}`;
+  const mark = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+    | { value: string }
+    | undefined;
+  const issued = mark === undefined ? 0 : Number(mark.value);
+  const next = Math.max(row.top ?? 0, Number.isFinite(issued) ? issued : 0) + 1;
+  db.prepare(
+    `INSERT INTO settings (key, value) VALUES (?, ?)
+       ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+  ).run(key, String(next));
+  return next;
 }
 
 /**
@@ -1157,12 +1178,10 @@ export function listGateMovements(
     enteredAt: row.entered_at,
   }));
 
-  // A number the ENTRY register would otherwise skip stands in its own
-  // place, carrying nothing, so the count of entry cards never reads as
-  // though a page were torn out. The exit register keeps its holes: the
-  // owner asked for the two entry cards by name and no more — «لا اريد
-  // الستة». Turning it on there later is this one condition.
-  return type === 'IN' ? withVoidedSerials(mapped) : mapped;
+  // A number either register would otherwise skip stands in its own place,
+  // carrying nothing, so neither book reads as though a page were torn out —
+  // «الأربعة الباقية في كشف الخروج تصير بطاقة ملغاة مثل اخواتها».
+  return withVoidedSerials(mapped);
 }
 
 export interface GateReportRowInternal {
@@ -2494,4 +2513,33 @@ export function listOrphanWages(db: DatabaseSync): OrphanWageRow[] {
           ? OWNER_NAME
           : (names[String(row.paidBy)] ?? OWNER_NAME),
   }));
+}
+
+/**
+ * أي حاويات هذه لها تصريح حيّ بالفعل — «تنبيه عند إصدار تصريح ثانٍ لنفس
+ * الحاوية». Found live: 86 containers carry two papers or more, because a
+ * clerk wanting a second copy issued a NEW permit instead of reprinting the
+ * one that exists. The screen warns before the stamp; nothing is refused.
+ */
+export function permitsOfContainers(
+  db: DatabaseSync,
+  ids: readonly number[],
+): Array<{ containerId: number; serial: number; serialYear: number; at: string }> {
+  if (ids.length === 0) return [];
+  const marks = ids.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT i.container_id AS containerId, p.serial AS serial,
+              p.serial_year AS serialYear, p.at AS at
+         FROM permit_items i
+         JOIN permits p ON p.id = i.permit_id
+        WHERE p.deleted_at IS NULL AND i.container_id IN (${marks})
+        ORDER BY p.serial_year, p.serial`,
+    )
+    .all(...ids) as unknown as Array<{
+    containerId: number;
+    serial: number;
+    serialYear: number;
+    at: string;
+  }>;
 }

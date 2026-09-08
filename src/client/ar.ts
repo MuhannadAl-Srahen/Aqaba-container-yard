@@ -75,6 +75,11 @@ export const AR = {
     'أو اترك الرقم فارغاً ليُكتب على الورقة يدوياً. الحاوية التي خرجت من البوابة ' +
     'تظهر هنا أيضاً ومعها سيارة خروجها.',
   permitNoContainers: 'لا توجد حاويات على هذه البوليصة.',
+  /** «تنبيه عند إصدار تصريح ثانٍ لنفس الحاوية» — a warning, never a bar. */
+  permitAlready: (serials: string): string => `لها تصريح: ${serials}`,
+  permitAlreadyHint:
+    'الحاويات المعلّمة بالكهرماني صدر لها تصريح من قبل. لإعادة طباعة الورقة نفسها ' +
+    'بلا رقم جديد استعمل زر «التصريح» في كشف خروج وتحميل داخلي.',
   /** Chip on a permit line whose container already left through the gate. */
   permitExited: 'خرجت',
   permitIssue: 'إصدار التصريح',
@@ -871,6 +876,8 @@ export const AR = {
   cardNumber: 'الرقم',
   cardDay: 'اليوم',
   cardDate: 'التاريخ',
+  /** الهاتف: كل شاشات الرأس تحت زر واحد. */
+  menuButton: 'القائمة',
   /** البيان of a stub kept so the numbering never breaks. */
   statementVoid: 'بطاقة ملغاة',
   /** The stub's own paper — «اريد القدرة على طباعة البطاقة الملغاة». */

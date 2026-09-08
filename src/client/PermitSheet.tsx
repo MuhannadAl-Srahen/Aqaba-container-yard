@@ -46,6 +46,24 @@ export function PermitSheet(props: {
 
   const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, staleTime: 60_000 });
 
+  /**
+   * «تنبيه عند إصدار تصريح ثانٍ لنفس الحاوية»: 86 containers in his own book
+   * carry two papers or more, because a clerk wanting another copy issued a
+   * NEW permit instead of reprinting the one that already exists. A warning
+   * here, never a bar — a second paper is sometimes exactly right.
+   */
+  const already = useQuery({
+    queryKey: ['permits-for', listed.map((container) => container.id).join(',')],
+    queryFn: () => api.permitsFor(listed.map((container) => container.id)),
+    enabled: listed.length > 0,
+  });
+  const priorPermits = new Map<number, string[]>();
+  for (const row of already.data?.rows ?? []) {
+    const list = priorPermits.get(row.containerId) ?? [];
+    list.push(`${String(row.serial).padStart(4, '0')}/${String(row.serialYear)}`);
+    priorPermits.set(row.containerId, list);
+  }
+
   const toggle = (id: number): void => {
     const next = new Set(picked);
     if (next.has(id)) next.delete(id);
@@ -91,6 +109,11 @@ export function PermitSheet(props: {
           }}
         >
           <p className="text-xs leading-5 text-faint">{AR.permitCreateHint}</p>
+          {priorPermits.size > 0 && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              {AR.permitAlreadyHint}
+            </p>
+          )}
 
           <ul className="divide-y divide-line rounded-xl border border-line">
             {listed.map((container) => {
@@ -124,6 +147,11 @@ export function PermitSheet(props: {
                     {container.position === null && (
                       <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-amber-600">
                         {AR.permitExited}
+                      </span>
+                    )}
+                    {priorPermits.has(container.id) && (
+                      <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                        {AR.permitAlready((priorPermits.get(container.id) ?? []).join('، '))}
                       </span>
                     )}
                   </label>
