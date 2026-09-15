@@ -1913,10 +1913,15 @@ export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): P
   const names = listUserNames(db);
   const rows = db
     .prepare(
+      // BY NUMBER, not by the clock. The permit register is a numbered
+      // BOOK: the clerk walks down it looking for a serial, and the row
+      // counter beside it has to agree with the number printed on the
+      // paper. Ordered by time they part company the moment a serial is
+      // reissued out of sequence — «فتحت التسلسل 290 طلعتلي 293».
       `SELECT p.*, (SELECT COUNT(*) FROM permit_items i WHERE i.permit_id = p.id) AS containers
        FROM permits p
        WHERE p.at >= ? AND p.at < ? AND p.deleted_at IS NULL
-       ORDER BY p.at, p.id`,
+       ORDER BY p.serial_year, p.serial, p.id`,
     )
     .all(fromIso, toIso) as unknown as Array<PermitRow & { containers: number }>;
   return rows.map((row) => ({

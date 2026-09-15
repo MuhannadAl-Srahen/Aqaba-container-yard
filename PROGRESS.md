@@ -3213,3 +3213,15 @@ Two orders, one of them a hole I left open in المرحلة 65.
   (`GateCallBar`) placed twice: a bar above the map's header that pushes
   the page down and covers nothing, and the floating copy only on the
   screens that have no header of their own to sit above.
+
+## المرحلة 67 — دفتر التصاريح يُقرأ بالرقم لا بالساعة — 2026-09-15
+
+- **كشف التصاريح كان مرتّباً بالوقت** (`ORDER BY p.at`) بينما الموظف
+  يمشي فيه بالرقم التسلسلي. ما دامت الأرقام تُسكّ تصاعدياً كان الترتيبان
+  واحداً، فلم يظهر الفرق. وحين أُلغي تصريحان وأخذ آخر تصريحين مكانهما
+  بطلب المالك، نزل الرقمان 290 و291 إلى ذيل الكشف (لأنهما صدرا آخر
+  النهار) فاختلف عدّاد الأسطر عن عمود التسلسل: «وانا ماشي على الرقم
+  التسلسلي فتحت التسلسل 290 طلعتلي 293». الكشف دفتر مرقّم — صار يُرتَّب
+  `ORDER BY p.serial_year, p.serial` فيعود السطر يطابق رقمه.
+- tests/permits.test.ts: ورقة تُلغى وأخرى تأخذ رقمها، والكشف يعود
+  بالترتيب 1 ثم 2 مهما كانت ساعة الختم. 444 اختباراً.

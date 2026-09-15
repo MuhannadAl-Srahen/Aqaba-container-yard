@@ -194,6 +194,30 @@ describe('كشف خروج وتحميل داخلي', () => {
     expect(paper.body.items.map((item) => item.number)).toEqual(['PERM0070', 'PERM0086']);
   });
 
+  it('reads by NUMBER, not by the clock — the row beside a serial is that serial', async () => {
+    // Three papers, issued in order, then the last one reissued into an
+    // earlier number the way a cancelled pair is filled. Ordered by time it
+    // would sit at the foot of the book and every row after it would name a
+    // serial that is not its own — «فتحت التسلسل 290 طلعتلي 293».
+    const a = await gateIn('PERM0133', slot(13, 1), '3210');
+    const b = await gateIn('PERM0148', slot(13, 2), '3210');
+    const c = await gateIn('PERM0164', slot(15, 1), '3210');
+    await issue('3210', [{ containerId: a.body.id, truck: '' }]);
+    const middle = await issue('3210', [{ containerId: b.body.id, truck: '' }]);
+    const last = await issue('3210', [{ containerId: c.body.id, truck: '' }]);
+    expect(last.body.serial).toBe(3);
+
+    // The middle paper is struck and the newest takes its number.
+    await call({ method: 'DELETE', url: `/api/permits/${String(middle.body.id)}` });
+    db.prepare('UPDATE permits SET serial = 2 WHERE id = ?').run(last.body.id);
+
+    const listed = await call({ method: `GET`, url: `/api/permits?${range()}` });
+    expect(listed.status).toBe(200);
+    expect(listed.body.rows.map((row) => row.serial)).toEqual([1, 2]);
+    // Row two IS serial two, whatever hour it was stamped at.
+    expect(listed.body.rows[1]?.serial).toBe(2);
+  });
+
   it('a reprint reads as the stamped original, however the record changes after', async () => {
     await gateIn('PERM0102', slot(11, 1), '9999');
     const listed = await gateIn('PERM0117', slot(11, 2), '3210');
