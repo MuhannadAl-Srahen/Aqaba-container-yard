@@ -2451,6 +2451,16 @@ export function getBatch(db: DatabaseSync, id: number): BatchDto | null {
   };
 }
 
+/**
+ * تعديل اسم الكشف: the name is the office's own label for a دفعة — taken
+ * from the file it arrived in and often wrong there — not a fact the sheet
+ * carried. It is the one thing about a batch that may be corrected; the rows
+ * are what the customs sheet said and they never change.
+ */
+export function renameBatch(db: DatabaseSync, id: number, name: string): void {
+  db.prepare('UPDATE batches SET name = ? WHERE id = ? AND deleted_at IS NULL').run(name, id);
+}
+
 export function softDeleteBatch(db: DatabaseSync, id: number, at: string): void {
   db.prepare('UPDATE batches SET deleted_at = ? WHERE id = ?').run(at, id);
 }

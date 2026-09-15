@@ -648,6 +648,8 @@ export const AR = {
   batchSizeMismatch: (batchSize: Size, baySize: Size): string =>
     `الكشف يسجّلها فئة ${String(batchSize)} وهذه الخانة لفئة ${String(baySize)}. ` +
     'تأكد من الرقم أو اختر خانة تناسب فئتها.',
+  batchRenameAction: 'تعديل الاسم',
+  batchRenamed: 'تم تعديل اسم الكشف.',
   batchDeleteAction: 'حذف الدفعة',
   confirmBatchDeleteTitle: 'حذف الدفعة',
   confirmBatchDeleteBody: (name: string): string =>

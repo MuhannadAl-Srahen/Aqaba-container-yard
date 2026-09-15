@@ -1020,6 +1020,24 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   });
 
+  /**
+   * تعديل اسم الكشف — «بدي كمان القدرة على تعديل اسم الكشف». The label,
+   * and only the label: whoever may file a دفعة may correct what it is
+   * called. Its rows are the customs sheet's own words and stay untouched.
+   */
+  app.patch('/api/batches/:id', (request): BatchDto => {
+    requireBatchUpload(request);
+    const id = idParam(request);
+    const body = parseOrRefuse(z.object({ name: z.string().trim().min(1).max(80) }), request.body);
+    return transaction(db, () => {
+      if (store.getBatch(db, id) === null) refuse(404, 'NOT_FOUND');
+      store.renameBatch(db, id, body.name);
+      const batch = store.getBatch(db, id);
+      if (batch === null) throw new Error('unreachable');
+      return batch;
+    });
+  });
+
   /** The gate's live question while a number is being typed. */
   app.get('/api/batches/lookup', (request): { match: BatchMatch | null } => {
     requireBatchUpload(request);

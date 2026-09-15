@@ -171,7 +171,15 @@ export function BatchesScreen(props: {
   const queryClient = useQueryClient();
   const [openId, setOpenId] = useState<number | null>(null);
   const [review, setReview] = useState<{ file: File; name: string; rows: readonly BatchRowDto[] } | null>(null);
-  const [confirming, setConfirming] = useState<'approve' | 'delete' | null>(null);
+  const [confirming, setConfirming] = useState<'approve' | null>(null);
+  /**
+   * الدفعة المرشحة للحذف — تُسمّى صراحةً لأن الحذف صار يُطلب من مكانين:
+   * من داخل الدفعة المفتوحة، ومن سطرها في القائمة مباشرة كما يُحذف
+   * التصريح من كشفه.
+   */
+  const [striking, setStriking] = useState<{ id: number; name: string } | null>(null);
+  /** مسودة الاسم أثناء تعديله — null يعني أن الاسم يُقرأ لا يُكتب. */
+  const [renaming, setRenaming] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -243,21 +251,40 @@ export function BatchesScreen(props: {
       });
   };
 
-  const strike = (): void => {
-    if (openId === null) return;
+  const rename = (id: number): void => {
+    if (renaming === null || renaming.trim() === '') return;
     setBusy(true);
     api
-      .removeBatch(openId)
+      .renameBatch(id, renaming.trim())
+      .then(() => {
+        setToast(AR.batchRenamed);
+        setRenaming(null);
+        void queryClient.invalidateQueries({ queryKey: ['batches'] });
+        void queryClient.invalidateQueries({ queryKey: ['batch', id] });
+      })
+      .catch(fail)
+      .finally(() => {
+        setBusy(false);
+      });
+  };
+
+  const strike = (): void => {
+    if (striking === null) return;
+    const id = striking.id;
+    setBusy(true);
+    api
+      .removeBatch(id)
       .then(() => {
         setToast(AR.batchDeleted);
-        setOpenId(null);
+        // Close the detail only if it is the struck batch on screen.
+        if (openId === id) setOpenId(null);
         void queryClient.invalidateQueries({ queryKey: ['batches'] });
         void queryClient.invalidateQueries({ queryKey: ['batch-lookup'] });
       })
       .catch(fail)
       .finally(() => {
         setBusy(false);
-        setConfirming(null);
+        setStriking(null);
       });
   };
 
@@ -326,7 +353,24 @@ export function BatchesScreen(props: {
         {review === null && detail !== null && (
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-extrabold text-ink">{detail.name}</h2>
+              {/* الاسم يُقرأ، وبضغطة يُكتب — «بدي القدرة على تعديل اسم الكشف». */}
+              {renaming === null ? (
+                <h2 className="text-base font-extrabold text-ink">{detail.name}</h2>
+              ) : (
+                <input
+                  className={`${inputClass} max-w-xs`}
+                  maxLength={80}
+                  value={renaming}
+                  autoFocus
+                  onChange={(event) => {
+                    setRenaming(event.target.value);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') rename(detail.id);
+                    if (event.key === 'Escape') setRenaming(null);
+                  }}
+                />
+              )}
               <span className="text-xs text-faint" dir="ltr">
                 {formatDate(detail.createdAt)}
               </span>
@@ -334,11 +378,42 @@ export function BatchesScreen(props: {
                 {AR.batchCreatedBy(detail.createdBy)}
               </span>
               <div className="ms-auto flex items-center gap-1.5">
+                {props.canUpload &&
+                  (renaming === null ? (
+                    <Button
+                      kind="quiet"
+                      onClick={() => {
+                        setRenaming(detail.name);
+                      }}
+                      disabled={busy}
+                    >
+                      {AR.batchRenameAction}
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        onClick={() => {
+                          rename(detail.id);
+                        }}
+                        disabled={busy || renaming.trim() === ''}
+                      >
+                        {AR.save}
+                      </Button>
+                      <Button
+                        kind="quiet"
+                        onClick={() => {
+                          setRenaming(null);
+                        }}
+                      >
+                        {AR.cancel}
+                      </Button>
+                    </>
+                  ))}
                 {props.isOwner && (
                   <Button
                     kind="danger"
                     onClick={() => {
-                      setConfirming('delete');
+                      setStriking({ id: detail.id, name: detail.name });
                     }}
                     disabled={busy}
                   >
@@ -348,6 +423,7 @@ export function BatchesScreen(props: {
                 <Button
                   kind="quiet"
                   onClick={() => {
+                    setRenaming(null);
                     setOpenId(null);
                   }}
                 >
@@ -419,40 +495,57 @@ export function BatchesScreen(props: {
             {batches.map((batch: BatchSummaryDto) => {
               const complete = batch.total > 0 && batch.arrived === batch.total;
               return (
-                <button
+                <div
                   key={batch.id}
-                  type="button"
-                  onClick={() => {
-                    setOpenId(batch.id);
-                  }}
-                  className="block w-full rounded-2xl border border-line bg-surface p-4 text-start shadow-sm transition hover:border-blue-400"
+                  className="flex items-start gap-2 rounded-2xl border border-line bg-surface p-4 shadow-sm transition focus-within:border-blue-400 hover:border-blue-400"
                 >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-base font-extrabold text-ink">{batch.name}</span>
-                    <span
-                      className={
-                        'rounded-lg px-2 py-0.5 text-xs font-extrabold ' +
-                        (complete
-                          ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
-                          : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300')
-                      }
-                    >
-                      {complete ? AR.batchDone : AR.batchArrivedOf(batch.arrived, batch.total)}
-                    </span>
-                    <span className="ms-auto text-xs text-faint" dir="ltr">
-                      {formatDate(batch.createdAt)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs font-semibold text-muted">
-                    {AR.batchCreatedBy(batch.createdBy)}
-                    {batch.filename !== '' && (
-                      <span className="text-faint">
-                        {' · '}
-                        <span dir="ltr">{ltrCode(batch.filename)}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenaming(null);
+                      setOpenId(batch.id);
+                    }}
+                    className="min-w-0 flex-1 text-start"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-base font-extrabold text-ink">{batch.name}</span>
+                      <span
+                        className={
+                          'rounded-lg px-2 py-0.5 text-xs font-extrabold ' +
+                          (complete
+                            ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-200'
+                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300')
+                        }
+                      >
+                        {complete ? AR.batchDone : AR.batchArrivedOf(batch.arrived, batch.total)}
                       </span>
-                    )}
-                  </p>
-                </button>
+                      <span className="ms-auto text-xs text-faint" dir="ltr">
+                        {formatDate(batch.createdAt)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs font-semibold text-muted">
+                      {AR.batchCreatedBy(batch.createdBy)}
+                      {batch.filename !== '' && (
+                        <span className="text-faint">
+                          {' · '}
+                          <span dir="ltr">{ltrCode(batch.filename)}</span>
+                        </span>
+                      )}
+                    </p>
+                  </button>
+                  {/* حذف الكشف من سطره — بلا فتحه، كما يُحذف التصريح من كشفه. */}
+                  {props.isOwner && (
+                    <Button
+                      kind="danger"
+                      onClick={() => {
+                        setStriking({ id: batch.id, name: batch.name });
+                      }}
+                      disabled={busy}
+                    >
+                      {AR.batchDeleteAction}
+                    </Button>
+                  )}
+                </div>
               );
             })}
           </>
@@ -471,16 +564,16 @@ export function BatchesScreen(props: {
           }}
         />
       )}
-      {confirming === 'delete' && detail !== null && (
+      {striking !== null && (
         <Confirm
           title={AR.confirmBatchDeleteTitle}
-          body={AR.confirmBatchDeleteBody(detail.name)}
+          body={AR.confirmBatchDeleteBody(striking.name)}
           confirmLabel={AR.batchDeleteAction}
           danger
           busy={busy}
           onConfirm={strike}
           onCancel={() => {
-            setConfirming(null);
+            setStriking(null);
           }}
         />
       )}

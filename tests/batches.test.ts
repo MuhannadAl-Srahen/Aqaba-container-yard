@@ -456,6 +456,43 @@ describe('the doors', () => {
         .status,
     ).toBe(200);
 
+    // The NAME is the office's own label and the gate may correct it; the
+    // reader may not, and the rows of the sheet never move.
+    const before = (await call({
+      method: 'GET',
+      url: `/api/batches/${String(batchId)}`,
+      cookie: ownerCookie,
+    })).body as BatchDto;
+    expect(
+      (await call({
+        method: 'PATCH',
+        url: `/api/batches/${String(batchId)}`,
+        payload: { name: 'مسروق' },
+        cookie: reports,
+      })).status,
+    ).toBe(403);
+    const renamed = await call({
+      method: 'PATCH',
+      url: `/api/batches/${String(batchId)}`,
+      payload: { name: 'دفعة 14 — المصححة' },
+      cookie: gate,
+    });
+    expect(renamed.status).toBe(200);
+    expect((renamed.body as BatchDto).name).toBe('دفعة 14 — المصححة');
+    // Only the label moved.
+    expect((renamed.body as BatchDto).rows).toEqual(before.rows);
+    expect((renamed.body as BatchDto).filename).toBe(before.filename);
+    expect((renamed.body as BatchDto).createdAt).toBe(before.createdAt);
+    // A blank name is no name: the sheet keeps the one it has.
+    expect(
+      (await call({
+        method: 'PATCH',
+        url: `/api/batches/${String(batchId)}`,
+        payload: { name: '   ' },
+        cookie: gate,
+      })).status,
+    ).toBe(400);
+
     // Striking the sheet is the owner's, and it leaves the yard book alone.
     expect(
       (await call({ method: 'DELETE', url: `/api/batches/${String(batchId)}`, cookie: gate })).status,

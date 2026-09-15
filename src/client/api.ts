@@ -662,6 +662,10 @@ export const api = {
 
   batch: (id: number): Promise<BatchDto> => request(`/api/batches/${String(id)}`),
 
+  /** تعديل اسم الكشف — الاسم وحده؛ صفوف الكشف لا تُمسّ. */
+  renameBatch: (id: number, name: string): Promise<BatchDto> =>
+    request(`/api/batches/${String(id)}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+
   removeBatch: (id: number): Promise<{ ok: boolean }> =>
     request(`/api/batches/${String(id)}`, { method: 'DELETE' }),
 
