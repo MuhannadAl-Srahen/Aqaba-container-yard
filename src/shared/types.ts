@@ -623,6 +623,7 @@ export interface PermitDto {
 
 /** One row of كشف خروج وتحميل داخلي. */
 export interface PermitReportRow {
+  /** 0 on a voided stub: it is a number with a paper, and no record. */
   readonly id: number;
   readonly serial: number;
   readonly serialYear: number;
@@ -630,6 +631,14 @@ export interface PermitReportRow {
   readonly bill: string;
   readonly containers: number;
   readonly user: string;
+  /** The yard the paper names — a voided stub borrows its neighbour's. */
+  readonly yard: number;
+  /**
+   * تصريح ملغى: a serial the book issued that no live permit carries — the
+   * permit was struck, or its number was never used. It keeps its seat so
+   * the register never skips a number.
+   */
+  readonly voided?: boolean;
 }
 
 /** One row of سجل العمليات — every operation on every container, ever. */

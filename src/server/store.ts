@@ -1924,7 +1924,7 @@ export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): P
        ORDER BY p.serial_year, p.serial, p.id`,
     )
     .all(fromIso, toIso) as unknown as Array<PermitRow & { containers: number }>;
-  return rows.map((row) => ({
+  const live: PermitReportRow[] = rows.map((row) => ({
     id: row.id,
     serial: row.serial,
     serialYear: row.serial_year,
@@ -1932,7 +1932,81 @@ export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): P
     bill: row.bill,
     containers: row.containers,
     user: userLabel(names, row.user_id),
+    yard: row.yard,
   }));
+
+  // The struck permits of the same period tell where the book REACHES: a
+  // voided newest permit must show its stub at once, not wait for the next
+  // one to be issued above it.
+  const struck = db
+    .prepare(
+      `SELECT serial, serial_year, at, yard FROM permits
+       WHERE at >= ? AND at < ? AND deleted_at IS NOT NULL`,
+    )
+    .all(fromIso, toIso) as unknown as Array<{
+    serial: number;
+    serial_year: number;
+    at: string;
+    yard: number;
+  }>;
+  return withVoidedPermits(live, struck);
+}
+
+/**
+ * تصريح ملغى — «بدي اذا حذفت تصريح بدي يعمل مثل ما بعمل ببطاقات الخروج
+ * بحيث يحط تصريح ملغي بس اقدر اطبعه لحتى ما يكون في فجوات بالتسلسل».
+ *
+ * Every serial of a year, from the lowest the period reaches to the highest,
+ * that NO live permit carries gets a stub in its own seat. The stub is
+ * decided by the live set alone, never by a struck row: a number whose
+ * cancelled paper was reissued to a live permit (290 and 291, 2026) is not
+ * a hole, and must not be shown twice.
+ */
+function withVoidedPermits(
+  live: readonly PermitReportRow[],
+  struck: ReadonlyArray<{ serial: number; serial_year: number; at: string; yard: number }>,
+): PermitReportRow[] {
+  const years = new Set<number>([
+    ...live.map((row) => row.serialYear),
+    ...struck.map((row) => row.serial_year),
+  ]);
+  const out: PermitReportRow[] = [];
+  for (const year of [...years].sort((a, b) => a - b)) {
+    const mine = live.filter((row) => row.serialYear === year);
+    const gone = struck.filter((row) => row.serial_year === year);
+    const taken = new Set(mine.map((row) => row.serial));
+    const reach = [...mine.map((row) => row.serial), ...gone.map((row) => row.serial)];
+    if (reach.length === 0) continue;
+    const low = Math.min(...reach);
+    const high = Math.max(...reach);
+    const bySerial = new Map<number, PermitReportRow[]>();
+    for (const row of mine) bySerial.set(row.serial, [...(bySerial.get(row.serial) ?? []), row]);
+    let previous: PermitReportRow | undefined;
+    for (let serial = low; serial <= high; serial += 1) {
+      if (taken.has(serial)) {
+        for (const row of bySerial.get(serial) ?? []) {
+          out.push(row);
+          previous = row;
+        }
+        continue;
+      }
+      const paper = gone.find((row) => row.serial === serial);
+      out.push({
+        id: 0,
+        serial,
+        serialYear: year,
+        // The instant of its own struck paper when there is one; otherwise
+        // the paper before it. Never shown — the stub prints dashes.
+        at: paper?.at ?? previous?.at ?? mine[0]?.at ?? '',
+        bill: '',
+        containers: 0,
+        user: '',
+        yard: paper?.yard ?? previous?.yard ?? mine[0]?.yard ?? 2,
+        voided: true,
+      });
+    }
+  }
+  return out;
 }
 
 export function softDeletePermit(db: DatabaseSync, id: number, at: string): void {

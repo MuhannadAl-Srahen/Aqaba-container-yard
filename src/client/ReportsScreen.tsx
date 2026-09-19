@@ -415,17 +415,41 @@ function permitsModel(rows: readonly PermitReportRow[], onBill: (bill: string) =
     AR.colPermitCount,
     AR.colUser,
   ];
-  const body = rows.map((row, index) => [
-    cellText(String(index + 1)),
-    // Ordered by year then serial — «0002/2026» comes before «0001/2027».
-    cellLtr(cardSerial(row.serial, row.serialYear) ?? dash, row.serialYear * 100_000 + row.serial),
-    ...stampCells(new Date(row.at)),
-    billCell(row.bill, onBill),
-    cellText(String(row.containers), row.containers),
-    cellText(row.user),
-  ]);
+  const body = rows.map((row, index) =>
+    // تصريح ملغى: the number keeps its seat and says what it is; every other
+    // box on the line is empty, because nothing was permitted on that paper.
+    row.voided === true
+      ? [
+          cellText(String(index + 1)),
+          cellLtr(
+            cardSerial(row.serial, row.serialYear) ?? dash,
+            row.serialYear * 100_000 + row.serial,
+          ),
+          cellText(dash),
+          cellLtr(dash),
+          cellLtr(dash),
+          cellText(AR.permitVoidStatement),
+          cellText(dash, 0),
+          cellText(dash),
+        ]
+      : [
+          cellText(String(index + 1)),
+          // Ordered by year then serial — «0002/2026» comes before «0001/2027».
+          cellLtr(
+            cardSerial(row.serial, row.serialYear) ?? dash,
+            row.serialYear * 100_000 + row.serial,
+          ),
+          ...stampCells(new Date(row.at)),
+          billCell(row.bill, onBill),
+          cellText(String(row.containers), row.containers),
+          cellText(row.user),
+        ],
+  );
+  // A voided stub is a number, not a permit: it holds its seat in the book
+  // and stays out of the count.
+  const issued = rows.filter((row) => row.voided !== true).length;
   const footer =
-    rows.length === 0 ? null : [cellText(AR.totalRow), cellText(AR.permitsCount(rows.length))];
+    rows.length === 0 ? null : [cellText(AR.totalRow), cellText(AR.permitsCount(issued))];
   return { head, body, footer, counted: true };
 }
 
@@ -436,6 +460,8 @@ export function ReportsScreen(props: {
   onCard: (kind: 'in' | 'out', containerId: number) => void;
   /** The empty stub of a voided serial — it has a paper but no record. */
   onVoidCard: (serial: number, serialYear: number | null) => void;
+  /** تصريح ملغى — the permit book's own empty stub, printable. */
+  onVoidPermit: (serial: number, serialYear: number, yard: number) => void;
   /** The register row's pencil: the container's card opens editing at once. */
   onEdit: (containerId: number) => void;
   /** Open a permit's paper from its register row. */
@@ -677,6 +703,24 @@ export function ReportsScreen(props: {
           render: (rowIndex: number): ReactNode => {
             const row = permits.data?.rows[rowIndex];
             if (row === undefined) return null;
+            // A voided number has no permit behind it — nothing to open,
+            // nothing to strike. It has a PAPER, though: the empty stub
+            // that keeps the drawer's numbering whole.
+            if (row.voided === true) {
+              return (
+                <span className="flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      props.onVoidPermit(row.serial, row.serialYear, row.yard);
+                    }}
+                    className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
+                  >
+                    {AR.permitAction}
+                  </button>
+                </span>
+              );
+            }
             return (
               <span className="flex justify-center gap-1.5">
                 <button

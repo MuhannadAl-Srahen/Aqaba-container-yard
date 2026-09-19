@@ -20,6 +20,7 @@ import { ReportsScreen } from './ReportsScreen';
 import { LogScreen } from './LogScreen';
 import { PrintCard, type CardJob } from './PrintCard';
 import { PrintVoidCard } from './PrintVoidCard';
+import { PrintVoidPermit } from './PrintVoidPermit';
 import { PrintPermit } from './PrintPermit';
 import { PermitSheet } from './PermitSheet';
 import { FillSheet } from './FillSheet';
@@ -119,6 +120,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   const [voidCard, setVoidCard] = useState<{ serial: number; serialYear: number | null } | null>(
     null,
   );
+  /** تصريح ملغى: the permit book's own empty stub. */
+  const [voidPermit, setVoidPermit] = useState<{
+    serial: number;
+    serialYear: number;
+    yard: number;
+  } | null>(null);
   /** تصريح تحميل وخروج داخلي: the paper on screen, and the issue form. */
   const [permitPrint, setPermitPrint] = useState<PermitDto | null>(null);
   const [permitCreate, setPermitCreate] = useState<{
@@ -929,6 +936,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         onVoidCard={(serial, serialYear) => {
           // The stub's own paper: nothing to fetch, the number IS the paper.
           setVoidCard({ serial, serialYear });
+        }}
+        onVoidPermit={(serial, serialYear, yard) => {
+          setVoidPermit({ serial, serialYear, yard });
         }}
         onEdit={(containerId) => {
           // «تعديل بيانات الصف … دون الرجوع الى مكان وجود الحاوية»: the
@@ -1757,6 +1767,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           {...printCard}
           onClose={() => {
             setPrintCard(null);
+          }}
+        />
+      )}
+      {voidPermit !== null && (
+        <PrintVoidPermit
+          serial={voidPermit.serial}
+          serialYear={voidPermit.serialYear}
+          yard={voidPermit.yard}
+          onClose={() => {
+            setVoidPermit(null);
           }}
         />
       )}

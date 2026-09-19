@@ -288,7 +288,11 @@ describe('التصاريح عبر المسح والاسترجاع', () => {
       method: 'GET',
       url: `/api/permits?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
     });
-    return (listed.body as { rows: unknown[] }).rows.length;
+    // A struck permit keeps its seat as a «تصريح ملغى» stub; this counts
+    // the permits that stand.
+    return (listed.body as { rows: Array<{ voided?: boolean }> }).rows.filter(
+      (row) => row.voided !== true,
+    ).length;
   };
 
   it('the wipe takes the practice permits and sheets with the practice containers', async () => {

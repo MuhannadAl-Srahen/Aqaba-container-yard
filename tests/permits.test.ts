@@ -194,6 +194,41 @@ describe('كشف خروج وتحميل داخلي', () => {
     expect(paper.body.items.map((item) => item.number)).toEqual(['PERM0070', 'PERM0086']);
   });
 
+  it('a struck permit leaves «تصريح ملغى» in its own seat — the book never skips', async () => {
+    // «بدي اذا حذفت تصريح بدي يعمل مثل ما بعمل ببطاقات الخروج بحيث يحط
+    // تصريح ملغي بس اقدر اطبعه لحتى ما يكون في فجوات بالتسلسل».
+    const a = await gateIn('PERM0189', slot(17, 1), '3210');
+    const b = await gateIn('PERM0194', slot(17, 2), '3210');
+    const c = await gateIn('PERM0200', slot(19, 1), '3210');
+    await issue('3210', [{ containerId: a.body.id, truck: '' }]);
+    const middle = await issue('3210', [{ containerId: b.body.id, truck: '' }]);
+    const newest = await issue('3210', [{ containerId: c.body.id, truck: '' }]);
+
+    // The middle one goes: its number stays, as a stub.
+    await call({ method: 'DELETE', url: `/api/permits/${String(middle.body.id)}` });
+    let rows = (await call({ method: `GET`, url: `/api/permits?${range()}` })).body.rows;
+    expect(rows.map((row) => row.serial)).toEqual([1, 2, 3]);
+    expect(rows[1]?.voided).toBe(true);
+    expect(rows[1]?.id).toBe(0);
+    expect(rows[1]?.bill).toBe('');
+    expect(rows[1]?.containers).toBe(0);
+    // The live ones are exactly what they were.
+    expect(rows[0]?.voided).toBeUndefined();
+    expect(rows[2]?.voided).toBeUndefined();
+
+    // The NEWEST goes too: its stub shows at once, not when the next
+    // permit is issued above it.
+    await call({ method: 'DELETE', url: `/api/permits/${String(newest.body.id)}` });
+    rows = (await call({ method: `GET`, url: `/api/permits?${range()}` })).body.rows;
+    expect(rows.map((row) => row.serial)).toEqual([1, 2, 3]);
+    expect(rows.map((row) => row.voided === true)).toEqual([false, true, true]);
+
+    // And the voided numbers stay taken: the next permit is the fourth.
+    const d = await gateIn('PERM0215', slot(19, 2), '3210');
+    const next = await issue('3210', [{ containerId: d.body.id, truck: '' }]);
+    expect(next.body.serial).toBe(4);
+  });
+
   it('reads by NUMBER, not by the clock — the row beside a serial is that serial', async () => {
     // Three papers, issued in order, then the last one reissued into an
     // earlier number the way a cancelled pair is filled. Ordered by time it
@@ -309,14 +344,16 @@ describe('كشف خروج وتحميل داخلي', () => {
     const removed = await call({ method: 'DELETE', url: `/api/permits/${String(one.body.id)}` });
     expect(removed.status).toBe(200);
 
-    // The struck paper is gone from the book, and the survivor keeps the
-    // number printed on it: 2. Number 1 belongs to the voided paper for ever.
+    // The struck paper can no longer be opened, and the survivor keeps the
+    // number printed on it: 2. Number 1 belongs to the voided paper for ever
+    // — and it keeps its seat in the book as «تصريح ملغى», not a hole.
     expect(
       (await call({ method: 'GET', url: `/api/permits/${String(one.body.id)}` })).status,
     ).toBe(404);
     const listed = await call({ method: 'GET', url: `/api/permits?${range()}` });
-    expect(listed.body.rows).toHaveLength(1);
-    expect(listed.body.rows[0]?.serial).toBe(2);
+    expect(listed.body.rows.map((row) => row.serial)).toEqual([1, 2]);
+    expect(listed.body.rows[0]?.voided).toBe(true);
+    expect(listed.body.rows[1]?.voided).toBeUndefined();
 
     // And the next permit issued is 3, never 1.
     const third = await issue('3210', [{ containerId: box.body.id, truck: '' }]);

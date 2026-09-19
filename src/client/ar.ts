@@ -86,6 +86,12 @@ export const AR = {
   permitDone: (serial: string): string => `تم إصدار التصريح رقم ${serial}.`,
   printPermit: 'طباعة التصريح',
   permitDelete: 'حذف التصريح',
+  /** تصريح ملغى — the register's line for a number no live permit carries. */
+  permitVoidStatement: 'تصريح ملغى',
+  permitVoidTitle: 'تصريح ملغى',
+  permitVoidNote:
+    'هذا التصريح صدر برقمه ثم أُلغي، ولا يُسمح بموجبه بإخراج أي حاوية. يُحفظ في الملف ' +
+    'ليبقى الترقيم متصلاً، ولا يُعطى رقمه لتصريح آخر.',
   confirmPermitDeleteTitle: 'حذف تصريح',
   confirmPermitDeleteBody: (serial: string): string =>
     `هل تريد حذف التصريح رقم ${serial}؟ يبقى رقمه محجوزاً له فلا يأخذه تصريح آخر.`,
