@@ -796,6 +796,8 @@ export const ERROR_CODES = [
   'TASK_EXISTS',
   /** The task was already done or auto-closed; the screen is behind. */
   'TASK_CLOSED',
+  /** تعديل تصريح: a paper that covers nothing is voided, not emptied. */
+  'PERMIT_EMPTY',
   'NAME_TAKEN',
   'NOT_DELETED',
   /** Asked to take back an exit for a container that is standing in the yard. */

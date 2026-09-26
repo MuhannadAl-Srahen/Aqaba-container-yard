@@ -29,8 +29,15 @@ import * as store from './store';
 
 /** The dedicated word the owner sets for the wipe — never his login password. */
 const WIPE_KEY = 'wipe_password';
-/** A restore upload is a whole database; the global 1 MiB body cap will not do. */
-const UPLOAD_LIMIT = 256 * 1024 * 1024;
+/**
+ * A restore upload is a whole database; the global 1 MiB body cap will not
+ * do. Nor does 256 MiB any more: the photos carried the file past that in
+ * September 2026, which quietly made every backup taken since unrestorable
+ * — the kind of fault that is only discovered in the emergency it ruins.
+ * A gigabyte buys years at the current pace, and the mailed ledger (no
+ * photos, gzipped) is under a megabyte either way.
+ */
+const UPLOAD_LIMIT = 1024 * 1024 * 1024;
 
 export interface OwnerToolsDeps {
   readonly requireOwner: (request: FastifyRequest) => void;

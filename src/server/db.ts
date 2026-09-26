@@ -391,7 +391,13 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- v24: الفئة كانت تُقرأ حيّة من سجل الحاوية لأنها كانت لا تتغير أبداً.
       -- وقد صارت تُصحَّح («تصحيح الفئة»)، فلو بقيت حيّة لتغيّر سطر «عشرين /
       -- أربعين» في تصريح مختوم ومحفوظ. تُثبَّت هنا كأخواتها.
-      size         INTEGER NOT NULL DEFAULT 20
+      size         INTEGER NOT NULL DEFAULT 20,
+      -- v30: «اجاني مخلص قلي انا بدي اخرج 15 حاوية اليوم وكذب، قام جاب فقط
+      -- 5 سيارات» — a line may be struck off an issued permit without the
+      -- permit itself being voided. Soft, like every removal here: the
+      -- struck line stays in the file with who struck it and when.
+      deleted_at   TEXT,
+      deleted_by   INTEGER REFERENCES users (id)
     );
 
     CREATE INDEX IF NOT EXISTS idx_permit_items_permit ON permit_items (permit_id);
@@ -532,7 +538,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_gate_calls_status ON gate_calls (status, id);
 
-    PRAGMA user_version = 29;
+    PRAGMA user_version = 30;
   `);
 
   // v29 upgrade: a gate_calls table from before the per-container call gets
@@ -543,6 +549,18 @@ export function migrate(db: DatabaseSync, file: string): void {
     .all('gate_calls') as unknown as Array<{ name: string }>;
   if (!gateCallColumns.some((column) => column.name === 'task_id')) {
     db.exec('ALTER TABLE gate_calls ADD COLUMN task_id INTEGER REFERENCES tasks (id)');
+  }
+
+  // v30 upgrade: a permit line may now be struck without voiding its permit.
+  // Every line already issued reads NULL — none of them was ever struck.
+  const permitLineColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('permit_items') as unknown as Array<{ name: string }>;
+  if (!permitLineColumns.some((column) => column.name === 'deleted_at')) {
+    db.exec(`
+      ALTER TABLE permit_items ADD COLUMN deleted_at TEXT;
+      ALTER TABLE permit_items ADD COLUMN deleted_by INTEGER REFERENCES users (id);
+    `);
   }
 
   // v26 upgrade: drivers joined the staff. A users table from before the

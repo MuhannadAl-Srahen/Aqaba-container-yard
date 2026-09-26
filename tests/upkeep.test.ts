@@ -20,15 +20,15 @@ describe('the nightly clock', () => {
   it('fires at the coming 02:30 Amman, tonight or tomorrow', () => {
     // 2026-09-05 20:00 UTC = 23:00 Amman → next 02:30 is in 3.5 hours.
     const evening = Date.UTC(2026, 8, 5, 20, 0, 0);
-    expect(msUntilNightly(evening)).toBe(3.5 * 60 * 60 * 1000);
+    expect(msUntilNightly(evening, 1)).toBe(3.5 * 60 * 60 * 1000);
     // 2026-09-05 23:00 UTC = 02:00 Amman → half an hour away.
     const nearlyThere = Date.UTC(2026, 8, 5, 23, 0, 0);
-    expect(msUntilNightly(nearlyThere)).toBe(30 * 60 * 1000);
+    expect(msUntilNightly(nearlyThere, 1)).toBe(30 * 60 * 1000);
     // 00:00 Amman exactly → 2.5 hours; 03:00 Amman → tomorrow's 02:30.
     const midnight = Date.UTC(2026, 8, 5, 21, 0, 0);
-    expect(msUntilNightly(midnight)).toBe(2.5 * 60 * 60 * 1000);
+    expect(msUntilNightly(midnight, 1)).toBe(2.5 * 60 * 60 * 1000);
     const past = Date.UTC(2026, 8, 6, 0, 0, 0); // 03:00 Amman
-    expect(msUntilNightly(past)).toBe(23.5 * 60 * 60 * 1000);
+    expect(msUntilNightly(past, 1)).toBe(23.5 * 60 * 60 * 1000);
   });
 
   it('prunes the auto snapshots past the kept depth, oldest first', () => {
@@ -254,5 +254,30 @@ describe('دمج أسماء السائقين', () => {
       cookie: ownerCookie,
     });
     expect(slip.status).toBe(400);
+  });
+});
+
+/**
+ * «فقط خذ كل يومين»: the cycle belongs to the calendar, not to the last
+ * restart — a service that came back at noon must not take a copy tonight
+ * if the calendar says tomorrow.
+ */
+describe('the two-day rhythm', () => {
+  const dayIndex = (ms: number): number => Math.floor((ms + 3 * 60 * 60 * 1000) / 86_400_000);
+
+  it('always lands on an even Amman day at 02:30, whatever hour it is asked', () => {
+    for (let hour = 0; hour < 96; hour += 1) {
+      const now = Date.UTC(2026, 8, 5, 0, 0, 0) + hour * 3_600_000;
+      const fires = now + msUntilNightly(now, 2);
+      expect(dayIndex(fires) % 2).toBe(0);
+      // Always ahead, and never more than two days out.
+      expect(fires).toBeGreaterThan(now);
+      expect(fires - now).toBeLessThanOrEqual(2 * 86_400_000);
+    }
+  });
+
+  it('a cycle of one is the old nightly clock, unchanged', () => {
+    const evening = Date.UTC(2026, 8, 5, 20, 0, 0); // 23:00 Amman
+    expect(msUntilNightly(evening, 1)).toBe(3.5 * 60 * 60 * 1000);
   });
 });

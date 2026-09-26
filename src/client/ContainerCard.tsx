@@ -157,6 +157,8 @@ export function ContainerCard(props: {
   /** What the signed-in employee is allowed to do. */
   may: (permission: Permission) => boolean;
   onStartMove: (container: ContainerDto) => void;
+  /** إلغاء الخروج بمكان يختاره الموظف: the map picks where it lands. */
+  onStartReturn: (container: ContainerDto) => void;
   /** Correct where the LAST move landed — the record, not the steel. */
   onStartCorrect: (container: ContainerDto, movementId: number) => void;
   /** Correct WHAT IT IS — the class, by naming the bay it truly occupies. */
@@ -449,8 +451,12 @@ export function ContainerCard(props: {
                 {AR.prepareAction}
               </Button>
             )}
-            {/* The exit taken back: it returns to its own slot, and refuses
-                plainly if somebody has taken that slot in the meantime. */}
+            {/* The exit taken back: one tap puts it back where it stood.
+                But the yard moves on — whatever rested on it came down a
+                tier as it left — so the old seat is often gone, and the
+                second button hands the choice to the clerk on the map:
+                «اريد عند الغاء الخروج ان يختار مدخل البيانات المكان الذي
+                سوف يعيده فيها». */}
             {!inYard && props.may('GATE_OUT') && (
               <Button
                 kind="quiet"
@@ -460,6 +466,17 @@ export function ContainerCard(props: {
                 disabled={busy}
               >
                 {AR.actionUnexit}
+              </Button>
+            )}
+            {!inYard && props.may('GATE_OUT') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  props.onStartReturn(container);
+                }}
+                disabled={busy}
+              >
+                {AR.actionUnexitPick}
               </Button>
             )}
             {/* تصحيح الفئة: offered standing and departed alike, because the

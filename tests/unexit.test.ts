@@ -369,3 +369,59 @@ describe('a cancelled exit is not a departure', () => {
     expect(movements.map((movement) => movement.type)).toEqual(['IN', 'OUT', 'RETURN', 'OUT']);
   });
 });
+
+/**
+ * «اريد عند الغاء الخروج ان يختار مدخل البيانات المكان الذي سوف يعيده فيها
+ * لهذه الحاوية لا ارجاعها لمحلها السابق»: the yard moves on while a box is
+ * out of it. Whatever rested on it came down a tier as it left, so its own
+ * seat is often gone — and an hour of real work should not have to be
+ * undone to take back one wrong tap.
+ */
+describe('إلغاء الخروج بمكان يختاره الموظف', () => {
+  it('lands where the clerk names, by the same rules as any landing', async () => {
+    const box = await gateIn('PICK0006', slot(3, 1, 'A'));
+    await gateOut(box.body.id);
+
+    // Its own seat is taken by the time the clerk changes his mind.
+    await gateIn('TOOK0002', slot(3, 1, 'A'));
+    const ownSeat = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/unexit`,
+    });
+    expect(ownSeat.status).toBe(409);
+
+    // A slot of the wrong class is refused before anything moves: the bay's
+    // parity IS the class, here as everywhere.
+    const wrongClass = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/unexit`,
+      payload: { position: slot(4, 1, 'A') },
+    });
+    expect(wrongClass.status).toBe(409);
+    expect(wrongClass.body.code).toBe('RETURN_SIZE_CHANGED');
+
+    // A tier with nothing under it refuses too — the rule the owner met.
+    const floating = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/unexit`,
+      payload: { position: slot(5, 1, 'B') },
+    });
+    expect(floating.status).toBe(409);
+
+    // And the named free slot takes it, standing again where he said.
+    const placed = await call({
+      method: 'POST',
+      url: `/api/containers/${String(box.body.id)}/unexit`,
+      payload: { position: slot(5, 1, 'A') },
+    });
+    expect(placed.status).toBe(200);
+    expect(placed.body.position).toMatchObject({ zone: 'B', bay: 5, stack: 1, tier: 'A' });
+    expect(placed.body.exitedAt).toBeNull();
+    // The exit card is voided exactly as it is on the plain return.
+    expect(placed.body.cardOut).toBeNull();
+
+    const { movements } = await detail(box.body.id);
+    expect(movements.map((movement) => movement.type)).toEqual(['IN', 'OUT', 'RETURN']);
+    expect(movements[2]?.to).toMatchObject({ bay: 5, stack: 1, tier: 'A' });
+  });
+});

@@ -82,7 +82,7 @@ const gateIn = async (number: string, position: Position, bill: string): Promise
 
 const issue = async (
   bill: string,
-  items: ReadonlyArray<{ containerId: number; truck: string }>,
+  items: ReadonlyArray<{ containerId: number; truck?: string }>,
 ): Promise<Reply> =>
   call({ method: 'POST', url: '/api/permits', payload: { bill, items: items as unknown[] } });
 
@@ -358,5 +358,70 @@ describe('كشف خروج وتحميل داخلي', () => {
     // And the next permit issued is 3, never 1.
     const third = await issue('3210', [{ containerId: box.body.id, truck: '' }]);
     expect(third.body.serial).toBe(3);
+  });
+});
+
+/**
+ * تعديل تصريح مُصدَر — «اجاني مخلص قلي انا بدي اخرج 15 حاوية اليوم وكذب،
+ * قام جاب فقط 5 سيارات ل 5 حاويات … اريد ان استطيع ان اعدل على التصريح
+ * بحيث فقط اضع الخمس حاويات دون الحاجة لحذف التصريح».
+ */
+describe('تعديل التصريح', () => {
+  it('strikes the containers that never left, keeps the paper, and refuses to empty it', async () => {
+    const first = await gateIn('PERM0119', slot(3, 1), '3210');
+    const second = await gateIn('PERM0124', slot(3, 2), '3210');
+    const third = await gateIn('PERM0130', slot(5, 1), '3210');
+    const permit = await issue('3210', [
+      { containerId: first.body.id },
+      { containerId: second.body.id },
+      { containerId: third.body.id },
+    ]);
+    expect(permit.body.items).toHaveLength(3);
+
+    const edited = await call({
+      method: 'PATCH',
+      url: `/api/permits/${String(permit.body.id)}`,
+      payload: { remove: [second.body.id] },
+    });
+    expect(edited.status).toBe(200);
+    // The paper keeps its number, its date and its bill; only the line goes.
+    expect(edited.body.serial).toBe(permit.body.serial);
+    expect(edited.body.bill).toBe('3210');
+    expect(edited.body.items.map((item) => item.number)).toEqual(['PERM0119', 'PERM0130']);
+
+    // A reprint reads the corrected paper, and the register counts what is
+    // left on it — not what it was issued with.
+    const again = await call({ method: 'GET', url: `/api/permits/${String(permit.body.id)}` });
+    expect(again.body.items).toHaveLength(2);
+    const book = await call({ method: 'GET', url: `/api/permits?${range()}` });
+    expect(book.body.rows[0]?.containers).toBe(2);
+
+    // A container struck off the paper no longer counts as having one.
+    const warned = await call({
+      method: 'GET',
+      url: `/api/permits/for?ids=${String(second.body.id)}`,
+    });
+    expect(warned.body.rows).toHaveLength(0);
+
+    // Striking a container the paper never carried is a mistake, not a no-op.
+    const stray = await gateIn('PERM0145', slot(7, 1), '9999');
+    expect(
+      (
+        await call({
+          method: 'PATCH',
+          url: `/api/permits/${String(permit.body.id)}`,
+          payload: { remove: [stray.body.id] },
+        })
+      ).status,
+    ).toBe(400);
+
+    // And a paper covering nothing is voided, never emptied.
+    const emptied = await call({
+      method: 'PATCH',
+      url: `/api/permits/${String(permit.body.id)}`,
+      payload: { remove: [first.body.id, third.body.id] },
+    });
+    expect(emptied.status).toBe(409);
+    expect((emptied.body as { code: string }).code).toBe('PERMIT_EMPTY');
   });
 });

@@ -1936,7 +1936,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
       `SELECT i.container_id, i.truck, i.number, i.card_in, i.card_in_year, i.entered_at,
               i.weight, i.size
        FROM permit_items i
-       WHERE i.permit_id = ?
+       WHERE i.permit_id = ? AND i.deleted_at IS NULL
        ORDER BY i.id`,
     )
     .all(id) as unknown as Array<{
@@ -1970,6 +1970,42 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
   };
 }
 
+/**
+ * Strike containers off an issued permit — «اجاني مخلص قلي انا بدي اخرج 15
+ * حاوية اليوم وكذب، قام جاب فقط 5 سيارات … اريد ان استطيع ان اعدل على
+ * التصريح … دون الحاجة لحذف التصريح». The paper keeps its number and its
+ * date; only the lines that never left are struck, and they stay in the
+ * file with the hand and the hour that struck them.
+ */
+export function dropPermitItems(
+  db: DatabaseSync,
+  permitId: number,
+  containerIds: readonly number[],
+  at: string,
+  byId: number | null,
+): number {
+  if (containerIds.length === 0) return 0;
+  const marks = containerIds.map(() => '?').join(', ');
+  return Number(
+    db
+      .prepare(
+        `UPDATE permit_items SET deleted_at = ?, deleted_by = ?
+          WHERE permit_id = ? AND deleted_at IS NULL AND container_id IN (${marks})`,
+      )
+      .run(at, byId, permitId, ...containerIds).changes,
+  );
+}
+
+/** How many lines this permit still carries — the guard against an empty paper. */
+export function permitItemCount(db: DatabaseSync, permitId: number): number {
+  const row = db
+    .prepare(
+      'SELECT COUNT(*) AS n FROM permit_items WHERE permit_id = ? AND deleted_at IS NULL',
+    )
+    .get(permitId) as { n: number };
+  return row.n;
+}
+
 /** كشف خروج وتحميل داخلي: the permits issued in [from, to), oldest first. */
 export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): PermitReportRow[] {
   const names = listUserNames(db);
@@ -1980,7 +2016,8 @@ export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): P
       // counter beside it has to agree with the number printed on the
       // paper. Ordered by time they part company the moment a serial is
       // reissued out of sequence — «فتحت التسلسل 290 طلعتلي 293».
-      `SELECT p.*, (SELECT COUNT(*) FROM permit_items i WHERE i.permit_id = p.id) AS containers
+      `SELECT p.*, (SELECT COUNT(*) FROM permit_items i
+                 WHERE i.permit_id = p.id AND i.deleted_at IS NULL) AS containers
        FROM permits p
        WHERE p.at >= ? AND p.at < ? AND p.deleted_at IS NULL
        ORDER BY p.serial_year, p.serial, p.id`,
@@ -2684,7 +2721,7 @@ export function permitsOfContainers(
               p.serial_year AS serialYear, p.at AS at
          FROM permit_items i
          JOIN permits p ON p.id = i.permit_id
-        WHERE p.deleted_at IS NULL AND i.container_id IN (${marks})
+        WHERE p.deleted_at IS NULL AND i.deleted_at IS NULL AND i.container_id IN (${marks})
         ORDER BY p.serial_year, p.serial`,
     )
     .all(...ids) as unknown as Array<{

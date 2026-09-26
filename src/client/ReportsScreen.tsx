@@ -17,6 +17,7 @@ import { downloadCardsBook } from './cardsPrint';
 import { Button, Confirm, Toast } from './ui';
 import { positionLabel } from '../shared/address';
 import { AR } from './ar';
+import { PermitEditSheet } from './PermitEditSheet';
 import { api, dwellDays } from './api';
 import {
   SheetScreen,
@@ -495,6 +496,8 @@ export function ReportsScreen(props: {
   const [truckDir, setTruckDir] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [bill, setBill] = useState(props.initialBill ?? '');
   const [removingPermit, setRemovingPermit] = useState<PermitReportRow | null>(null);
+  /** تعديل تصريح مُصدَر: which paper's lines are being struck. */
+  const [editingPermit, setEditingPermit] = useState<number | null>(null);
   /** «تجهيز البوليصة كاملة»: the bill awaiting its machine choice, or null. */
   const [prepareBillFor, setPrepareBillFor] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -732,6 +735,20 @@ export function ReportsScreen(props: {
                 >
                   {AR.permitAction}
                 </button>
+                {/* المخلّص الذي وعد بخمس عشرة وجاء بخمس: the paper is
+                    corrected, not thrown away. Whoever issues it corrects it. */}
+                {props.canPermit && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => {
+                      setEditingPermit(row.id);
+                    }}
+                    className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-40 dark:bg-amber-950 dark:text-amber-200"
+                  >
+                    {AR.permitEdit}
+                  </button>
+                )}
                 {props.isOwner && (
                   <button
                     type="button"
@@ -1004,6 +1021,21 @@ export function ReportsScreen(props: {
         ) : undefined
       }
     />
+    {editingPermit !== null && (
+      <PermitEditSheet
+        permitId={editingPermit}
+        onDone={(_permit, message) => {
+          void queryClient.invalidateQueries({ queryKey: ['report-permits'] });
+          void queryClient.invalidateQueries({ queryKey: ['permit'] });
+          void queryClient.invalidateQueries({ queryKey: ['permits-for'] });
+          setToast(message);
+          setEditingPermit(null);
+        }}
+        onClose={() => {
+          setEditingPermit(null);
+        }}
+      />
+    )}
     {removingPermit !== null && (
       <Confirm
         title={AR.confirmPermitDeleteTitle}

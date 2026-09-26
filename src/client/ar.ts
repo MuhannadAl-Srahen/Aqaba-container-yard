@@ -89,6 +89,19 @@ export const AR = {
   /** Chip on a permit line whose container already left through the gate. */
   permitExited: 'خرجت',
   permitIssue: 'إصدار التصريح',
+  /**
+   * تعديل تصريح مُصدَر — «اجاني مخلص قلي انا بدي اخرج 15 حاوية اليوم وكذب،
+   * قام جاب فقط 5 سيارات ل 5 حاويات … دون الحاجة لحذف التصريح».
+   */
+  permitEdit: 'تعديل التصريح',
+  permitEditHint:
+    'أزل العلامة عن الحاويات التي لم تُحمَّل فتُشطب من التصريح. يبقى التصريح برقمه ' +
+    'وتاريخه وبوليصته، ويُطبع من جديد بالحاويات الباقية وحدها. ولا يجوز شطبها كلها.',
+  permitEditTally: (removed: number, left: number): string =>
+    `يُشطب ${String(removed)}، ويبقى على التصريح ${String(left)}.`,
+  permitEditApply: 'اعتماد التعديل',
+  permitEditedToast: (removed: number, left: number): string =>
+    `تم شطب ${String(removed)} من التصريح، وبقي عليه ${String(left)}.`,
   permitDone: (serial: string): string => `تم إصدار التصريح رقم ${serial}.`,
   printPermit: 'طباعة التصريح',
   permitDelete: 'حذف التصريح',
@@ -870,6 +883,14 @@ export const AR = {
     `تم تصحيح فئة الحاوية ${ltrCode(number)} إلى ${String(size)} قدماً في الموقع ${ltrCode(at)}`,
   correctingBanner: (number: string): string =>
     `تصحيح نقلة الحاوية ${ltrCode(number)}: اضغط على الباي ثم على الخانة الصحيحة — يُصحَّح السجل وبطاقة النقل نفسها.`,
+  /**
+   * إلغاء الخروج بمكان يختاره الموظف — «اريد عند الغاء الخروج ان يختار مدخل
+   * البيانات المكان الذي سوف يعيده فيها لهذه الحاوية لا ارجاعها لمحلها
+   * السابق».
+   */
+  returningBanner: (number: string): string =>
+    `إعادة الحاوية ${ltrCode(number)} إلى الساحة: اضغط على الباي ثم على الخانة التي ستقف فيها.`,
+  actionUnexitPick: 'إلغاء الخروج بمكان آخر',
   correctMoveDone: (number: string, to: string): string =>
     `تم تصحيح نقلة الحاوية ${ltrCode(number)} إلى ${ltrCode(to)}، وبطاقة النقل تقرأ الموقع الصحيح.`,
 
@@ -1330,6 +1351,9 @@ export const AR = {
     ALREADY_OUT: 'هذه الحاوية خرجت من الساحة من قبل.',
     TASK_EXISTS: 'لهذه الحاوية مهمة تجهيز معلّقة من قبل، فلا حاجة لإرسال أخرى.',
     TASK_CLOSED: 'هذه المهمة أُنجزت أو أُغلقت من قبل. حدّث الشاشة لتقرأ حالتها الجديدة.',
+    PERMIT_EMPTY:
+      'لا يمكن شطب كل حاويات التصريح: تصريح لا يحمل حاوية واحدة لا معنى له. ' +
+      'أبقِ حاوية واحدة على الأقل، أو احذف التصريح كاملاً من الكشف.',
     NAME_TAKEN:
       'هذا الحرف مستخدم لزون قائم أو محجوز لسجلات زون سابق. اختر حرفاً آخر.',
     NOT_DELETED: 'هذا السجل غير محذوف أصلاً.',

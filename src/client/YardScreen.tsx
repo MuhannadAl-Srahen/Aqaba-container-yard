@@ -94,6 +94,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   /** When set, the placing flow CORRECTS this movement instead of moving. */
   const [correcting, setCorrecting] = useState<number | null>(null);
   /**
+   * حين يكون الوضع إعادةَ خروجٍ أُلغي: نفس تدفّق الاختيار على الخريطة، لكن
+   * الهبوط يُلغي الخروج بدل أن ينقل — «اريد عند الغاء الخروج ان يختار مدخل
+   * البيانات المكان الذي سوف يعيده فيها لهذه الحاوية».
+   */
+  const [returning, setReturning] = useState(false);
+  /**
    * تصحيح الفئة: its own sheet, NOT the placing flow. A reclass moves no
    * steel and may not offer the whole yard — the choice is the bay beside
    * the one it already stands on, and nothing else.
@@ -674,6 +680,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setGroupMove(null);
     setConfirmGroup(null);
     setCorrecting(null);
+    setReturning(false);
     setConfirmMove(null);
     // A completed operation retires the armed دفعة draft with everything else.
     setBatchDraft(null);
@@ -716,6 +723,21 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     setBusy(true);
     // The same picking flow serves two ends: moving the box, or correcting
     // where the LAST move said it landed — paper only, no second card.
+    // إلغاء الخروج بمكان يختاره الموظف: the same picking flow, landing the
+    // box back in the yard instead of carrying it across it.
+    if (returning) {
+      api
+        .unexit(confirmMove.container.id, confirmMove.to)
+        .then((back) => {
+          refresh(AR.unexitDone(back.number, positionLabel(confirmMove.to)));
+        })
+        .catch((failure: unknown) => {
+          setBusy(false);
+          setConfirmMove(null);
+          setToast(failure instanceof ApiFailure ? failure.arabic : AR.networkError);
+        });
+      return;
+    }
     if (correcting !== null) {
       api
         .correctMove(correcting, confirmMove.to)
@@ -1356,7 +1378,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         <div className="z-10 flex items-center justify-between gap-3 bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white">
           <span className="min-w-0">
             <span className="block">
-              {correcting !== null
+              {returning
+                ? AR.returningBanner(moving.number)
+                : correcting !== null
                 ? AR.correctingBanner(moving.number)
                 : AR.movingBanner(moving.number)}
             </span>
@@ -1387,6 +1411,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               setMoving(null);
               setMoveQueue([]);
               setCorrecting(null);
+              setReturning(false);
             }}
           >
             {AR.movingCancel}
@@ -1642,12 +1667,15 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
       {confirmMove !== null && (
         <Confirm
-          title={AR.confirmMoveTitle}
+          title={returning ? AR.confirmUnexitTitle : AR.confirmMoveTitle}
           body={
-            AR.confirmMoveBody(confirmMove.container.number, positionLabel(confirmMove.to)) +
+            (returning
+              ? AR.confirmUnexitBody(confirmMove.container.number, positionLabel(confirmMove.to))
+              : AR.confirmMoveBody(confirmMove.container.number, positionLabel(confirmMove.to))) +
             // Landing away from the bill's own block gets a warning, never a
             // refusal — the batch exits by bill, but the crane decides.
             (correcting === null &&
+            !returning &&
             confirmMove.container.bill !== '' &&
             nearBillMates(
               containers,
@@ -1658,7 +1686,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
               ? ` ${AR.billFarWarning(confirmMove.container.bill, billZoneLine(confirmMove.container.bill, confirmMove.container.id))}`
               : '')
           }
-          confirmLabel={correcting !== null ? AR.correctMoveAction : AR.actionMove}
+          confirmLabel={
+            returning ? AR.actionUnexit : correcting !== null ? AR.correctMoveAction : AR.actionMove
+          }
           busy={busy}
           onConfirm={commitMove}
           onCancel={() => {
@@ -1727,6 +1757,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
             setReporting(false);
             setLogView(false);
             setMoving(container);
+          }}
+          onStartReturn={(container) => {
+            setSelected(null);
+            setReporting(false);
+            setLogView(false);
+            setMoving(container);
+            setReturning(true);
           }}
           onStartCorrect={(container, movementId) => {
             setSelected(null);

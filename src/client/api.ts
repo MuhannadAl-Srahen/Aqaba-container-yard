@@ -268,13 +268,14 @@ export const api = {
     }),
 
   /**
-   * An exit taken back — the container never left. It returns to its own slot
-   * and its exit card is voided; the server refuses if that slot is taken.
+   * An exit taken back — the container never left. Its own slot is the
+   * default; pass a position and it lands there instead, checked by the
+   * same rules as any landing. Its exit card is voided either way.
    */
-  unexit: (id: number): Promise<ContainerDto> =>
+  unexit: (id: number, position?: Position): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}/unexit`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(position === undefined ? {} : { position }),
     }),
 
   reportGate: (type: 'IN' | 'OUT', fromIso: string, toIso: string): Promise<{ rows: GateReportRow[] }> =>
@@ -513,6 +514,13 @@ export const api = {
 
   /** One permit exactly as issued — the register row's reprint. */
   permit: (id: number): Promise<PermitDto> => request(`/api/permits/${String(id)}`),
+
+  /** شطب حاويات من تصريح مُصدَر: the paper keeps its number and its date. */
+  editPermit: (id: number, remove: readonly number[]): Promise<PermitDto> =>
+    request(`/api/permits/${String(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ remove }),
+    }),
 
   /** Void a wrongly-issued permit; the year's book closes over its serial. */
   removePermit: (id: number): Promise<{ ok: boolean }> =>

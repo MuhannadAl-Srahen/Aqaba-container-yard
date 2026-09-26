@@ -957,6 +957,43 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   });
 
   /**
+   * تعديل تصريح مُصدَر: strike containers off it without voiding it.
+   * «اجاني مخلص قلي انا بدي اخرج 15 حاوية اليوم وكذب، قام جاب فقط 5 سيارات
+   * ل 5 حاويات … اريد ان استطيع ان اعدل على التصريح بحيث فقط اضع الخمس
+   * حاويات دون الحاجة لحذف التصريح.»
+   *
+   * The paper keeps its serial, its date and its bill; the struck lines stay
+   * in the file, marked with who struck them and when. Under GATE_OUT — the
+   * same hand that issues the paper corrects it the same morning — and a
+   * permit cannot be emptied this way: a paper covering nothing is voided,
+   * which is the owner's own act.
+   */
+  app.patch('/api/permits/:id', (request): PermitDto => {
+    const actor = requirePerm(request, 'GATE_OUT');
+    const id = idParam(request);
+    const body = parseOrRefuse(
+      z.object({ remove: z.array(z.number().int().positive()).min(1).max(200) }),
+      request.body,
+    );
+    return transaction(db, () => {
+      const permit = store.getPermit(db, id);
+      if (permit === null) refuse(404, 'NOT_FOUND');
+      if (permit === null) throw new Error('unreachable');
+      const listed = new Set(permit.items.map((item) => item.containerId));
+      // Striking what the paper does not carry would silently do nothing and
+      // tell the clerk it worked.
+      if (body.remove.some((containerId) => !listed.has(containerId))) {
+        refuse(400, 'VALIDATION');
+      }
+      if (body.remove.length >= listed.size) refuse(409, 'PERMIT_EMPTY');
+      store.dropPermitItems(db, id, body.remove, now(), actorId(actor));
+      const after = store.getPermit(db, id);
+      if (after === null) throw new Error('unreachable');
+      return after;
+    });
+  });
+
+  /**
    * Void a wrongly-issued permit. The owner's alone, like every walk-back of
    * a numbered paper — and the year's book closes over the freed serial, so
    * the live permits still read 1 … N with no hole.
@@ -1764,13 +1801,21 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * running engine — «قد يكون الخطأ وارد» — and until now a container marked
    * out by mistake could not be brought back at all: its record froze.
    *
-   * It returns to ITS OWN slot or not at all. Whatever stood on it came down
-   * a tier as it left, so that slot may be taken now; the refusal names who
-   * is standing there rather than shuffling the yard on its own authority.
+   * Its own slot is only the DEFAULT. Whatever stood on it came down a tier
+   * as it left, so that seat is often gone — «لا توجد حاوية مسنِدة تحتها في
+   * الطابق الأدنى» was the refusal the owner kept meeting, and a yard that
+   * has moved on should not make a clerk undo an hour of real work to take
+   * back one wrong tap. So the clerk may name where it lands: «اريد عند
+   * الغاء الخروج ان يختار مدخل البيانات المكان الذي سوف يعيده فيها». The
+   * named slot is checked by exactly the same rules as any landing.
    */
   app.post('/api/containers/:id/unexit', (request) => {
     const actor = requirePerm(request, 'GATE_OUT');
     const id = idParam(request);
+    const body = parseOrRefuse(
+      z.object({ position: positionSchema.optional() }),
+      request.body ?? {},
+    );
 
     return transaction(db, () => {
       const existing = store.getContainer(db, id);
@@ -1778,13 +1823,11 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (existing === null) throw new Error('unreachable');
       if (existing.exitedAt === null) refuse(409, 'NOT_EXITED');
 
-      const wasAt = store.lastExitPosition(db, id);
+      const wasAt = body.position ?? store.lastExitPosition(db, id);
       if (wasAt === null) refuse(409, 'BAD_SLOT');
       if (wasAt === null) throw new Error('unreachable');
-      // The remembered slot must still fit the class the record now carries.
-      // `/reclass` keeps the two in step, so this cannot fire through the
-      // screen — but it turns a mystifying BAD_SLOT into its own sentence for
-      // any record that ever drifts.
+      // The slot must fit the class the record now carries — the bay's
+      // parity IS the class, here as everywhere else on this ground.
       if (sizeOfBay(wasAt.bay) !== existing.size) refuse(409, 'RETURN_SIZE_CHANGED');
       const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, wasAt);
       if (refusal !== null) refuseRule(refusal);
