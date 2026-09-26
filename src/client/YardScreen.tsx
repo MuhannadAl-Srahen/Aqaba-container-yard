@@ -656,6 +656,10 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
     void queryClient.invalidateQueries({ queryKey: ['batches'] });
     void queryClient.invalidateQueries({ queryKey: ['batch'] });
     void queryClient.invalidateQueries({ queryKey: ['batch-lookup'] });
+    // A gate movement just wrote a plate and a driver, so the book the next
+    // form reads must carry it — the very case the owner described: «بعدها
+    // اجا مره ثانية بدي مجرد ما كتبت رقم سيارته خلص يكتب اسمه تلقائي».
+    void queryClient.invalidateQueries({ queryKey: ['plates'] });
     // A register open on this same device must not go stale behind the
     // operation that just happened in front of it.
     for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-machines', 'report-truck', 'report-bill', 'report-log', 'report-permits']) {
@@ -1791,9 +1795,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       )}
       {/* على غير الخريطة يطفو النداء معلّقاً في أعلى الشاشة؛ أما على
           الخريطة فيجلس شريطاً فوق الرأس (انظر callBanner). */}
+      {/* pointer-events-none على الغلاف الممتد: الشريط نفسه وحده يستقبل
+          الضغط — «احيانا بوقف الكبسات بالماوس»، وكان الغلاف الشفاف يمتد
+          بعرض الشاشة فيبتلع كل ضغطة تمرّ في شريطه ولو لم يظهر فيه شيء. */}
       {!mapShown && pendingCalls.length > 0 && (
-        <div className="fixed inset-x-0 top-2 z-50 flex justify-center px-3">
-          <div className="w-full max-w-md">
+        <div className="pointer-events-none fixed inset-x-0 top-2 z-50 flex justify-center px-3">
+          <div className="pointer-events-auto w-full max-w-md">
             <GateCallBar calls={pendingCalls} onAnswer={answerCall} />
           </div>
         </div>
@@ -1802,8 +1809,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       {/* لافتة وصول مهمة — تعلو أي شاشة كان عليها السائق، وتُفتح منها
           القائمة مباشرة؛ الرنة والاهتزاز انطلقا لحظةَ رصد الوصول. */}
       {taskAlert !== null && driverMachine !== null && !tasksView && (
-        <div className="fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
-          <div className="flex w-full max-w-md flex-wrap items-center gap-3 rounded-2xl border-4 border-amber-500 bg-amber-50 p-3 shadow-2xl motion-safe:animate-pulse dark:bg-amber-950">
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+          <div className="pointer-events-auto flex w-full max-w-md flex-wrap items-center gap-3 rounded-2xl border-4 border-amber-500 bg-amber-50 p-3 shadow-2xl motion-safe:animate-pulse dark:bg-amber-950">
             <span className="text-base font-extrabold text-amber-900 dark:text-amber-100">
               {AR.taskArrived(taskAlert)}
             </span>
@@ -1847,10 +1854,21 @@ function GateCallBar(props: {
   return (
     <div className="flex w-full flex-col gap-2 rounded-2xl border-4 border-red-500 bg-red-50 p-3 shadow-lg motion-safe:animate-pulse dark:bg-red-950">
       {props.calls.map((call) => (
-        <div key={call.id} className="flex flex-wrap items-center gap-2">
+        <div key={call.id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-base font-extrabold text-red-800 dark:text-red-200">
             {AR.callGateAlert(AR.machineName[call.machine as 'CRANE' | 'STRADDLE'] ?? call.machine, 1)}
           </span>
+          {/* أي سيارة وأي حاوية — هذا كل غرض النداء عند مدخل البيانات. */}
+          {call.truck !== '' && (
+            <span className="text-sm font-extrabold text-red-900 dark:text-red-100">
+              {AR.callGateTruckLine(call.truck, call.driver)}
+            </span>
+          )}
+          {call.number !== '' && (
+            <span className="font-mono text-sm font-bold text-red-800 dark:text-red-200" dir="ltr">
+              {call.number}
+            </span>
+          )}
           <span className="text-xs font-bold text-red-700 dark:text-red-300">
             {AR.callGateWaiting(call.by)}
           </span>

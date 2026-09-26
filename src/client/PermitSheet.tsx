@@ -2,19 +2,23 @@ import { useState, type ReactElement } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ContainerDto, PermitDto } from '../shared/types';
 import { cardSerial, cardSerialText } from '../shared/types';
-import { findTruck } from '../shared/fleet';
 import { AR } from './ar';
 import { ApiFailure, api, formatDateOnly } from './api';
 import { Button, ErrorLine, Sheet, inputClass } from './ui';
 
 /**
  * Issuing a تصريح تحميل وخروج داخلي: the bill's containers, each with a
- * checkbox and the plate of the truck that will carry it out. Standing and
- * departed alike — the office records the gate exit first and prints this
- * paper after, so a departed box is listed too, its exit truck already in
- * the field. The plate is a suggestion field like the gate's — a registered
- * truck names its carrier as it is typed — and may stay blank, to be
- * written on the printed paper by hand at loading time.
+ * checkbox and the weight the paper will carry. Standing and departed alike
+ * — the office records the gate exit first and prints this paper after, so a
+ * departed box is listed too.
+ *
+ * NOTHING is marked when the sheet opens — «بدي ما يكون ولا على وحده check
+ * وانا احدد الحاويات … مثلا بدي اعمل تصريح 3 من اصل عشرين ف لازم اشيل ال
+ * check عن 17». «تحديد الكل» keeps the whole-bill permit at one tap.
+ *
+ * The truck plate is gone from this sheet: «ليه بدخل رقم سيارة ؟؟؟ مهو ما
+ * ببين اساسا بالتصريح عند الطباعة». It was written, stored and never read
+ * by any paper, register or account.
  */
 export function PermitSheet(props: {
   bill: string;
@@ -24,18 +28,8 @@ export function PermitSheet(props: {
   onClose: () => void;
 }): ReactElement {
   const listed = props.containers;
-  /** Checked by default: a permit is usually the whole group. */
-  const [picked, setPicked] = useState<ReadonlySet<number>>(
-    () => new Set(listed.map((container) => container.id)),
-  );
-  /** A departed box already knows its truck — the one that took it out. */
-  const [trucks, setTrucks] = useState<Readonly<Record<number, string>>>(() =>
-    Object.fromEntries(
-      listed
-        .filter((container) => container.position === null && container.truckOut !== '')
-        .map((container) => [container.id, container.truckOut]),
-    ),
-  );
+  /** Empty on purpose: the clerk marks what this paper covers. */
+  const [picked, setPicked] = useState<ReadonlySet<number>>(() => new Set());
   /** «اريد وضع خانة للوزن ايضا»: prefilled from the record, editable, and
    * whatever stands here at issue time is what the stamped paper reads. */
   const [weights, setWeights] = useState<Readonly<Record<number, string>>>(() =>
@@ -43,8 +37,6 @@ export function PermitSheet(props: {
   );
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, staleTime: 60_000 });
 
   /**
    * «تنبيه عند إصدار تصريح ثانٍ لنفس الحاوية»: 86 containers in his own book
@@ -71,12 +63,13 @@ export function PermitSheet(props: {
     setPicked(next);
   };
 
+  const allPicked = listed.length > 0 && picked.size === listed.length;
+
   const submit = (): void => {
     const items = listed
       .filter((container) => picked.has(container.id))
       .map((container) => ({
         containerId: container.id,
-        truck: (trucks[container.id] ?? '').trim(),
         weight: (weights[container.id] ?? '').trim(),
       }));
     if (items.length === 0 || busy) return;
@@ -115,18 +108,29 @@ export function PermitSheet(props: {
             </p>
           )}
 
+          {/* The whole bill in one tap, and the tally beside it — the sheet
+              opens empty, so the clerk must always be able to see how many
+              he has marked without counting the ticks himself. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              kind="quiet"
+              onClick={() => {
+                setPicked(allPicked ? new Set() : new Set(listed.map((c) => c.id)));
+              }}
+            >
+              {allPicked ? AR.permitSelectNone : AR.permitSelectAll}
+            </Button>
+            <span className="text-xs font-bold text-muted">
+              {AR.permitPickedCount(picked.size, listed.length)}
+            </span>
+          </div>
+
           <ul className="divide-y divide-line rounded-xl border border-line">
             {listed.map((container) => {
               const on = picked.has(container.id);
-              const plate = trucks[container.id] ?? '';
-              const match = findTruck(fleet.data?.trucks ?? [], plate);
-              const home =
-                match === null
-                  ? null
-                  : (fleet.data?.carriers.find((c) => c.id === match.carrierId) ?? null);
               // Quiet lines, never a squeeze: the box and its badges first,
-              // then the entry facts — and on a narrow panel the weight and
-              // plate inputs WRAP onto their own line rather than overflow.
+              // then the entry facts — and on a narrow panel the weight
+              // input WRAPS onto its own line rather than overflow.
               return (
                 <li key={container.id} className="px-3 py-2.5">
                   <label className="flex cursor-pointer items-center gap-2.5">
@@ -166,28 +170,13 @@ export function PermitSheet(props: {
                       dir="ltr"
                       placeholder={AR.colWeight}
                       disabled={!on}
-                      className={`${inputClass} ms-auto w-20 py-1 text-start text-sm disabled:opacity-40`}
+                      className={`${inputClass} ms-auto w-24 py-1 text-start text-sm disabled:opacity-40`}
                       value={weights[container.id] ?? ''}
                       onChange={(event) => {
                         setWeights({ ...weights, [container.id]: event.target.value });
                       }}
                     />
-                    <input
-                      dir="ltr"
-                      placeholder={AR.colPermitTruck}
-                      disabled={!on}
-                      className={`${inputClass} w-28 py-1 text-start text-sm disabled:opacity-40`}
-                      value={plate}
-                      onChange={(event) => {
-                        setTrucks({ ...trucks, [container.id]: event.target.value });
-                      }}
-                    />
                   </div>
-                  {home !== null && (
-                    <p className="mt-1 truncate ps-7 text-xs font-semibold text-emerald-600">
-                      {AR.carrierChip(home.name)}
-                    </p>
-                  )}
                 </li>
               );
             })}

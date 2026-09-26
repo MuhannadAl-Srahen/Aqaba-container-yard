@@ -132,6 +132,18 @@ export interface GateCallRow {
   readonly status: 'PENDING' | 'DONE';
   readonly doneAt: string | null;
   readonly doneBy: string | null;
+  /**
+   * The work the call is for — «بدي يبين عند مدخل البيانات انو الونش او
+   * العقرب بدو السيارة رقم كذا رقم الحاوية كذا». Null on the bare call: a
+   * truck standing outside that no task of its own names yet.
+   */
+  readonly taskId: number | null;
+  readonly containerId: number | null;
+  /** The container's number, '' when the call names no box. */
+  readonly number: string;
+  /** The plate to admit, and its driver; '' when nobody has named one. */
+  readonly truck: string;
+  readonly driver: string;
 }
 
 export interface OrphanWageRow {
@@ -277,6 +289,14 @@ export interface TaskDto {
   readonly closedNote: TaskCloseNote | '';
   /** Exit-born OUT tasks carry the plate the box leaves on. */
   readonly truck: string;
+  /**
+   * The truck this work waits on and who drives it, joined from the gate
+   * record: an IN task names the truck that brought the box and still
+   * stands outside; an OUT task names the one that will take it. '' when
+   * nobody has written a plate yet — a تجهيز before the gate wrote one.
+   */
+  readonly gateTruck: string;
+  readonly gateDriver: string;
   // The container as the driver needs it, joined server-side:
   readonly number: string;
   readonly size: Size;

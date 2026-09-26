@@ -31,7 +31,8 @@ export function TasksScreen(props: {
   const queryClient = useQueryClient();
   const [toast, setToast] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<TaskDto | null>(null);
-  const [callingGate, setCallingGate] = useState(false);
+  /** 'BARE' = a truck with no task of its own; a task = the box it waits on. */
+  const [callingGate, setCallingGate] = useState<TaskDto | 'BARE' | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -67,12 +68,18 @@ export function TasksScreen(props: {
     queryFn: () => api.gateCalls('PENDING'),
     refetchInterval: 15_000,
   });
-  const myCall = (calls.data?.calls ?? [])[0] ?? null;
+  const myCalls = calls.data?.calls ?? [];
+  /** The bare call — the truck that arrived before any task names it. */
+  const myCall = myCalls.find((call) => call.taskId === null) ?? null;
+  /** Which boxes already have a call standing, so a second press is quiet. */
+  const calledTasks = new Set(
+    myCalls.map((call) => call.taskId).filter((id): id is number => id !== null),
+  );
 
-  const callGate = (): void => {
+  const callGate = (taskId?: number): void => {
     setBusy(true);
     api
-      .callGate()
+      .callGate(taskId)
       .then(() => {
         setToast(AR.callGateSent);
       })
@@ -81,7 +88,7 @@ export function TasksScreen(props: {
       })
       .finally(() => {
         setBusy(false);
-        setCallingGate(false);
+        setCallingGate(null);
         void queryClient.invalidateQueries({ queryKey: ['gate-calls'] });
       });
   };
@@ -130,7 +137,7 @@ export function TasksScreen(props: {
             full
             disabled={busy || myCall !== null}
             onClick={() => {
-              setCallingGate(true);
+              setCallingGate('BARE');
             }}
           >
             {AR.callGateAction}
@@ -194,6 +201,13 @@ export function TasksScreen(props: {
                 <p className="font-semibold text-ink">{AR.taskWeightLine(task.weight)}</p>
               )}
               {task.truck !== '' && <p>{AR.taskTruckLine(task.truck)}</p>}
+              {/* الشاحنة التي ينتظرها هذا العمل — يقرؤها السائق قبل أن
+                  ينادي المكتب ليُدخِل هذه السيارة بعينها. */}
+              {task.gateTruck !== '' && task.gateTruck !== task.truck && (
+                <p className="font-semibold text-ink">
+                  {AR.callGateTruckLine(task.gateTruck, task.gateDriver)}
+                </p>
+              )}
               {task.notes !== '' && <p>{task.notes}</p>}
               <p className="text-xs text-faint">{AR.taskCreatedBy(task.createdBy)}</p>
             </div>
@@ -225,6 +239,28 @@ export function TasksScreen(props: {
               >
                 {task.kind === 'IN' ? AR.taskEntryCard : AR.taskOutCard}
               </Button>
+            </div>
+
+            {/* «بدي احط ادخال الشاحنة على كل حاوية»: the call is per box, so
+                the clerk at the barrier is told WHICH truck to admit and for
+                which container. A second press on the same box is the same
+                truck, so the button goes quiet once its call stands. */}
+            <div className="mt-2">
+              <Button
+                full
+                kind="quiet"
+                disabled={busy || calledTasks.has(task.id)}
+                onClick={() => {
+                  setCallingGate(task);
+                }}
+              >
+                {AR.callGateForTask}
+              </Button>
+              {calledTasks.has(task.id) && (
+                <p className="mt-1 text-center text-xs font-bold text-amber-700 dark:text-amber-300">
+                  {AR.callGateForTaskStanding}
+                </p>
+              )}
             </div>
           </div>
         ))}
@@ -270,15 +306,25 @@ export function TasksScreen(props: {
           }}
         />
       )}
-      {callingGate && (
+      {callingGate !== null && (
         <Confirm
           title={AR.callGateTitle}
-          body={AR.callGateBody}
+          body={
+            callingGate === 'BARE'
+              ? AR.callGateBody
+              : `${AR.callGateContainerLine(callingGate.number)} — ${
+                  callingGate.gateTruck === ''
+                    ? AR.callGateNoTruck
+                    : AR.callGateTruckLine(callingGate.gateTruck, callingGate.gateDriver)
+                }`
+          }
           confirmLabel={AR.callGateAction}
           busy={busy}
-          onConfirm={callGate}
+          onConfirm={() => {
+            callGate(callingGate === 'BARE' ? undefined : callingGate.id);
+          }}
           onCancel={() => {
-            setCallingGate(false);
+            setCallingGate(null);
           }}
         />
       )}

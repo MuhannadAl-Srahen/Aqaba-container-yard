@@ -523,12 +523,27 @@ export function migrate(db: DatabaseSync, file: string): void {
       machine TEXT    NOT NULL,
       status  TEXT    NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'DONE')),
       done_at TEXT,
-      done_by INTEGER REFERENCES users (id)
+      done_by INTEGER REFERENCES users (id),
+      -- v29: the call names the WORK it is for, so the clerk reads which
+      -- truck to admit and for which box — «بدي يبين عند مدخل البيانات انو
+      -- الونش او العقرب بدو السيارة رقم كذا رقم الحاوية كذا». NULL is the
+      -- old bare call: a truck standing outside with no task of its own.
+      task_id INTEGER REFERENCES tasks (id)
     );
     CREATE INDEX IF NOT EXISTS idx_gate_calls_status ON gate_calls (status, id);
 
-    PRAGMA user_version = 28;
+    PRAGMA user_version = 29;
   `);
+
+  // v29 upgrade: a gate_calls table from before the per-container call gets
+  // the column in place; every call already answered reads NULL, which is
+  // exactly what it was — a call that named no box.
+  const gateCallColumns = db
+    .prepare('SELECT name FROM pragma_table_info(?)')
+    .all('gate_calls') as unknown as Array<{ name: string }>;
+  if (!gateCallColumns.some((column) => column.name === 'task_id')) {
+    db.exec('ALTER TABLE gate_calls ADD COLUMN task_id INTEGER REFERENCES tasks (id)');
+  }
 
   // v26 upgrade: drivers joined the staff. A users table from before the
   // machines gets the column in place; every existing account reads '' — an

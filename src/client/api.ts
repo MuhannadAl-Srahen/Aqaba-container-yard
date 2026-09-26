@@ -1,3 +1,4 @@
+import type { PlateDriver } from '../shared/fleet';
 import type {
   ApiError,
   BatchDto,
@@ -494,7 +495,7 @@ export const api = {
    */
   createPermit: (input: {
     bill: string;
-    items: ReadonlyArray<{ containerId: number; truck: string; weight: string }>;
+    items: ReadonlyArray<{ containerId: number; weight: string }>;
   }): Promise<PermitDto> =>
     request('/api/permits', { method: 'POST', body: JSON.stringify(input) }),
 
@@ -631,7 +632,15 @@ export const api = {
 
   // ---- نداء إدخال شاحنة ----
   /** The machine calls the gate; a second press returns the standing call. */
-  callGate: (): Promise<GateCallRow> => request('/api/gate-calls', { method: 'POST', body: JSON.stringify({}) }),
+  /** دفتر اللوحات: every plate with the driver last written beside it. */
+  plates: (): Promise<{ plates: PlateDriver[] }> => request('/api/plates'),
+
+  /** A call for one task names the truck the gate must admit; bare calls omit it. */
+  callGate: (taskId?: number): Promise<GateCallRow> =>
+    request('/api/gate-calls', {
+      method: 'POST',
+      body: JSON.stringify(taskId === undefined ? {} : { taskId }),
+    }),
   gateCalls: (status: 'PENDING' | 'DONE' = 'PENDING'): Promise<{ calls: GateCallRow[] }> =>
     request(`/api/gate-calls?status=${status}`),
   answerGateCall: (id: number): Promise<GateCallRow> =>

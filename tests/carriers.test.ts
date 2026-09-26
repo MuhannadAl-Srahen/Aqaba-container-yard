@@ -13,6 +13,7 @@ import type {
   TruckDto,
   UnassignedPlateRow,
 } from '../src/shared/types';
+import type { PlateDriver } from '../src/shared/fleet';
 
 /**
  * سجل الناقلين: the fleet the owner dictated ships inside the update, the
@@ -32,6 +33,7 @@ interface ReplyBody {
   carriers: CarrierDto[];
   trucks: TruckDto[];
   rows: Array<GateReportRow & { statement: 'IN' | 'OUT' }> & UnassignedPlateRow[];
+  plates: PlateDriver[];
 }
 
 interface Reply {
@@ -341,5 +343,49 @@ describe('كشف سيارات الناقل', () => {
     expect(rows).toHaveLength(3);
     expect(rows.filter((row) => row.statement === 'OUT')).toHaveLength(1);
     expect(rows.filter((row) => row.statement === 'OUT')[0]?.truck).toBe('500');
+  });
+});
+
+/**
+ * دفتر اللوحات: what the gate itself has written, plate by plate. The
+ * registry knows whose truck it is; this knows who was driving it last —
+ * «واريد عند ادخال رقم السيارة ان يتعرف على اسم السائق بناءا على اخر عملية
+ * دخول حصلت لهذه السيارة».
+ */
+describe('دفتر اللوحات — آخر سائق لكل سيارة', () => {
+  it('keeps the newest name per plate, skips a placeholder, and folds the spellings', async () => {
+    await gateIn('MSCU1234565', slot(3, 1), '60-84785', 'محمد جمعه');
+    await gateIn('TGHU1234563', slot(5, 1), '٦٠٨٤٧٨٥', 'رياض تيسير');
+    // A plate whose last hand typed a dash: the book passes over it and
+    // keeps the last name that is actually a name.
+    await gateIn('CSQU3054383', slot(7, 1), '5511', 'زيد عوده');
+    await gateIn('FCIU8412630', slot(9, 1), '5511', '-');
+
+    const { status, body } = await call({ method: 'GET', url: '/api/plates' });
+    expect(status).toBe(200);
+    const book = new Map(body.plates.map((row) => [row.plate, row.driver]));
+    // Both spellings of the same plate are one row, carrying the newest name.
+    expect(book.get('6084785')).toBe('رياض تيسير');
+    expect(book.get('5511')).toBe('زيد عوده');
+
+    // An account that never types a plate has no business with the book.
+    const clerk = await call({
+      method: 'POST',
+      url: '/api/users',
+      payload: { name: 'محاسب', pin: '4321', permissions: ['ACCOUNTING'], machine: '' },
+    });
+    const login = await app.inject({
+      method: 'POST',
+      url: '/api/login',
+      payload: { userId: (clerk.body as { id: number }).id, pin: '4321' },
+    });
+    const raw = login.headers['set-cookie'];
+    const header = Array.isArray(raw) ? raw[0] : (raw as string | undefined);
+    const theirs = await app.inject({
+      method: 'GET',
+      url: '/api/plates',
+      headers: { cookie: (header ?? '').split(';')[0] ?? '' },
+    });
+    expect(theirs.statusCode).toBe(403);
   });
 });

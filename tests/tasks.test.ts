@@ -668,6 +668,95 @@ describe('«تحديد الكل ثم تم» — the desk closes many at once', (
   });
 });
 
+describe('نداء إدخال شاحنة على حاوية بعينها', () => {
+  /**
+   * «بدي احط ادخال الشاحنة على كل حاوية … مشان يوم يطلب ادخال الشاحنة بدي
+   * يبين عند مدخل البيانات انو الونش او العقرب بدو السيارة رقم كذا رقم
+   * الحاوية كذا». The call names its task, and the banner carries the plate
+   * and the driver the gate wrote — so the clerk knows which truck to admit.
+   */
+  it('names the truck and the box, and two boxes are two calls', async () => {
+    const driver = await hire('سائق الونش', '2222', ['MOVE'], 'CRANE');
+    const clerk = await hire('مدخل البيانات', '3333', ['GATE_IN'], '');
+    const first = await receive('MSCU1234565', at(3, 1), 'CRANE');
+    const second = await receive('TGHU1234563', at(5, 1), 'CRANE');
+    const tasks = await tasksOf(driver.cookie);
+    const taskOf = (containerId: number): TaskDto => {
+      const found = tasks.find((task) => task.containerId === containerId);
+      if (found === undefined) throw new Error('no task');
+      return found;
+    };
+
+    // The entry task already knows which truck is standing outside.
+    expect(taskOf(first).gateTruck).toBe('500');
+    expect(taskOf(first).gateDriver).toBe('أبو أحمد');
+
+    const made = await call({
+      method: 'POST',
+      url: '/api/gate-calls',
+      payload: { taskId: taskOf(first).id },
+      cookie: driver.cookie,
+    });
+    expect(made.status).toBe(201);
+    const row = made.body as { id: number; number: string; truck: string; driver: string };
+    expect(row.number).toBe('MSCU1234565');
+    expect(row.truck).toBe('500');
+    expect(row.driver).toBe('أبو أحمد');
+
+    // A second press on the SAME box is the same truck …
+    const again = await call({
+      method: 'POST',
+      url: '/api/gate-calls',
+      payload: { taskId: taskOf(first).id },
+      cookie: driver.cookie,
+    });
+    expect((again.body as { id: number }).id).toBe(row.id);
+
+    // … but another box is another truck, so it stands beside it.
+    const other = await call({
+      method: 'POST',
+      url: '/api/gate-calls',
+      payload: { taskId: taskOf(second).id },
+      cookie: driver.cookie,
+    });
+    expect(other.status).toBe(201);
+    expect((other.body as { id: number }).id).not.toBe(row.id);
+    const seen = await call({ method: 'GET', url: '/api/gate-calls', cookie: clerk.cookie });
+    expect((seen.body as { calls: unknown[] }).calls).toHaveLength(2);
+
+    // A driver may not call for the other machine's work.
+    const straddle = await hire('سائق العقرب', '4444', ['MOVE'], 'STRADDLE');
+    expect(
+      (
+        await call({
+          method: 'POST',
+          url: '/api/gate-calls',
+          payload: { taskId: taskOf(first).id },
+          cookie: straddle.cookie,
+        })
+      ).status,
+    ).toBe(403);
+
+    // A task already finished has no truck left to admit.
+    await call({
+      method: 'POST',
+      url: `/api/tasks/${String(taskOf(second).id)}/done`,
+      payload: {},
+      cookie: driver.cookie,
+    });
+    expect(
+      (
+        await call({
+          method: 'POST',
+          url: '/api/gate-calls',
+          payload: { taskId: taskOf(second).id },
+          cookie: driver.cookie,
+        })
+      ).status,
+    ).toBe(409);
+  });
+});
+
 describe('نداء إدخال شاحنة — الآلية تنادي البوابة', () => {
   it('the driver calls once, the gate answers, and a second press is the same truck', async () => {
     const driver = await hire('سائق العقرب', '2222', ['MOVE'], 'STRADDLE');

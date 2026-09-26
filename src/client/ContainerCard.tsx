@@ -4,7 +4,7 @@ import type { ContainerDto, Handling, MovementDto, Permission, PhotoDto } from '
 import { HANDLING } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
-import { findTruck } from '../shared/fleet';
+import { findPlateDriver, findTruck } from '../shared/fleet';
 import { fromLocalStamp, toLocalStamp } from '../shared/dates';
 import { truckLooksOdd, weightLooksOdd } from '../shared/doubts';
 import { AR } from './ar';
@@ -195,6 +195,8 @@ export function ContainerCard(props: {
    * usual driver with it — a suggestion the clerk is free to type over.
    */
   const fleet = useQuery({ queryKey: ['fleet'], queryFn: api.fleet, staleTime: 60_000 });
+  /** دفتر اللوحات — the last driver each plate carried. */
+  const plateBook = useQuery({ queryKey: ['plates'], queryFn: api.plates, staleTime: 60_000 });
   const autoDriver = useRef('');
 
   const detail = useQuery({
@@ -576,14 +578,18 @@ export function ContainerCard(props: {
                   value={truckOut}
                   onChange={(event) => {
                     setTruckOut(event.target.value);
+                    // The registry first, then the gate's own book — the
+                    // driver this plate carried last time. Never over typed
+                    // work, and never over anything but this form's own
+                    // earlier suggestion.
                     const match = findTruck(fleet.data?.trucks ?? [], event.target.value);
-                    if (
-                      match !== null &&
-                      match.driver !== '' &&
-                      (driverOut === '' || driverOut === autoDriver.current)
-                    ) {
-                      setDriverOut(match.driver);
-                      autoDriver.current = match.driver;
+                    const guess =
+                      match !== null && match.driver !== ''
+                        ? match.driver
+                        : findPlateDriver(plateBook.data?.plates ?? [], event.target.value);
+                    if (guess !== '' && (driverOut === '' || driverOut === autoDriver.current)) {
+                      setDriverOut(guess);
+                      autoDriver.current = guess;
                     }
                   }}
                   autoFocus

@@ -11,6 +11,7 @@ import type {
   ContainerDto,
   CustomZoneDto,
   DriverHaulRow,
+  GateCallRow,
   HaulDirection,
   PermitDto,
   PermitReportRow,
@@ -35,6 +36,8 @@ import type {
   Zone,
 } from '../shared/types';
 import { HANDLING, OWNER_ID, PERMISSIONS } from '../shared/types';
+import type { PlateDriver } from '../shared/fleet';
+import { normalizePlate } from '../shared/fleet';
 import type { Standing } from '../shared/rules';
 import type { SheetRow } from '../shared/customsSheet';
 import { hashSecret } from './auth';
@@ -270,6 +273,10 @@ interface TaskRow {
   bill: string;
   notes: string;
   weight: string;
+  truck_in: string;
+  driver_in: string;
+  truck_out: string;
+  driver_out: string;
   live_zone: string | null;
   live_bay: number | null;
   live_stack: number | null;
@@ -278,9 +285,36 @@ interface TaskRow {
 
 const TASK_SELECT = `
   SELECT t.*, k.number, k.size, k.bill, k.notes, k.weight,
+         k.truck_in, k.driver_in, k.truck_out, k.driver_out,
          k.zone AS live_zone, k.bay AS live_bay, k.stack AS live_stack, k.tier AS live_tier
     FROM tasks t
     JOIN containers k ON k.id = t.container_id`;
+
+/**
+ * The truck this piece of work is waiting on, and who drives it — the one
+ * rule, so the machine's card and the gate's banner can never disagree.
+ * An entry task's truck is the one that BROUGHT the box and still stands
+ * outside the gate; an exit task's is the plate the gate wrote as it left,
+ * falling back to the record's own exit plate. A تجهيز whose truck nobody
+ * has named yet reads blank, which is the truth and not a gap to fill.
+ */
+export function gateTruckOf(source: {
+  kind: string;
+  truck: string | null;
+  truck_in: string | null;
+  driver_in: string | null;
+  truck_out: string | null;
+  driver_out: string | null;
+}): { truck: string; driver: string } {
+  if (source.kind === 'IN') {
+    return { truck: source.truck_in ?? '', driver: source.driver_in ?? '' };
+  }
+  const pinned = source.truck ?? '';
+  return {
+    truck: pinned === '' ? (source.truck_out ?? '') : pinned,
+    driver: source.driver_out ?? '',
+  };
+}
 
 function toTask(row: TaskRow, names: Readonly<Record<string, string>>): TaskDto {
   return {
@@ -301,6 +335,12 @@ function toTask(row: TaskRow, names: Readonly<Record<string, string>>): TaskDto 
     bill: row.bill,
     notes: row.notes,
     weight: row.weight,
+    // Which truck is waiting on this work — the machine reads it on the
+    // card before it calls the gate to admit that very plate.
+    ...(() => {
+      const gate = gateTruckOf(row);
+      return { gateTruck: gate.truck, gateDriver: gate.driver };
+    })(),
     // The live slot while the box stands; the birth snapshot once it no
     // longer does — the driver must still be told where it stood.
     position:
@@ -1716,6 +1756,28 @@ export function listPlateUsage(
 }
 
 /**
+ * دفتر اللوحات: one row per plate the gate has ever written, carrying the
+ * LAST driver name typed beside it — «بدي مجرد ما كتبت رقم سيارته خلص يكتب
+ * اسمه تلقائي». Folded here rather than in SQL because a plate's identity is
+ * its normalized text (src/shared/fleet.ts), which SQL cannot be trusted
+ * with. Sixty-odd rows for this yard, so the whole book travels at once and
+ * the lookup is a memory hit with no round trip per keystroke.
+ *
+ * A name with no letter in it — the placeholder «-» a tired hand types — is
+ * passed over, so the fold falls through to the last REAL name instead.
+ */
+export function listPlateDrivers(db: DatabaseSync): PlateDriver[] {
+  const book = new Map<string, PlateDriver>();
+  for (const row of listPlateUsage(db)) {
+    const plate = normalizePlate(row.plate);
+    if (plate === '' || book.has(plate)) continue;
+    if (!/\p{L}/u.test(row.driver)) continue;
+    book.set(plate, { plate, driver: row.driver.trim(), at: row.at });
+  }
+  return [...book.values()];
+}
+
+/**
  * Every gate movement in [from, to), both directions — the pool the carrier
  * register is sieved out of. The sieve itself (which plates are this
  * carrier's) is normalized-text matching, which SQL cannot be trusted with;
@@ -2637,16 +2699,9 @@ export function permitsOfContainers(
 // The machine calls the gate: a truck is standing here, come and record it.
 // Answered, never deleted — the same work-ledger discipline as the tasks.
 
-export interface GateCallRow {
-  readonly id: number;
-  readonly at: string;
-  /** Who called — the driver's name, resolved. */
-  readonly by: string;
-  readonly machine: string;
-  readonly status: 'PENDING' | 'DONE';
-  readonly doneAt: string | null;
-  readonly doneBy: string | null;
-}
+// The row's shape lives in src/shared/types.ts, so the banner the clerk
+// reads and the row the server builds can never drift apart.
+export type { GateCallRow };
 
 interface GateCallDb {
   id: number;
@@ -2656,7 +2711,49 @@ interface GateCallDb {
   status: string;
   done_at: string | null;
   done_by: number | null;
+  task_id: number | null;
+  // Joined through the task, so a plate corrected afterwards corrects the
+  // banner with it. Null on the bare call that names no box.
+  task_kind: string | null;
+  task_truck: string | null;
+  container_id: number | null;
+  number: string | null;
+  truck_in: string | null;
+  driver_in: string | null;
+  truck_out: string | null;
+  driver_out: string | null;
 }
+
+/**
+ * The call and the work it is for, in one read. LEFT JOINs throughout: a
+ * bare call (task_id NULL) and a call whose container was later struck out
+ * both still answer — the clerk must always be able to close the banner.
+ */
+const GATE_CALL_SELECT = `
+  SELECT g.id, g.at, g.by_user, g.machine, g.status, g.done_at, g.done_by, g.task_id,
+         t.kind AS task_kind, t.truck AS task_truck, t.container_id AS container_id,
+         k.number AS number, k.truck_in AS truck_in, k.driver_in AS driver_in,
+         k.truck_out AS truck_out, k.driver_out AS driver_out
+    FROM gate_calls g
+    LEFT JOIN tasks t ON t.id = g.task_id
+    LEFT JOIN containers k ON k.id = t.container_id`;
+
+/**
+ * Which truck the clerk is being told to admit — the task's own rule, so
+ * the machine's card and the gate's banner can never name two trucks. A
+ * bare call (no task) names none, which is what it always was.
+ */
+const callTruckOf = (row: GateCallDb): { truck: string; driver: string } =>
+  row.task_kind === null
+    ? { truck: '', driver: '' }
+    : gateTruckOf({
+        kind: row.task_kind,
+        truck: row.task_truck,
+        truck_in: row.truck_in,
+        driver_in: row.driver_in,
+        truck_out: row.truck_out,
+        driver_out: row.driver_out,
+      });
 
 const toGateCall = (row: GateCallDb, names: Readonly<Record<string, string>>): GateCallRow => ({
   id: row.id,
@@ -2666,31 +2763,50 @@ const toGateCall = (row: GateCallDb, names: Readonly<Record<string, string>>): G
   status: row.status === 'DONE' ? 'DONE' : 'PENDING',
   doneAt: row.done_at,
   doneBy: row.done_at === null ? null : userLabel(names, row.done_by),
+  taskId: row.task_id,
+  containerId: row.container_id,
+  number: row.number ?? '',
+  ...callTruckOf(row),
 });
 
 export function insertGateCall(
   db: DatabaseSync,
-  call: { at: string; byId: number | null; machine: string },
+  call: { at: string; byId: number | null; machine: string; taskId: number | null },
 ): number {
   const result = db
-    .prepare('INSERT INTO gate_calls (at, by_user, machine) VALUES (?, ?, ?)')
-    .run(call.at, call.byId, call.machine);
+    .prepare('INSERT INTO gate_calls (at, by_user, machine, task_id) VALUES (?, ?, ?, ?)')
+    .run(call.at, call.byId, call.machine, call.taskId);
   return Number(result.lastInsertRowid);
 }
 
-/** One PENDING call per machine at a time: a second press is not a second truck. */
+/**
+ * The bare call — one PENDING per machine, «كبسة ادخال الشاحنة» pressed
+ * twice is the same truck. A call that names a box is NOT one of these: two
+ * boxes are two trucks, so they stand side by side.
+ */
 export function pendingGateCall(db: DatabaseSync, machine: string): GateCallRow | null {
   const row = db
-    .prepare("SELECT * FROM gate_calls WHERE machine = ? AND status = 'PENDING' ORDER BY id LIMIT 1")
+    .prepare(
+      `${GATE_CALL_SELECT} WHERE g.machine = ? AND g.status = 'PENDING' AND g.task_id IS NULL
+        ORDER BY g.id LIMIT 1`,
+    )
     .get(machine) as GateCallDb | undefined;
+  return row === undefined ? null : toGateCall(row, listUserNames(db));
+}
+
+/** A second press on the SAME box is the same truck, so it answers with it. */
+export function pendingGateCallForTask(db: DatabaseSync, taskId: number): GateCallRow | null {
+  const row = db
+    .prepare(`${GATE_CALL_SELECT} WHERE g.task_id = ? AND g.status = 'PENDING' ORDER BY g.id LIMIT 1`)
+    .get(taskId) as GateCallDb | undefined;
   return row === undefined ? null : toGateCall(row, listUserNames(db));
 }
 
 export function listGateCalls(db: DatabaseSync, status: 'PENDING' | 'DONE'): GateCallRow[] {
   const rows = db
     .prepare(
-      `SELECT * FROM gate_calls WHERE status = ?
-        ORDER BY ${status === 'PENDING' ? 'id' : 'done_at DESC, id DESC'} LIMIT 50`,
+      `${GATE_CALL_SELECT} WHERE g.status = ?
+        ORDER BY ${status === 'PENDING' ? 'g.id' : 'g.done_at DESC, g.id DESC'} LIMIT 50`,
     )
     .all(status) as unknown as GateCallDb[];
   const names = listUserNames(db);
@@ -2698,7 +2814,7 @@ export function listGateCalls(db: DatabaseSync, status: 'PENDING' | 'DONE'): Gat
 }
 
 export function getGateCall(db: DatabaseSync, id: number): GateCallRow | null {
-  const row = db.prepare('SELECT * FROM gate_calls WHERE id = ?').get(id) as GateCallDb | undefined;
+  const row = db.prepare(`${GATE_CALL_SELECT} WHERE g.id = ?`).get(id) as GateCallDb | undefined;
   return row === undefined ? null : toGateCall(row, listUserNames(db));
 }
 

@@ -31,6 +31,7 @@ import type {
 } from '../shared/types';
 import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
 import type { DriverHaulRow, OrphanWageRow } from '../shared/types';
+import type { PlateDriver } from '../shared/fleet';
 import { normalizePlate, plateMatches } from '../shared/fleet';
 import { plainCode } from '../shared/bidi';
 import { ammanDay, ammanYear, daysBetween, toLocalStamp } from '../shared/dates';
@@ -219,14 +220,20 @@ const carrierSchema = z.object({
   name: z.string().trim().min(1).max(60),
 });
 
-/** تصريح تحميل وخروج داخلي: one bill, its containers, a truck for each. */
+/** تصريح تحميل وخروج داخلي: one bill and the containers it lets out. */
 const permitSchema = z.object({
   bill: z.string().trim().min(1).max(40),
   items: z
     .array(
       z.object({
         containerId: z.number().int().positive(),
-        truck: z.string().trim().max(30),
+        /**
+         * «ليه بدخل رقم سيارة ؟؟؟ مهو ما ببين اساسا بالتصريح عند الطباعة»:
+         * the plate left the screen, and the column stays only so papers
+         * already stamped keep what they were issued with. Optional, so a
+         * tab left open from before the change still issues its permit.
+         */
+        truck: z.string().trim().max(30).default(''),
         /** الوزن كما تُصدره الورقة — prefilled from the record, editable. */
         weight: z.string().trim().max(20).default(''),
       }),
@@ -595,6 +602,23 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   app.get('/api/fleet', (request): FleetDto => {
     requireAuth(request);
     return { carriers: store.listCarriers(db), trucks: store.listTrucks(db) };
+  });
+
+  /**
+   * دفتر اللوحات: every plate the gate has written with the last driver name
+   * beside it, so a returning truck writes its own driver's name — «بدي مجرد
+   * ما كتبت رقم سيارته خلص يكتب اسمه تلقائي». Open to the hands that type a
+   * plate, which is where the suggestion is used and nowhere else.
+   */
+  app.get('/api/plates', (request): { plates: PlateDriver[] } => {
+    const actor = requireAuth(request);
+    const mayType =
+      actor.owner ||
+      actor.permissions.includes('GATE_IN') ||
+      actor.permissions.includes('GATE_OUT') ||
+      actor.permissions.includes('EDIT');
+    if (!mayType) refuse(403, 'FORBIDDEN');
+    return { plates: store.listPlateDrivers(db) };
   });
 
   /**
@@ -1083,13 +1107,33 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   app.post('/api/gate-calls', (request, reply) => {
     const actor = requireAuth(request);
     if (actor.machine === '') refuse(403, 'FORBIDDEN');
+    // «على كل حاوية»: the call may name the very task it is for, so the
+    // banner at the gate reads which truck to admit and for which box. The
+    // body stays optional — the bare call is still the truck that arrived
+    // before any paperwork names it.
+    const body = parseOrRefuse(
+      z.object({ taskId: z.number().int().positive().optional() }),
+      request.body ?? {},
+    );
     return transaction(db, () => {
-      const standing = store.pendingGateCall(db, actor.machine);
+      if (body.taskId !== undefined) {
+        const task = store.getTask(db, body.taskId);
+        if (task === null) refuse(404, 'NOT_FOUND');
+        if (task === null) throw new Error('unreachable');
+        // A driver calls for his own machine's work alone, and a task
+        // already finished has no truck left to admit.
+        if (task.machine !== actor.machine) refuse(403, 'FORBIDDEN');
+        if (task.status !== 'PENDING') refuse(409, 'TASK_CLOSED');
+        const twice = store.pendingGateCallForTask(db, body.taskId);
+        if (twice !== null) return twice;
+      }
+      const standing = body.taskId === undefined ? store.pendingGateCall(db, actor.machine) : null;
       if (standing !== null) return standing;
       const id = store.insertGateCall(db, {
         at: now(),
         byId: actorId(actor),
         machine: actor.machine,
+        taskId: body.taskId ?? null,
       });
       void reply.status(201);
       const call = store.getGateCall(db, id);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   carrierOfPlate,
+  findPlateDriver,
   findTruck,
   normalizePlate,
   plateLabel,
@@ -115,5 +116,30 @@ describe('carrierOfPlate', () => {
 
   it('an unknown plate belongs to nobody', () => {
     expect(carrierOfPlate(carriers, trucks, '99999')).toBeNull();
+  });
+});
+
+/**
+ * دفتر اللوحات: «بدي مجرد ما كتبت رقم سيارته خلص يكتب اسمه تلقائي». The book
+ * is keyed by the NORMALIZED plate, so however the gate spells it this time
+ * it still finds what was written last time.
+ */
+describe('findPlateDriver', () => {
+  const book = [
+    { plate: '6084785', driver: 'محمد جمعه', at: '2026-09-20T08:00:00.000Z' },
+    { plate: '5511', driver: 'رياض تيسير', at: '2026-09-19T08:00:00.000Z' },
+  ];
+
+  it('finds the last driver however the plate is spelled', () => {
+    expect(findPlateDriver(book, '60-84785')).toBe('محمد جمعه');
+    expect(findPlateDriver(book, '60 84785')).toBe('محمد جمعه');
+    expect(findPlateDriver(book, '٦٠٨٤٧٨٥')).toBe('محمد جمعه');
+    expect(findPlateDriver(book, '5511')).toBe('رياض تيسير');
+  });
+
+  it('says nothing about a plate it has never seen, or about nothing at all', () => {
+    expect(findPlateDriver(book, '99999')).toBe('');
+    expect(findPlateDriver(book, '')).toBe('');
+    expect(findPlateDriver(book, '   ')).toBe('');
   });
 });

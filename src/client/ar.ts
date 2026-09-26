@@ -64,16 +64,22 @@ export const AR = {
   permitDate: 'التاريخ',
   permitBill: 'رقم البوليصة',
   colEntryCard: 'رقم سند بطاقة الإدخال',
-  colPermitTruck: 'رقم السيارة',
   permitSignature: 'توقيع وختم موظف مديرية التخزين',
   reportPermits: 'كشف خروج وتحميل داخلي',
   colPermitCount: 'عدد الحاويات',
   permitAction: 'التصريح',
   permitCreate: 'إصدار تصريح تحميل وخروج',
+  /**
+   * «بدي ما يكون ولا على وحده check وانا احدد الحاويات»: the sheet opens
+   * with nothing marked, and «تحديد الكل» takes the whole bill in one tap.
+   */
   permitCreateHint:
-    'اختر الحاويات التي سيشملها التصريح، واكتب رقم السيارة التي ستُخرج كل واحدة — ' +
-    'أو اترك الرقم فارغاً ليُكتب على الورقة يدوياً. الحاوية التي خرجت من البوابة ' +
-    'تظهر هنا أيضاً ومعها سيارة خروجها.',
+    'لا تُعلَّم أي حاوية عند الفتح: علّم ما يشمله التصريح وحده، أو اضغط «تحديد الكل» ' +
+    'ليشمل البوليصة كاملة. الحاوية التي خرجت من البوابة تظهر هنا أيضاً.',
+  permitSelectAll: 'تحديد الكل',
+  permitSelectNone: 'إلغاء التحديد',
+  permitPickedCount: (picked: number, all: number): string =>
+    `المعلَّم: ${String(picked)} من ${String(all)}`,
   permitNoContainers: 'لا توجد حاويات على هذه البوليصة.',
   /** «تنبيه عند إصدار تصريح ثانٍ لنفس الحاوية» — a warning, never a bar. */
   permitAlready: (serials: string): string => `لها تصريح: ${serials}`,
@@ -907,6 +913,23 @@ export const AR = {
   callGateAnswer: 'سجّلتها',
   callGateAnswered: 'تم إغلاق النداء.',
   callGateWaiting: (name: string): string => `ناداك ${name}`,
+  /**
+   * النداء على حاوية بعينها — «بدي يبين عند مدخل البيانات انو الونش او
+   * العقرب بدو السيارة رقم كذا رقم الحاوية كذا».
+   */
+  /**
+   * مسودة الإدخال — «بس ارجع لازم ارجع ادخل معلومات الحاوية من اول».
+   */
+  gateInResumed: 'استُؤنف ما كنت تكتبه في هذه الخانة. الصور وحدها لا تُحفظ.',
+  gateInStartOver: 'ابدأ من جديد',
+  callGateForTask: 'إدخال شاحنة هذه الحاوية',
+  callGateForTaskStanding: 'النداء على هذه الحاوية معلّق عند المكتب.',
+  callGateTruckLine: (truck: string, driver: string): string =>
+    driver === ''
+      ? `السيارة ${ltrCode(truck)}`
+      : `السيارة ${ltrCode(truck)} — السائق ${driver}`,
+  callGateNoTruck: 'لم تُسجَّل سيارة لهذه الحاوية بعد.',
+  callGateContainerLine: (number: string): string => `الحاوية ${ltrCode(number)}`,
   /** الهاتف: كل شاشات الرأس تحت زر واحد. */
   menuButton: 'القائمة',
   /** البيان of a stub kept so the numbering never breaks. */

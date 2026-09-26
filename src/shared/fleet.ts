@@ -67,6 +67,29 @@ export function findTruck(trucks: readonly TruckDto[], typed: string): TruckDto 
 }
 
 /**
+ * One plate the gate has written, with the last driver name typed beside it.
+ * The registry says whose truck it is; this says who was actually driving.
+ */
+export interface PlateDriver {
+  /** Normalized — «60-84785», «60 84785» and «٦٠٨٤٧٨٥» all key the same row. */
+  readonly plate: string;
+  readonly driver: string;
+  /** The instant that name was written, newest wins. */
+  readonly at: string;
+}
+
+/**
+ * «بدي مجرد ما كتبت رقم سيارته خلص يكتب اسمه تلقائي»: the driver the gate
+ * last wrote beside this plate. A suggestion, and only that — the same truck
+ * carries different drivers, so whatever the clerk types over it stands.
+ */
+export function findPlateDriver(book: readonly PlateDriver[], typed: string): string {
+  const wanted = normalizePlate(typed);
+  if (wanted === '') return '';
+  return book.find((row) => row.plate === wanted)?.driver ?? '';
+}
+
+/**
  * A gate-typed plate split back into ترميز and number, for pre-filling the
  * registration form: «60-84785» and «60 84785» give code 60 and number 84785.
  * Anything without one clean digits-separator-digits shape keeps the whole
