@@ -592,6 +592,9 @@ export function ContainerCard(props: {
                   dir="ltr"
                   className={`${inputClass} text-start`}
                   maxLength={30}
+                  inputMode="tel"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={truckOut}
                   onChange={(event) => {
                     setTruckOut(event.target.value);

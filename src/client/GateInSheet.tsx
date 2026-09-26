@@ -369,6 +369,11 @@ export function GateInSheet(props: {
             onChange={(event) => {
               setNumber(event.target.value);
             }}
+            /* أربعة أحرف لاتينية كبيرة وسبعة أرقام: لوحة المفاتيح تفتح
+               بالحروف الكبيرة والتصحيح التلقائي مطفأ. */
+            autoCapitalize="characters"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder="MSCU1234566"
             autoFocus
           />
@@ -392,6 +397,9 @@ export function GateInSheet(props: {
               dir="ltr"
               className={`${inputClass} text-start`}
               maxLength={30}
+              inputMode="tel"
+              autoCorrect="off"
+              spellCheck={false}
               value={truck}
               onChange={(event) => {
                 setTruck(event.target.value);

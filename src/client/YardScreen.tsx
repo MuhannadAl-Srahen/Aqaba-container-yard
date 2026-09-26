@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ContainerDto,
@@ -616,11 +624,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       .map(([yard, room]) => ({ yard, ...room }));
   }, [yardLayout, containers]);
 
-  // Out-of-yard hits come from the server: the map query only carries who is standing.
+  // Out-of-yard hits come from the server: the map query only carries who is
+  // standing. The typed text reaches the wire DEFERRED — a container number
+  // is eleven characters, and keying the query on every one of them fired
+  // ten round trips over the gate's mobile data to answer the eleventh.
+  // What is already in the yard still matches on every keystroke, locally.
+  const deferredSearch = useDeferredValue(search.trim());
   const remote = useQuery({
-    queryKey: ['search', search.trim()],
-    queryFn: () => api.search(search.trim()),
-    enabled: search.trim().length >= 2,
+    queryKey: ['search', deferredSearch],
+    queryFn: () => api.search(deferredSearch),
+    enabled: deferredSearch.length >= 2,
   });
   const departedResults = useMemo(
     () => (remote.data?.results ?? []).filter((c) => c.position === null),
@@ -1031,6 +1044,16 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                   'outline-none focus:border-blue-500 focus:bg-surface focus:ring-2 focus:ring-blue-200'
                 }
                 placeholder={AR.searchPlaceholder}
+                // A container number is four LATIN CAPITALS and seven
+                // digits. The phone keyboard was opening lowercase with
+                // autocorrect armed, so every search began with two taps
+                // spent on the keyboard itself and ended with «Mscu» being
+                // «corrected» to a word.
+                inputMode="search"
+                enterKeyHint="search"
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
                 value={search}
                 onChange={(event) => {
                   setSearch(event.target.value);
