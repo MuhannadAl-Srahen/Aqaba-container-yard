@@ -548,22 +548,7 @@ export const api = {
    * The owner's training tools. Temporary, for the period the staff are
    * learning on the live yard — they come out with OwnerToolsScreen.
    */
-  ownerTools: (): Promise<{ wipePasswordSet: boolean }> => request('/api/owner/tools'),
-
-  setWipePassword: (password: string): Promise<{ ok: boolean }> =>
-    request('/api/owner/wipe-password', { method: 'POST', body: JSON.stringify({ password }) }),
-
-  wipeData: (
-    password: string,
-  ): Promise<{
-    ok: boolean;
-    /** What actually went, counted from the tables themselves. */
-    containers: number;
-    movements: number;
-    left: number;
-    backup: string;
-  }> =>
-    request('/api/owner/wipe', { method: 'POST', body: JSON.stringify({ password }) }),
+  ownerTools: (): Promise<{ ok: boolean }> => request('/api/owner/tools'),
 
   seedDemo: (): Promise<{ added: number; departed: number; fullBay: string | null }> =>
     request('/api/owner/seed', { method: 'POST', body: JSON.stringify({}) }),

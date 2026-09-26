@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -170,102 +170,7 @@ describe('البيانات التجريبية', () => {
   });
 });
 
-describe('حذف البيانات', () => {
-  it('needs its own password, set first, and keeps the people', async () => {
-    await call({ method: 'POST', url: '/api/owner/seed' });
-
-    // Before a word is set there is nothing to check against, so it refuses.
-    const early = await call({
-      method: 'POST',
-      url: '/api/owner/wipe',
-      payload: { password: 'anything' },
-    });
-    expect(early.status).toBe(409);
-
-    const hired = await call({
-      method: 'POST',
-      url: '/api/users',
-      payload: { name: 'وسام', pin: '4321', permissions: ['GATE_IN'] },
-    });
-    expect(hired.status).toBe(201);
-
-    expect(
-      (await call({ method: 'POST', url: '/api/owner/wipe-password', payload: { password: 'مسح-2026' } }))
-        .status,
-    ).toBe(200);
-    expect((await call({ method: 'GET', url: '/api/owner/tools' })).body).toMatchObject({
-      wipePasswordSet: true,
-    });
-
-    // The owner's own login password is NOT the wipe word.
-    const wrong = await call({
-      method: 'POST',
-      url: '/api/owner/wipe',
-      payload: { password: 'yard-secret' },
-    });
-    expect(wrong.status).toBe(403);
-
-    const wiped = await call({
-      method: 'POST',
-      url: '/api/owner/wipe',
-      payload: { password: 'مسح-2026' },
-    });
-    expect(wiped.status).toBe(200);
-    expect(await standingCount()).toBe(0);
-
-    // It reports what actually went, counted from the tables themselves, and
-    // that nothing was left behind. «حذفت ولا ما حذفت» is then a number on the
-    // screen rather than an impression of one.
-    const cleared = wiped.body as { containers: number; movements: number; left: number };
-    expect(cleared.containers).toBeGreaterThan(0);
-    expect(cleared.movements).toBeGreaterThan(0);
-    expect(cleared.left).toBe(0);
-
-    // The staff, the passwords and the session all survive it.
-    const staff = await call({ method: 'GET', url: '/api/users' });
-    expect((staff.body as { users: unknown[] }).users).toHaveLength(1);
-
-    // And it left a snapshot behind before doing any of it.
-    expect(readdirSync(path.join(dir, 'backups')).some((f) => f.startsWith('before-wipe'))).toBe(
-      true,
-    );
-
-    // Every surface that reads containers must agree the yard is empty — the
-    // registers and the log included, since those are what the owner opens to
-    // check whether the clearing really happened.
-    const period = `from=${new Date(Date.now() - 90 * 86_400_000).toISOString()}&to=${new Date().toISOString()}`;
-    for (const url of [
-      '/api/reports/standing',
-      `/api/reports/gate?type=IN&${period}`,
-      `/api/reports/gate?type=OUT&${period}`,
-      `/api/reports/log?${period}`,
-    ]) {
-      const sheet = await call({ method: 'GET', url });
-      expect((sheet.body as { rows: unknown[] }).rows, url).toHaveLength(0);
-    }
-
-    // Card serials restart, because this is a fresh exercise.
-    const fresh = await call({
-      method: 'POST',
-      url: '/api/containers',
-      payload: {
-        number: 'WIPE0001',
-        size: 20,
-        bill: '3210',
-        notes: '',
-        position: { zone: 'B', bay: 1, stack: 1, tier: 'A' },
-        truck: '500',
-        seal: 'JO1',
-        driver: 'سائق',
-        weight: '25000',
-        handling: 'CRANE',
-      },
-    });
-    expect((fresh.body as { cardIn: number }).cardIn).toBe(1);
-  });
-});
-
-describe('التصاريح عبر المسح والاسترجاع', () => {
+describe('التصاريح عبر الاسترجاع', () => {
   /** A permit for whatever demo container is standing first. */
   const issuePermit = async (): Promise<number> => {
     const state = await call({ method: 'GET', url: '/api/state' });
@@ -294,26 +199,6 @@ describe('التصاريح عبر المسح والاسترجاع', () => {
       (row) => row.voided !== true,
     ).length;
   };
-
-  it('the wipe takes the practice permits and sheets with the practice containers', async () => {
-    await call({ method: 'POST', url: '/api/owner/seed' });
-    await issuePermit();
-    expect(await permitCount()).toBe(1);
-    // A practice دفعة rides along and must go the same way.
-    const sheet = Buffer.from('#,Unit Nbr,Type,BL Nbr\n1,TGHU1234565,20,B', 'utf8');
-    const made = await call({
-      method: 'POST',
-      url: '/api/batches?name=' + encodeURIComponent('تدريب'),
-      raw: sheet,
-    });
-    expect(made.status).toBe(201);
-    const word = 'مسح-التدريب';
-    await call({ method: 'POST', url: '/api/owner/wipe-password', payload: { password: word } });
-    await call({ method: 'POST', url: '/api/owner/wipe', payload: { password: word } });
-    expect(await permitCount()).toBe(0);
-    const batches = await call({ method: 'GET', url: '/api/batches' });
-    expect((batches.body as { batches: unknown[] }).batches).toHaveLength(0);
-  });
 
   it('a restore brings the permit book back, serial and items alike', async () => {
     await call({ method: 'POST', url: '/api/owner/seed' });
@@ -348,18 +233,35 @@ describe('استرجاع النسخة الاحتياطية', () => {
     expect(backup.status).toBe(200);
     expect(backup.bytes.subarray(0, 15).toString('utf8')).toBe('SQLite format 3');
 
-    // Wreck the yard thoroughly: clear it and hire somebody else.
-    const word = 'مسح-التدريب';
-    await call({ method: 'POST', url: '/api/owner/wipe-password', payload: { password: word } });
+    // Move the yard on past the snapshot: gate a box in and hire somebody
+    // else, so the restore has both a record and a person to roll back.
+    const afterSlot = await freeGroundSlot();
     expect(
-      (await call({ method: 'POST', url: '/api/owner/wipe', payload: { password: word } })).status,
-    ).toBe(200);
+      (
+        await call({
+          method: 'POST',
+          url: '/api/containers',
+          payload: {
+            number: 'AFTR0007',
+            size: 20,
+            bill: '3210',
+            notes: '',
+            position: afterSlot,
+            truck: '500',
+            seal: 'JO1',
+            driver: 'سائق',
+            weight: '25000',
+            handling: 'CRANE',
+          },
+        })
+      ).status,
+    ).toBe(201);
     await call({
       method: 'POST',
       url: '/api/users',
       payload: { name: 'أحمد', pin: '1111', permissions: [] },
     });
-    expect(await standingCount()).toBe(0);
+    expect(await standingCount()).toBe(before + 1);
 
     const restored = await call({ method: 'POST', url: '/api/owner/restore', raw: backup.bytes });
     expect(restored.status).toBe(200);

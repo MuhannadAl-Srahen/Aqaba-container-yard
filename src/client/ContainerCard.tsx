@@ -173,7 +173,7 @@ export function ContainerCard(props: {
   onChanged: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
-  const [confirming, setConfirming] = useState<'exit' | 'unexit' | 'delete' | 'prepare' | null>(
+  const [confirming, setConfirming] = useState<'exit' | 'delete' | 'prepare' | null>(
     null,
   );
   /** آلية مهمة التجهيز — تفتح على مناولة الحاوية والكاتب حرّ في تبديلها. */
@@ -223,10 +223,6 @@ export function ContainerCard(props: {
   const container = detail.data?.container ?? props.container;
 
   const inYard = container.position !== null;
-  /** The exit it would be taken back from: its slot is on that movement. */
-  const lastOut = [...(detail.data?.movements ?? [])]
-    .reverse()
-    .find((movement) => movement.type === 'OUT');
   /** The movement that last put it somewhere; a MOVE there may be corrected. */
   const lastPlacement = [...(detail.data?.movements ?? [])]
     .reverse()
@@ -451,23 +447,10 @@ export function ContainerCard(props: {
                 {AR.prepareAction}
               </Button>
             )}
-            {/* The exit taken back: one tap puts it back where it stood.
-                But the yard moves on — whatever rested on it came down a
-                tier as it left — so the old seat is often gone, and the
-                second button hands the choice to the clerk on the map:
-                «اريد عند الغاء الخروج ان يختار مدخل البيانات المكان الذي
-                سوف يعيده فيها». */}
-            {!inYard && props.may('GATE_OUT') && (
-              <Button
-                kind="quiet"
-                onClick={() => {
-                  setConfirming('unexit');
-                }}
-                disabled={busy}
-              >
-                {AR.actionUnexit}
-              </Button>
-            )}
+            {/* The exit taken back — and the clerk says where it lands, the
+                only way it is offered: «لا اريد الغاء الخروج ان ترجع محلها
+                اريد ان اختار انا المكان». The yard moves on while a box is
+                out of it, so its old seat is usually gone anyway. */}
             {!inYard && props.may('GATE_OUT') && (
               <Button
                 kind="quiet"
@@ -476,7 +459,7 @@ export function ContainerCard(props: {
                 }}
                 disabled={busy}
               >
-                {AR.actionUnexitPick}
+                {AR.actionUnexit}
               </Button>
             )}
             {/* تصحيح الفئة: offered standing and departed alike, because the
@@ -705,29 +688,6 @@ export function ContainerCard(props: {
             </div>
           </div>
         </div>
-      )}
-      {confirming === 'unexit' && (
-        <Confirm
-          title={AR.confirmUnexitTitle}
-          body={AR.confirmUnexitBody(
-            container.number,
-            lastOut === undefined || lastOut.from === null ? '—' : positionLabel(lastOut.from),
-          )}
-          confirmLabel={AR.actionUnexit}
-          busy={busy}
-          onConfirm={() => {
-            run(
-              api.unexit(container.id),
-              AR.unexitDone(
-                container.number,
-                lastOut === undefined || lastOut.from === null ? '—' : positionLabel(lastOut.from),
-              ),
-            );
-          }}
-          onCancel={() => {
-            setConfirming(null);
-          }}
-        />
       )}
       {confirming === 'delete' && (
         <Confirm

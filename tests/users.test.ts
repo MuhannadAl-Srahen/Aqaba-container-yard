@@ -305,8 +305,6 @@ describe('permissions', () => {
       ['POST', '/api/users', { name: 'x', pin: '1234', permissions: [] }],
       ['GET', '/api/owner/tools', undefined],
       ['POST', '/api/owner/seed', {}],
-      ['POST', '/api/owner/wipe-password', { password: 'whatever' }],
-      ['POST', '/api/owner/wipe', { password: 'whatever' }],
       ['POST', '/api/owner/restore', {}],
     ] as const) {
       const refused = await call({ method, url, payload, cookie: ayman.cookie });

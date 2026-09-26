@@ -1252,12 +1252,6 @@ export const AR = {
     `${String(counts.movements)} حركة في السجل، ${String(counts.users)} موظف، ` +
     `${String(counts.carriers)} ناقل و${String(counts.trucks)} سيارة ` +
     `و${String(counts.permits)} تصريح تحميل وخروج و${String(counts.zones)} زون معرّف.`,
-  toolsWipeTitle: 'حذف كل البيانات',
-  toolsWipeBody:
-    'حذف جميع الحاويات والحركات وإعادة أرقام البطاقات إلى 1. يبقى الموظفون ' +
-    'وكلمات السر كما هي.',
-  toolsWipeWordSet: 'تعيين كلمة سر الحذف',
-  toolsWipeWordChange: 'تغيير كلمة سر الحذف',
   /** تغيير كلمة سر المالك — من الشاشة، بيده هو، بلا وسيط يراها. */
   toolsPasswordTitle: 'كلمة سر المالك',
   toolsPasswordBody:
@@ -1268,24 +1262,6 @@ export const AR = {
   toolsPasswordNew: 'كلمة السر الجديدة',
   toolsPasswordChange: 'تغيير كلمة السر',
   toolsPasswordDone: 'تم تغيير كلمة سر المالك. استعملها في دخولك القادم.',
-  toolsWipeWordHint: 'كلمة مستقلة عن كلمة سر دخولك — 4 خانات على الأقل.',
-  toolsWipeWordSaved: 'تم حفظ كلمة سر الحذف.',
-  toolsWipeConfirmWord: 'أدخل كلمة سر الحذف للتأكيد',
-  toolsWipeAction: 'حذف كل البيانات',
-  toolsWipeConfirm:
-    'ستُحذف جميع الحاويات والحركات، وستُحفظ نسخة احتياطية من الوضع الحالي قبل ذلك. ' +
-    'هل تريد المتابعة؟',
-  /**
-   * The count comes from the tables after the delete, so the screen states
-   * what actually went instead of asserting that something did.
-   */
-  toolsWipeDone: (containers: number, movements: number): string =>
-    containers === 0 && movements === 0
-      ? 'لم تكن هناك بيانات لحذفها — الساحة فارغة أصلاً، والموظفون كما هم.'
-      : `تم حذف ${String(containers)} حاوية و${String(movements)} حركة. الساحة فارغة الآن، والموظفون كما هم.`,
-  /** The delete ran but the yard is not empty — the one answer that is a fault. */
-  toolsWipeIncomplete: (left: number): string =>
-    `تحذير: بقيت ${String(left)} حاوية بعد الحذف. راجع المطوّر قبل المتابعة.`,
 
   // ---- backup ----
   backup: 'نسخة احتياطية',

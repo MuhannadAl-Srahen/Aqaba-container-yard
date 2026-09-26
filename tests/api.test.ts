@@ -216,6 +216,9 @@ describe('the compiled-in yard', () => {
       ['PUT', '/api/yard'],
       ['POST', '/api/dev/reset'],
       ['POST', '/api/dev/seed'],
+      // «اريد الغاء مسح بيانات التدريب» — struck, route and all.
+      ['POST', '/api/owner/wipe'],
+      ['POST', '/api/owner/wipe-password'],
     ] as const) {
       const gone = await call({ method, url, payload: {} });
       expect(gone.status, url).toBe(404);

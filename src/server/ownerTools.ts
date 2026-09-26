@@ -2,7 +2,6 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { z } from 'zod';
 import type { ErrorCode, Position, Size, Zone } from '../shared/types';
 import { TIERS } from '../shared/types';
 import { ASEZA } from '../shared/asezaLayout';
@@ -11,7 +10,6 @@ import { bayLabel, baySpan } from '../shared/address';
 import { canPlace, type Standing } from '../shared/rules';
 import { checkNumber } from '../shared/iso6346';
 import { databaseFile, getSetting, openDatabase, setSetting, snapshot, transaction } from './db';
-import { hashSecret, verifySecret } from './auth';
 import * as store from './store';
 
 /**
@@ -27,8 +25,6 @@ import * as store from './store';
  * of the live database before it touches anything.
  */
 
-/** The dedicated word the owner sets for the wipe — never his login password. */
-const WIPE_KEY = 'wipe_password';
 /**
  * A restore upload is a whole database; the global 1 MiB body cap will not
  * do. Nor does 256 MiB any more: the photos carried the file past that in
@@ -48,8 +44,6 @@ export interface OwnerToolsDeps {
   ) => never;
 }
 
-const passwordSchema = z.object({ password: z.string().min(4).max(200) });
-
 export function registerOwnerTools(
   app: FastifyInstance,
   db: DatabaseSync,
@@ -64,81 +58,23 @@ export function registerOwnerTools(
     return file;
   };
 
-  const parse = <T>(schema: z.ZodType<T>, body: unknown): T => {
-    const result = schema.safeParse(body);
-    if (!result.success) refuse(400, 'VALIDATION');
-    if (!result.success) throw new Error('unreachable');
-    return result.data;
-  };
-
+  /**
+   * «اريد الغاء مسح بيانات التدريب» — the wipe is gone, not repaired.
+   *
+   * It was the one button in this application that destroyed records by
+   * design, and the yard has been live since August: the practice era it
+   * was written for is over, and what it would have cleared is now the
+   * book itself. It was also broken — it deleted containers while photos
+   * and wages still pointed at them, which the foreign keys refuse — and
+   * the owner's answer to that was to remove it rather than mend it.
+   *
+   * The route, its password and its screen are all struck. Nothing reads
+   * the stored `wipe_password` setting any more; the row is left where it
+   * is, because rows in this project are never deleted to tidy up.
+   */
   app.get('/api/owner/tools', (request) => {
     requireOwner(request);
-    return { wipePasswordSet: getSetting(db, WIPE_KEY) !== null };
-  });
-
-  /**
-   * Set or change the wipe word. Owner-only is the whole guard: he is already
-   * signed in as himself, and the word exists to stop a slip of the hand, not
-   * to stop him.
-   */
-  app.post('/api/owner/wipe-password', (request) => {
-    requireOwner(request);
-    const body = parse(passwordSchema, request.body);
-    setSetting(db, WIPE_KEY, hashSecret(body.password));
     return { ok: true };
-  });
-
-  /**
-   * Clear the practice data. The containers, their movements and the card
-   * serials go; the staff, their PINs and the owner's password stay, because
-   * the point is to reset the exercise, not the office.
-   */
-  app.post('/api/owner/wipe', (request) => {
-    requireOwner(request);
-    const body = parse(passwordSchema, request.body);
-    liveFile();
-
-    const stored = getSetting(db, WIPE_KEY);
-    if (stored === null) refuse(409, 'NOT_SETUP');
-    if (!verifySecret(stored, body.password)) refuse(403, 'BAD_PASSWORD');
-
-    const kept = snapshot(db, 'before-wipe');
-    const count = (table: string): number =>
-      (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
-
-    const cleared = transaction(db, () => {
-      const containers = count('containers');
-      const movements = count('movements');
-      // The permits list containers, so the practice permits go with the
-      // practice containers — a permit book naming vanished boxes is noise.
-      db.exec('DELETE FROM permit_items');
-      db.exec('DELETE FROM permits');
-      // The machine queue lists containers too — practice tasks go with
-      // the practice boxes.
-      db.exec('DELETE FROM tasks');
-      // Practice sheets go with their practice yard — rows first (the child).
-      db.exec('DELETE FROM batch_rows');
-      db.exec('DELETE FROM batches');
-      // Practice calls go with the practice trucks that never came.
-      db.exec('DELETE FROM gate_calls');
-      db.exec('DELETE FROM movements');
-      db.exec('DELETE FROM containers');
-      // One counter per year now, so the wipe clears the whole family.
-      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_next%' ESCAPE '\\'");
-      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_next%' ESCAPE '\\'");
-      // The high-water marks are counters too: practice data must not leave
-      // the real book starting at four hundred.
-      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_in\\_high\\_%' ESCAPE '\\'");
-      db.exec("DELETE FROM settings WHERE key LIKE 'card\\_out\\_high\\_%' ESCAPE '\\'");
-      db.exec(
-        "DELETE FROM sqlite_sequence WHERE name IN ('containers', 'movements', 'permits', 'permit_items', 'tasks', 'batches', 'batch_rows', 'gate_calls')",
-      );
-      // Counted back AFTER the delete, from the table itself. The screen says
-      // what actually went, so «it did not delete anything» is a claim either
-      // the number confirms or contradicts, rather than an impression.
-      return { containers, movements, left: count('containers') };
-    });
-    return { ok: true, ...cleared, backup: path.basename(kept) };
   });
 
   /** Fill the yard with believable practice data. */

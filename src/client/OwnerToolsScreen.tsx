@@ -19,16 +19,11 @@ import { ThemePicker } from './ThemePicker';
  * runs, so nothing done from this screen is ever the last word.
  */
 
-type Pending = 'wipe' | 'seed' | 'restore' | null;
+type Pending = 'seed' | 'restore' | null;
 
 export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
   const queryClient = useQueryClient();
   const boot = useQuery({ queryKey: ['boot'], queryFn: api.boot });
-  const tools = useQuery({ queryKey: ['owner-tools'], queryFn: api.ownerTools });
-  const wipePasswordSet = tools.data?.wipePasswordSet ?? false;
-
-  const [newWord, setNewWord] = useState('');
-  const [wipeWord, setWipeWord] = useState('');
   /** تغيير كلمة سر المالك — typed by his own hand, never seen by anyone else. */
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -257,61 +252,6 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
           </Button>
         </section>
 
-        <section className={panel}>
-          <h2 className="text-sm font-extrabold text-ink">{AR.toolsWipeTitle}</h2>
-          <p className="text-sm text-muted">{AR.toolsWipeBody}</p>
-
-          <Field
-            label={wipePasswordSet ? AR.toolsWipeWordChange : AR.toolsWipeWordSet}
-            hint={<span className="text-faint">{AR.toolsWipeWordHint}</span>}
-          >
-            <input
-              type="password"
-              className={inputClass}
-              value={newWord}
-              onChange={(event) => {
-                setNewWord(event.target.value);
-              }}
-            />
-          </Field>
-          <Button
-            kind="quiet"
-            disabled={busy || newWord.trim().length < 4}
-            onClick={() => {
-              run(api.setWipePassword(newWord.trim()), () => {
-                setNewWord('');
-                return AR.toolsWipeWordSaved;
-              });
-            }}
-          >
-            {AR.save}
-          </Button>
-
-          {wipePasswordSet && (
-            <>
-              <hr className="border-line" />
-              <Field label={AR.toolsWipeConfirmWord}>
-                <input
-                  type="password"
-                  className={inputClass}
-                  value={wipeWord}
-                  onChange={(event) => {
-                    setWipeWord(event.target.value);
-                  }}
-                />
-              </Field>
-              <Button
-                kind="danger"
-                disabled={busy || wipeWord === ''}
-                onClick={() => {
-                  setConfirming('wipe');
-                }}
-              >
-                {AR.toolsWipeAction}
-              </Button>
-            </>
-          )}
-        </section>
       </main>
 
       {confirming === 'seed' && (
@@ -328,28 +268,6 @@ export function OwnerToolsScreen(props: { onBack: () => void }): ReactElement {
                 fullBay: string | null;
               };
               return AR.toolsSeedDone(counts.added, counts.departed, counts.fullBay);
-            });
-          }}
-          onCancel={() => {
-            setConfirming(null);
-          }}
-        />
-      )}
-
-      {confirming === 'wipe' && (
-        <Confirm
-          title={AR.toolsWipeTitle}
-          body={AR.toolsWipeConfirm}
-          confirmLabel={AR.toolsWipeAction}
-          danger
-          busy={busy}
-          onConfirm={() => {
-            run(api.wipeData(wipeWord), (result) => {
-              const cleared = result as { containers: number; movements: number; left: number };
-              setWipeWord('');
-              return cleared.left > 0
-                ? AR.toolsWipeIncomplete(cleared.left)
-                : AR.toolsWipeDone(cleared.containers, cleared.movements);
             });
           }}
           onCancel={() => {
