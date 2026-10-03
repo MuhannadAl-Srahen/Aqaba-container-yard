@@ -269,9 +269,11 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 /**
  * Why a task closed without a driver's «تم» — codes on the wire, Arabic in
  * ar.ts alone: closed by the exit being recorded, by the exit being undone,
- * or by the container's record being struck.
+ * by the container's record being struck, or — «بانتظار التحميل» — by the
+ * box being recorded as loaded onto its truck some other way than this very
+ * task's «تم»: the office's «تم التحميل», or the 24-hour clock.
  */
-export const TASK_CLOSE_NOTES = ['AUTO_EXIT', 'AUTO_RETURN', 'AUTO_DELETE'] as const;
+export const TASK_CLOSE_NOTES = ['AUTO_EXIT', 'AUTO_RETURN', 'AUTO_DELETE', 'AUTO_LOADED'] as const;
 export type TaskCloseNote = (typeof TASK_CLOSE_NOTES)[number];
 
 export interface TaskDto {
@@ -285,6 +287,10 @@ export interface TaskDto {
   /** Resolved name label, the way report rows carry `user`. */
   readonly createdBy: string;
   readonly doneAt: string | null;
+  /**
+   * Who closed it, as a resolved label; null while it is pending. '' when no
+   * person did: the yard's own 24-hour clock confirmed the loading.
+   */
   readonly doneBy: string | null;
   readonly closedNote: TaskCloseNote | '';
   /** Exit-born OUT tasks carry the plate the box leaves on. */
@@ -371,10 +377,20 @@ export interface ContainerDto {
    * the question existed.
    */
   readonly billKind: BillKind | null;
-  /** ISO timestamps, UTC. */
+  /**
+   * ISO timestamps, UTC. The exit is TWO moments since «بانتظار التحميل»:
+   * `exitedAt` is the exit CARD — the paper, and every register and report
+   * counts the box out from it — and `loadedAt` is the lift onto the truck,
+   * when the box leaves the ground. Between the two the box is WAITING: its
+   * card is written and it still stands in its slot. Null until it happens.
+   */
   readonly enteredAt: string;
   readonly exitedAt: string | null;
-  /** Null once the container has left the yard. */
+  readonly loadedAt: string | null;
+  /**
+   * The slot it occupies on the ground; null once it has been loaded onto its
+   * truck. A waiting box (exitedAt set, loadedAt null) keeps it.
+   */
   readonly position: Position | null;
   /** Free text: the condition it arrived in, and anything else worth saying. */
   readonly notes: string;
@@ -530,7 +546,8 @@ export interface DailyReportRow {
 /**
  * كشف إنتاجية الآليات: one row per (machine, hand that finished) over the
  * period — how many entry and تجهيز tasks each closed, and how quickly.
- * Auto-closed tasks (exit/return/delete) are nobody's work and stay out.
+ * Auto-closed tasks (exit/return/delete/loaded) are nobody's work and stay
+ * out; a driver's «تم» on a loading task is his work and counts.
  */
 export interface MachineReportRow {
   readonly machine: Handling;
@@ -670,7 +687,10 @@ export interface LogReportRow {
   readonly from: Position | null;
   readonly to: Position | null;
   readonly note: string;
-  /** Who did it; «المالك» when the owner did it himself. */
+  /**
+   * Who did it; «المالك» when the owner did it himself, and '' when no person
+   * did — the yard's own 24-hour clock clearing a box nobody confirmed loaded.
+   */
   readonly user: string;
   /** The record was later soft-deleted as a mistake. */
   readonly deleted: boolean;
@@ -710,7 +730,8 @@ export interface MovementDto {
   readonly cardYear: number | null;
   /**
    * Who did it — the resolved name label, the way report rows carry `user`.
-   * The gate card prints it: «أسم الموظف الي عمل المعاملة او الأدخال».
+   * The gate card prints it: «أسم الموظف الي عمل المعاملة او الأدخال». ''
+   * when no person did: the 24-hour clock's own descents.
    */
   readonly user: string;
 }
@@ -791,6 +812,24 @@ export const ERROR_CODES = [
   /** An exit earlier than the entry it belongs to. */
   'EXIT_BEFORE_ENTRY',
   'NUMBER_IN_YARD',
+  /**
+   * «بانتظار التحميل»: the number belongs to a box whose exit card is written
+   * but which still stands in its slot waiting for its truck — the same box
+   * cannot be received again before it has left. `details.number` names it.
+   * Confirm the old record's loading first.
+   */
+  'NUMBER_AWAITING_LOAD',
+  /**
+   * A landing refused because the slot is held by a box awaiting loading —
+   * OCCUPIED, said precisely: the holder is about to leave, so the remedy is
+   * to confirm its loading or choose another slot. `details.other` names it.
+   */
+  'SLOT_AWAITING_LOAD',
+  /**
+   * «تم التحميل» asked of a box that is not waiting: it is still standing
+   * with no exit recorded, or it has already been loaded and is gone.
+   */
+  'NOT_AWAITING_LOAD',
   'ALREADY_OUT',
   /** A pending تجهيز task already stands on this container. */
   'TASK_EXISTS',

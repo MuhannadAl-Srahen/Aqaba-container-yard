@@ -992,11 +992,17 @@ export function ReportsScreen(props: {
             )}
             {/* «بنخرجها دفعة وحده البوليصة كاملة»: one tap sends a تجهيز
                 task per standing container — each to its own machine, or
-                all to one when the desk overrides. */}
+                all to one when the desk overrides. A box whose exit card is
+                written is not one of them: its loading task already exists,
+                and the server skips it. */}
             {billReady && props.canPermit && (
               <Button
                 kind="quiet"
-                disabled={(billReport.data?.rows ?? []).some((row) => row.position !== null) === false}
+                disabled={
+                  (billReport.data?.rows ?? []).some(
+                    (row) => row.position !== null && row.exitedAt === null,
+                  ) === false
+                }
                 onClick={() => {
                   setPrepareBillFor(bill.trim());
                 }}

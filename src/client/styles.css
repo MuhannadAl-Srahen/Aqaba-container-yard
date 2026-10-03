@@ -63,6 +63,15 @@
   --yard-box20: #64748b;
   --yard-box40: #4f46e5;
   --yard-slot: #e2e8f0;
+  /* بانتظار التحميل: carded out, still on the ground. Amber STRIPES — the
+     stripes are what no other state of the map wears: the search hit and
+     the bill's gold are solid amber. A strong pair for the drawing's small
+     marks, a soft pair for a cell that carries text on top. */
+  --yard-await: #fde68a;
+  --yard-await-line: #b45309;
+  --yard-await-soft: #fef3c7;
+  --yard-await-soft-line: #fcd34d;
+  --yard-await-text: #78350f;
   /* The hangars and buildings hatch like the printed ASEZA plan. */
   --yard-landmark: #dbeafe;
   --yard-landmark-line: #3b82f6;
@@ -111,6 +120,11 @@
   --yard-box20: #8ba0b9;
   --yard-box40: #818cf8;
   --yard-slot: #24334d;
+  --yard-await: #78350f;
+  --yard-await-line: #fbbf24;
+  --yard-await-soft: #3a2506;
+  --yard-await-soft-line: #5c3a0b;
+  --yard-await-text: #fde68a;
   --yard-landmark: #14243c;
   --yard-landmark-line: #4a7fd6;
 }
@@ -185,6 +199,30 @@ select option {
    nodes, and clicks land on the cell rect exactly as before. */
 .yard-map text {
   pointer-events: none;
+}
+
+/*
+ * بانتظار التحميل — the box whose exit card is written and which still stands
+ * in its slot. The strong stripes mark a swatch or a badge; the soft ones lie
+ * under a bay-sheet cell's number and bill so the text still reads.
+ */
+.await-hatch {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--yard-await),
+    var(--yard-await) 4px,
+    var(--yard-await-line) 4px,
+    var(--yard-await-line) 6px
+  );
+}
+.await-hatch-soft {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--yard-await-soft),
+    var(--yard-await-soft) 6px,
+    var(--yard-await-soft-line) 6px,
+    var(--yard-await-soft-line) 9px
+  );
 }
 
 /* A stack position the wall swallows — hatched, like the plan's dead ground. */

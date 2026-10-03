@@ -10,6 +10,16 @@ import { normalizeNumber } from '../shared/iso6346';
  * only counts who stands where on it.
  */
 
+/**
+ * «بانتظار التحميل»: the exit CARD is written, and the box still stands in
+ * its slot waiting for its truck. The ground counts it — it holds its slot,
+ * carries what rests on it, and the map draws it — while the paper counts it
+ * out from its card. Every screen asks this one question the same way.
+ */
+export function awaitingLoad(container: ContainerDto): boolean {
+  return container.exitedAt !== null && container.loadedAt === null && container.position !== null;
+}
+
 export function toStanding(containers: readonly ContainerDto[]): Standing[] {
   const standing: Standing[] = [];
   for (const container of containers) {

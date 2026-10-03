@@ -172,11 +172,21 @@ describe('الأرض المعرّفة أرض حقيقية', () => {
     const removing = await call({ method: 'DELETE', url: `/api/zones/${String(zone.body.id)}` });
     expect(removing.status).toBe(409);
 
-    // The container leaves; the zone can be reshaped and struck out.
+    // The container leaves; the zone can be reshaped and struck out. Its exit
+    // card alone is not enough: awaiting its truck it still stands on this
+    // ground, which therefore stays — until it is loaded.
     await call({
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/exit`,
       payload: { truck: '500', driver: '' },
+    });
+    expect(
+      (await call({ method: 'DELETE', url: `/api/zones/${String(zone.body.id)}` })).status,
+    ).toBe(409);
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/loaded`,
+      payload: {},
     });
     expect(
       (await call({ method: 'DELETE', url: `/api/zones/${String(zone.body.id)}` })).status,
@@ -228,13 +238,19 @@ describe('الأرض المعرّفة أرض حقيقية', () => {
     composeLayout(freshBody.zones, freshBody.retired);
     expect(yardOf('F')).toBe(3);
 
-    // A box stands in F and leaves; the zone is struck. History now reads
-    // 3-F-…, so the letter is spoken for — a new F would re-home old paper.
+    // A box stands in F and leaves — card and truck both; the zone is struck.
+    // History now reads 3-F-…, so the letter is spoken for — a new F would
+    // re-home old paper.
     const entered = await gateIn('ZONE0080', { zone: 'F', bay: 1, stack: 1, tier: 'A' }, '9944');
     await call({
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/exit`,
       payload: { truck: '500', driver: '' },
+    });
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/loaded`,
+      payload: {},
     });
     await call({ method: 'DELETE', url: `/api/zones/${String(reused.body.id)}` });
     const again = await addZone({ yard: 1, name: 'F', bays: 4, stacks: 4 });
@@ -257,6 +273,12 @@ describe('الأرض المعرّفة أرض حقيقية', () => {
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/exit`,
       payload: { truck: '501', driver: '' },
+    });
+    // Left in full — loaded onto its truck, so no slot is left to read.
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(entered.body.id)}/loaded`,
+      payload: {},
     });
     const permit = await call({
       method: 'POST',

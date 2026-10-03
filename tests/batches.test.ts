@@ -277,16 +277,29 @@ describe('the registry', () => {
       arrived: 1,
     });
 
-    // It leaves — the row says so, with the date.
+    // It leaves — the row says so, with the date. The status is PAPER: it
+    // reads خرجت from the exit card, while the box still stands in its slot
+    // awaiting its truck…
     await call({
       method: 'POST',
       url: `/api/containers/${String(id)}/exit`,
       payload: { truck: '600', driver: '' },
       cookie: ownerCookie,
     });
+    const card = await call({ method: 'GET', url: `/api/containers/${String(id)}`, cookie: ownerCookie });
+    expect((card.body as { container: { position: unknown } }).container.position).not.toBeNull();
     rows = (await detail()).rows;
     expect(rows[0]?.status).toBe('EXITED');
     expect(rows[0]?.exitedAt).not.toBeNull();
+    // …and reads the same once it is loaded and gone.
+    await call({
+      method: 'POST',
+      url: `/api/containers/${String(id)}/loaded`,
+      payload: {},
+      cookie: ownerCookie,
+    });
+    rows = (await detail()).rows;
+    expect(rows[0]?.status).toBe('EXITED');
 
     // Struck from the book — the sheet waits again; restored — it is back.
     await call({ method: 'DELETE', url: `/api/containers/${String(id)}`, cookie: ownerCookie });

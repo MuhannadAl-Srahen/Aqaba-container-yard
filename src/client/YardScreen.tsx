@@ -21,7 +21,7 @@ import { bayLabel, positionLabel, yardOf } from '../shared/address';
 import { ltrCode } from '../shared/bidi';
 import { fillPlan, planGroupMove, zoneOf } from '../shared/rules';
 import { TIERS } from '../shared/types';
-import { ApiFailure, api } from './api';
+import { ApiFailure, api, invalidateYard } from './api';
 import { AR } from './ar';
 import { YardMap } from './YardMap';
 import { ReportsScreen } from './ReportsScreen';
@@ -34,6 +34,7 @@ import { PermitSheet } from './PermitSheet';
 import { FillSheet } from './FillSheet';
 import {
   addressMatch,
+  awaitingLoad,
   bayKey,
   billBands,
   billBays,
@@ -479,6 +480,17 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
 
   const containers = useMemo(() => state.data?.containers ?? [], [state.data]);
   const loads = useMemo(() => buildBayLoads(containers), [containers]);
+  /**
+   * The map draws the ground, so a box awaiting its truck is on it. The
+   * header's «in the yard» is the PAPER count — every register counts a box
+   * out from its exit card — and the waiting ones are told apart beside it.
+   * The free-space chips stay physical: their slots are truly taken.
+   */
+  const onPaperCount = useMemo(
+    () => containers.filter((container) => container.exitedAt === null).length,
+    [containers],
+  );
+  const awaitingCount = useMemo(() => containers.filter(awaitingLoad).length, [containers]);
   /** Everything on the ground, as the shared rules want to see it. */
   const standingNow = useMemo(
     () =>
@@ -666,24 +678,9 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   }, [paint, zoomCenter]);
 
   const refresh = (message: string): void => {
-    void queryClient.invalidateQueries({ queryKey: ['state'] });
-    void queryClient.invalidateQueries({ queryKey: ['container'] });
-    void queryClient.invalidateQueries({ queryKey: ['search'] });
-    // The gate acted — every machine queue on every tablet must hear it.
-    void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-    // And the دفعة registry recomputes وصل/باقٍ off the book that just moved.
-    void queryClient.invalidateQueries({ queryKey: ['batches'] });
-    void queryClient.invalidateQueries({ queryKey: ['batch'] });
-    void queryClient.invalidateQueries({ queryKey: ['batch-lookup'] });
-    // A gate movement just wrote a plate and a driver, so the book the next
-    // form reads must carry it — the very case the owner described: «بعدها
-    // اجا مره ثانية بدي مجرد ما كتبت رقم سيارته خلص يكتب اسمه تلقائي».
-    void queryClient.invalidateQueries({ queryKey: ['plates'] });
-    // A register open on this same device must not go stale behind the
-    // operation that just happened in front of it.
-    for (const key of ['report-gate', 'report-standing', 'report-daily', 'report-machines', 'report-truck', 'report-bill', 'report-log', 'report-permits']) {
-      void queryClient.invalidateQueries({ queryKey: [key] });
-    }
+    // Every list of containers on this device hears it: the map, the open
+    // cards, the search, the machine queues, the دفعات and the registers.
+    invalidateYard(queryClient);
     setToast(message);
     setSelected(null);
     setOpenBay(null);
@@ -1033,7 +1030,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
         <div className="flex flex-wrap items-center gap-2 lg:gap-4">
           <h1 className="text-base font-extrabold text-ink lg:text-lg">{AR.appName}</h1>
           <span className="hidden text-xs font-medium text-faint lg:block">
-            {AR.inYardCount(containers.length)}
+            {AR.inYardCount(onPaperCount)}
           </span>
 
           <div className="order-3 flex w-full items-center gap-2 lg:order-none lg:w-auto lg:flex-1 lg:justify-center">
@@ -1174,6 +1171,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
                         <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-muted">
                           {AR.feet(container.size)}
                         </span>
+                        {/* Still on the ground, so it lists with the standing
+                            — and says why it will not be there for long. */}
+                        {awaitingLoad(container) && (
+                          <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+                            {AR.awaitingLoad}
+                          </span>
+                        )}
                       </span>
                       <span className="flex min-w-0 items-center gap-2">
                         {container.bill !== '' && (
@@ -1362,6 +1366,12 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           )}
           {billMap !== null && billMap.size > 0 && (
             <LegendChip color="var(--yard-bill)" label={AR.legendBill} dot />
+          )}
+          {/* بانتظار التحميل — the stripes explained, and counted, in every
+              paint: a striped band on a tile, a striped square in the
+              contents. Shown only while there is something to explain. */}
+          {awaitingCount > 0 && (
+            <LegendChip color="var(--yard-await)" label={AR.awaitingCount(awaitingCount)} hatched />
           )}
 
           {/* How much room is left, per yard the plan actually holds: one
@@ -1966,7 +1976,20 @@ function LegendChip(props: {
   dashed?: boolean;
   dot?: boolean;
   border?: string;
+  /** بانتظار التحميل: the swatch wears the amber stripes, not a flat colour. */
+  hatched?: boolean;
 }): ReactElement {
+  if (props.hatched === true) {
+    return (
+      <span className="flex items-center gap-1.5 font-semibold text-amber-800 dark:text-amber-300">
+        <span
+          className="await-hatch inline-block h-3 w-4 rounded-sm"
+          style={{ border: '1px solid var(--yard-await-line)' }}
+        />
+        {props.label}
+      </span>
+    );
+  }
   return (
     <span className="flex items-center gap-1.5">
       <span

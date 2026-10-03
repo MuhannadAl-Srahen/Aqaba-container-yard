@@ -5,7 +5,14 @@ import type { YardLayout } from '../shared/types';
 import { positionLabel, bayLabel } from '../shared/address';
 import { canPlace } from '../shared/rules';
 import { AR } from './ar';
-import { bayLandings, maxStackOf, slotView, suggestedCells, toStanding } from './mapModel';
+import {
+  awaitingLoad,
+  bayLandings,
+  maxStackOf,
+  slotView,
+  suggestedCells,
+  toStanding,
+} from './mapModel';
 import { Button, useEscape } from './ui';
 
 /**
@@ -74,6 +81,13 @@ export function BaySheet(props: {
     [maxStack],
   );
   const [picked, setPicked] = useState<{ stack: number; tier: Tier } | null>(null);
+  /**
+   * «من يحاول وضع حاوية في خانتها يُقال له إن صاحبتها بانتظار التحميل»: a tap
+   * on a waiting box while placing is an attempt on its slot, and the sheet
+   * answers with the sentence the server would — naming the box and pointing
+   * to «تم التحميل» on its card.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
   /** تحديد للنقل: which of this bay's containers ride the group move. */
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
@@ -316,18 +330,22 @@ export function BaySheet(props: {
           const evenLabel = String(even).padStart(2, '0');
           if (refusal.code === 'OCCUPIED') {
             // The picked cell is empty on THIS sheet, so the occupier can
-            // only be standing on the partner's half of the pair.
+            // only be standing on the partner's half of the pair — and if it
+            // is a box awaiting its truck, the sentence says so and points to
+            // «تم التحميل», exactly as the server's SLOT_AWAITING_LOAD would.
+            const partnerCell = positionLabel({
+              zone: zone.zone,
+              bay: partnerBay,
+              stack: picked.stack,
+              tier: picked.tier,
+            });
+            const holder = props.containers.find(
+              (container) => container.number === refusal.other && container.position !== null,
+            );
             blocked.push(
-              AR.noLanding40Occupied(
-                evenLabel,
-                positionLabel({
-                  zone: zone.zone,
-                  bay: partnerBay,
-                  stack: picked.stack,
-                  tier: picked.tier,
-                }),
-                refusal.other ?? '',
-              ),
+              holder !== undefined && awaitingLoad(holder)
+                ? AR.noLanding40Awaiting(evenLabel, partnerCell, holder.number)
+                : AR.noLanding40Occupied(evenLabel, partnerCell, refusal.other ?? ''),
             );
           } else if (refusal.code === 'NO_SUPPORT') {
             blocked.push(AR.noLanding40NoSupport(evenLabel));
@@ -338,7 +356,7 @@ export function BaySheet(props: {
       }
     }
     return { list, blocked };
-  }, [picked, placing, standing, zone, bay, props.layout]);
+  }, [picked, placing, standing, zone, bay, props.layout, props.containers]);
 
   const mayPlace = placing === null ? props.canGateIn : props.canMove;
 
@@ -362,6 +380,8 @@ export function BaySheet(props: {
     }
     if (view.kind === 'taken') {
       const container = view.container;
+      /** Carded out, still here — the slot is held until it is loaded. */
+      const waiting = awaitingLoad(container);
       const checked = selecting && selected.has(container.id);
       const beingDragged = drag !== null && drag.container.id === container.id;
       return (
@@ -432,6 +452,12 @@ export function BaySheet(props: {
               });
               return;
             }
+            // Mid-placing, a box awaiting its truck is an attempt on its slot:
+            // it is held until the box is loaded, and the sentence says so.
+            if (placing !== null && waiting && container.id !== placing.id) {
+              setNotice(AR.errorWith('SLOT_AWAITING_LOAD', container.number));
+              return;
+            }
             // Mid-move, a standing container joins the move instead of
             // opening its card — the queue, exactly as the owner asked.
             if (placing !== null && props.onAddToMove !== undefined && container.id !== placing.id) {
@@ -442,18 +468,21 @@ export function BaySheet(props: {
           }}
           className={
             'flex h-14 flex-col items-center justify-center gap-0.5 rounded-lg border px-1 text-center ' +
-            (container.size === 40
-              ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
-              : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950') +
+            (waiting
+              ? 'await-hatch-soft border-amber-500 hover:border-amber-700 dark:border-amber-600 dark:hover:border-amber-400'
+              : container.size === 40
+                ? 'border-indigo-300 bg-indigo-100 hover:border-indigo-500 dark:border-indigo-800 dark:bg-indigo-950'
+                : 'border-blue-300 bg-blue-100 hover:border-blue-500 dark:border-blue-800 dark:bg-blue-950') +
             (checked ? ' ring-2 ring-emerald-600' : '') +
             (props.highlightId === container.id ? ' ring-2 ring-amber-500' : '') +
             (canDrag ? ' select-none' : '') +
             (beingDragged ? ' opacity-40' : '')
           }
           title={
-            container.bill === ''
+            (container.bill === ''
               ? container.number
-              : `${container.number} — ${AR.bill} ${container.bill}`
+              : `${container.number} — ${AR.bill} ${container.bill}`) +
+            (waiting ? ` — ${AR.awaitingLoad}` : '')
           }
         >
           <span
@@ -481,12 +510,20 @@ export function BaySheet(props: {
               default, the WEIGHT while «عرض الأوزان» is on — the crane's own
               question, asked of a whole bay at once instead of one container
               at a time. */}
+          {/* A box awaiting its truck says so in the place of its bill: it
+              is leaving, and that is the fact the sheet must not hide. The
+              weight still answers when the weights are asked for — the crane
+              loading it is the one asking. */}
           {weights ? (
             <span
               className="w-full truncate rounded bg-amber-100 px-1 font-mono text-[13px] font-extrabold leading-4 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
               dir="ltr"
             >
               {container.weight === '' ? AR.noWeight : container.weight}
+            </span>
+          ) : waiting ? (
+            <span className="w-full truncate rounded bg-surface px-1 text-[11px] font-extrabold leading-4 text-amber-900 dark:text-amber-200">
+              {AR.awaitingLoad}
             </span>
           ) : (
             container.bill !== '' && (
@@ -521,6 +558,7 @@ export function BaySheet(props: {
         data-drop-cell={key}
         onClick={() => {
           if (dragHappened.current) return;
+          setNotice(null);
           setPicked(isPicked ? null : { stack, tier });
         }}
         className={
@@ -702,6 +740,14 @@ export function BaySheet(props: {
               : suggested.size > 0
                 ? `${AR.landingHint} ${AR.suggestionHint}`
                 : AR.landingHint}
+          </p>
+        )}
+        {notice !== null && (
+          <p
+            className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold leading-5 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+            dir="rtl"
+          >
+            {notice}
           </p>
         )}
 

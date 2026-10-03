@@ -289,7 +289,7 @@ describe('تجهيز — the prepare request', () => {
 });
 
 describe('the exit and the queue', () => {
-  it('recording the exit answers the pending تجهيز and births nothing extra', async () => {
+  it('recording the exit keeps the pending تجهيز as the loading task and births nothing extra', async () => {
     const clerk = await hire('كاتب', '3333', ['GATE_OUT']);
     const id = await receive('TGHU1234565', at(1, 1));
     await call({
@@ -307,11 +307,33 @@ describe('the exit and the queue', () => {
     });
     expect(exit.status).toBe(200);
 
+    // «بانتظار التحميل»: the card no longer answers the تجهيز — the box still
+    // stands awaiting its truck, and the تجهيز is the loading task now.
+    const pending = await tasksOf(ownerCookie, '?status=PENDING');
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.kind).toBe('OUT');
+    const before = await tasksOf(ownerCookie, '?status=DONE');
+    // The stale entry task died with the visit; no second OUT was born.
+    expect(before.filter((task) => task.kind === 'OUT')).toHaveLength(0);
+    expect(before.find((task) => task.kind === 'IN')?.closedNote).toBe('AUTO_EXIT');
+
+    // Its «تم» is the loading: the box leaves the map, and the task closes
+    // under the hand that pressed it.
+    const finished = await call({
+      method: 'POST',
+      url: `/api/tasks/${String(pending[0]?.id)}/done`,
+      payload: {},
+      cookie: clerk.cookie,
+    });
+    expect(finished.status).toBe(200);
     expect(await tasksOf(ownerCookie, '?status=PENDING')).toHaveLength(0);
+    const card = await call({ method: 'GET', url: `/api/containers/${String(id)}`, cookie: ownerCookie });
+    expect((card.body as { container: ContainerDto }).container.position).toBeNull();
+
     const done = await tasksOf(ownerCookie, '?status=DONE');
     const closed = done.filter((task) => task.kind === 'OUT');
     expect(closed).toHaveLength(1);
-    expect(closed[0]?.closedNote).toBe('AUTO_EXIT');
+    expect(closed[0]?.closedNote).toBe('');
     expect(closed[0]?.doneBy).toBe('كاتب');
   });
 
@@ -340,8 +362,19 @@ describe('the exit and the queue', () => {
     expect(pending[0]?.kind).toBe('OUT');
     expect(pending[0]?.machine).toBe('STRADDLE');
     expect(pending[0]?.truck).toBe('77-123');
-    // The live position is wiped by the exit; the task still names the slot.
+    // The box still stands there awaiting its truck, and the task names it.
     expect(pending[0]?.position).toEqual(at(5, 2));
+
+    // Loaded, its live position is wiped; the task still names the slot.
+    const loaded = await call({
+      method: 'POST',
+      url: `/api/containers/${String(id)}/loaded`,
+      payload: {},
+      cookie: ownerCookie,
+    });
+    expect(loaded.status).toBe(200);
+    const done = (await tasksOf(ownerCookie, '?status=DONE')).find((task) => task.kind === 'OUT');
+    expect(done?.position).toEqual(at(5, 2));
   });
 
   it('a legacy container with no machine on record exits without a task', async () => {

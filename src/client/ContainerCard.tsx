@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ContainerDto, Handling, MovementDto, Permission, PhotoDto } from '../shared/types';
 import { HANDLING } from '../shared/types';
@@ -11,6 +11,7 @@ import { AR } from './ar';
 import type { ContainerEditInput } from './api';
 import { ApiFailure, api, dwellDays, formatDate, formatDateOnly, formatTimeOnly } from './api';
 import type { CardJob } from './PrintCard';
+import { awaitingLoad } from './mapModel';
 import { shrinkPhoto } from './photos';
 import { PrintPhotos } from './PrintPhotos';
 import { Button, Confirm, DriverHint, ErrorLine, Field, Sheet, inputClass, useEscape } from './ui';
@@ -173,9 +174,9 @@ export function ContainerCard(props: {
   onChanged: (message: string) => void;
   onClose: () => void;
 }): ReactElement {
-  const [confirming, setConfirming] = useState<'exit' | 'delete' | 'prepare' | null>(
-    null,
-  );
+  const [confirming, setConfirming] = useState<
+    'exit' | 'delete' | 'prepare' | 'loaded' | 'unexit' | null
+  >(null);
   /** آلية مهمة التجهيز — تفتح على مناولة الحاوية والكاتب حرّ في تبديلها. */
   const [prepareMachine, setPrepareMachine] = useState<Handling | null>(null);
   /** والآلية التي ستحمّل الشاحنة عند الخروج — القاعدة نفسها. */
@@ -222,7 +223,32 @@ export function ContainerCard(props: {
    */
   const container = detail.data?.container ?? props.container;
 
+  /** On the ground: standing, or carded out and awaiting its truck. */
   const inYard = container.position !== null;
+  /**
+   * «بانتظار التحميل»: the exit card is written and the box still stands in
+   * its slot. It may be moved — the machine may truly shift it — confirmed
+   * loaded, or have its exit cancelled where it stands; never exited or
+   * prepared a second time.
+   */
+  const awaiting = awaitingLoad(container);
+  /** Standing with no exit card — the only box the exit and the تجهيز serve. */
+  const standing = inYard && container.exitedAt === null;
+  /** The waiting line counts the minutes since the card, so it ticks. */
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!awaiting) return;
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 30_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [awaiting]);
+  const waitingMinutes =
+    container.exitedAt === null
+      ? 0
+      : Math.max(0, Math.floor((now - Date.parse(container.exitedAt)) / 60_000));
   /** The movement that last put it somewhere; a MOVE there may be corrected. */
   const lastPlacement = [...(detail.data?.movements ?? [])]
     .reverse()
@@ -253,7 +279,24 @@ export function ContainerCard(props: {
           <Badge text={AR.feet(container.size)} tone="slate" />
           {!container.numberValid && <Badge text={AR.numberNotVerified} tone="amber" />}
           {!inYard && <Badge text={AR.outOfYard} tone="slate" />}
+          {awaiting && <Badge text={AR.awaitingLoad} tone="amber" />}
         </div>
+
+        {/* «خرجت على الورق — بانتظار التحميل منذ …»: the paper is out, the
+            steel is not. The stripes are the map's own mark for it. */}
+        {awaiting && !editing && (
+          <div className="flex overflow-hidden rounded-xl border border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/60">
+            <span className="await-hatch w-2.5 shrink-0" aria-hidden="true" />
+            <div className="px-3 py-2">
+              <p className="text-sm font-extrabold text-amber-900 dark:text-amber-100">
+                {AR.awaitingLoadSince(AR.taskMinutes(waitingMinutes))}
+              </p>
+              <p className="mt-0.5 text-xs leading-5 text-amber-800 dark:text-amber-200">
+                {AR.awaitingLoadHint}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Correcting a container REPLACES its details rather than unrolling
             a second copy of them underneath: same card, same place, one set
@@ -421,7 +464,7 @@ export function ContainerCard(props: {
                   {AR.correctMoveAction}
                 </Button>
               )}
-            {inYard && props.may('GATE_OUT') && (
+            {standing && props.may('GATE_OUT') && (
               <Button
                 kind="quiet"
                 onClick={() => {
@@ -435,7 +478,7 @@ export function ContainerCard(props: {
             )}
             {/* تجهيز للإخراج: a machine task BEFORE the exit is recorded —
                 the driver fetches the box to the gate, then the paper. */}
-            {inYard && props.may('GATE_OUT') && (
+            {standing && props.may('GATE_OUT') && (
               <Button
                 kind="quiet"
                 onClick={() => {
@@ -445,6 +488,31 @@ export function ContainerCard(props: {
                 disabled={busy}
               >
                 {AR.prepareAction}
+              </Button>
+            )}
+            {/* «بانتظار التحميل»: the card is written, the box still here.
+                The office confirms the lift onto the truck — whoever may
+                write the exit may confirm it — or takes the exit back where
+                the box stands: it never moved, so there is nothing to pick. */}
+            {awaiting && props.may('GATE_OUT') && (
+              <Button
+                onClick={() => {
+                  setConfirming('loaded');
+                }}
+                disabled={busy}
+              >
+                {AR.actionLoaded}
+              </Button>
+            )}
+            {awaiting && props.may('GATE_OUT') && (
+              <Button
+                kind="quiet"
+                onClick={() => {
+                  setConfirming('unexit');
+                }}
+                disabled={busy}
+              >
+                {AR.actionUnexit}
               </Button>
             )}
             {/* The exit taken back — and the clerk says where it lands, the
@@ -688,6 +756,42 @@ export function ContainerCard(props: {
             </div>
           </div>
         </div>
+      )}
+      {confirming === 'loaded' && (
+        <Confirm
+          title={AR.confirmLoadedTitle}
+          body={AR.confirmLoadedBody(container.number)}
+          confirmLabel={AR.actionLoaded}
+          busy={busy}
+          onConfirm={() => {
+            run(api.loaded(container.id), AR.loadedDone(container.number));
+          }}
+          onCancel={() => {
+            setConfirming(null);
+          }}
+        />
+      )}
+      {confirming === 'unexit' && container.position !== null && (
+        <Confirm
+          title={AR.confirmUnexitTitle}
+          body={AR.confirmUnexitInPlaceBody(container.number, positionLabel(container.position))}
+          confirmLabel={AR.actionUnexit}
+          busy={busy}
+          onConfirm={() => {
+            // No slot is sent: the server cancels the paper where the box
+            // stands, and refuses any other slot for a box that never moved.
+            run(
+              api.unexit(container.id),
+              AR.unexitInPlaceDone(
+                container.number,
+                container.position === null ? '' : positionLabel(container.position),
+              ),
+            );
+          }}
+          onCancel={() => {
+            setConfirming(null);
+          }}
+        />
       )}
       {confirming === 'delete' && (
         <Confirm

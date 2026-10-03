@@ -1,3 +1,4 @@
+import type { QueryClient } from '@tanstack/react-query';
 import type { PlateDriver } from '../shared/fleet';
 import type {
   ApiError,
@@ -90,7 +91,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       const fit = body.details?.['fit'];
       const total = body.details?.['total'];
       const arabic =
-        (body.code === 'BLOCKED_DESCENT' || body.code === 'OCCUPIED') && typeof other === 'string'
+        (body.code === 'BLOCKED_DESCENT' ||
+          body.code === 'OCCUPIED' ||
+          body.code === 'SLOT_AWAITING_LOAD') &&
+        typeof other === 'string'
           ? AR.errorWith(body.code, other)
           : body.code === 'GROUP_BURIED' && typeof other === 'string'
             ? AR.groupBuried(other)
@@ -268,9 +272,21 @@ export const api = {
     }),
 
   /**
-   * An exit taken back — the container never left. Its own slot is the
-   * default; pass a position and it lands there instead, checked by the
-   * same rules as any landing. Its exit card is voided either way.
+   * «تم التحميل» — the box awaiting its truck has been lifted onto it: it
+   * leaves the map and whatever stood on it comes down a tier. The card was
+   * written at the exit; this is the ground half.
+   */
+  loaded: (id: number): Promise<ContainerDto> =>
+    request(`/api/containers/${String(id)}/loaded`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    }),
+
+  /**
+   * An exit taken back — the container never left. A box still awaiting its
+   * truck is cancelled IN PLACE: send no position, it stays where it stands.
+   * One already loaded takes the slot the clerk picks on the map, checked by
+   * the same rules as any landing. Its exit card is voided either way.
    */
   unexit: (id: number, position?: Position): Promise<ContainerDto> =>
     request(`/api/containers/${String(id)}/unexit`, {
@@ -742,6 +758,44 @@ export const api = {
   detail: (id: number): Promise<{ container: ContainerDto; movements: MovementDto[] }> =>
     request(`/api/containers/${String(id)}`),
 };
+
+/**
+ * Every cached answer that lists containers or reads off them. Whatever
+ * changes the ground or the paper must reach all of them — a gate press at
+ * the desk, and since «بانتظار التحميل» a driver's «تم» on a tablet too: it
+ * lifts a box off the map and brings what stood on it down a tier. One list,
+ * so the map, the queue and the desk can never refresh different yards.
+ */
+const YARD_QUERY_KEYS = [
+  'state',
+  'container',
+  'search',
+  // The gate acted — every machine queue on every tablet must hear it.
+  'tasks',
+  // The دفعة registry recomputes وصل/باقٍ off the book that just moved.
+  'batches',
+  'batch',
+  'batch-lookup',
+  // A gate movement writes a plate and a driver, so the book the next form
+  // reads must carry it — «بدي مجرد ما كتبت رقم سيارته خلص يكتب اسمه تلقائي».
+  'plates',
+  // A register open on this same device must not go stale behind the
+  // operation that just happened in front of it.
+  'report-gate',
+  'report-standing',
+  'report-daily',
+  'report-machines',
+  'report-truck',
+  'report-bill',
+  'report-log',
+  'report-permits',
+] as const;
+
+export function invalidateYard(queryClient: QueryClient): void {
+  for (const key of YARD_QUERY_KEYS) {
+    void queryClient.invalidateQueries({ queryKey: [key] });
+  }
+}
 
 // Latin digit order (dd/mm/yyyy) so the date never scrambles inside RTL text
 // — the ar-JO date pattern carries RLM marks that visually reverse it. The

@@ -94,12 +94,29 @@ const gateIn = async (number: string, position: Position): Promise<Reply> =>
     },
   });
 
-const gateOut = async (id: number): Promise<Reply> =>
-  call({
+/**
+ * A FULL departure — the exit card, then «تم التحميل». Since «بانتظار
+ * التحميل» the card alone leaves the box standing in its slot (that path is
+ * tests/loading.test.ts's); these tests are about a box that has truly left
+ * the ground, so they take both halves. The reply is the card's: nothing a
+ * test here reads is changed by the lift.
+ */
+const gateOut = async (id: number): Promise<Reply> => {
+  const card = await call({
     method: 'POST',
     url: `/api/containers/${String(id)}/exit`,
     payload: { truck: '522', driver: 'أبو محمد' },
   });
+  if (card.status === 200) {
+    const lift = await call({
+      method: 'POST',
+      url: `/api/containers/${String(id)}/loaded`,
+      payload: {},
+    });
+    if (lift.status !== 200) throw new Error(`loading failed: ${JSON.stringify(lift.body)}`);
+  }
+  return card;
+};
 
 const unexit = async (id: number): Promise<Reply> =>
   call({ method: 'POST', url: `/api/containers/${String(id)}/unexit`, payload: {} });

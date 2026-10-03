@@ -26,6 +26,7 @@ import type {
   PermitReportRow,
   Position,
   StandingReportRow,
+  TaskDto,
   UnassignedPlateRow,
   YardStateDto,
 } from '../shared/types';
@@ -64,6 +65,24 @@ import * as store from './store';
  * rules against the rows as they are at that moment — the client's own checks
  * are a courtesy, never the authority.
  */
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /**
+     * «بانتظار التحميل» — the 24-hour clock: every box whose exit card is at
+     * least a day old and that nobody confirmed loaded is loaded now. Each box
+     * in its own transaction; answers how many left the ground. `nowIso`
+     * stands in for the clock in tests.
+     */
+    sweepLoading: (nowIso?: string) => number;
+  }
+}
+
+/**
+ * The owner's word: a box nobody confirms loaded «تختفي الحاوية وحدها بعد 24
+ * ساعة» — counted from its exit card.
+ */
+export const LOADING_GRACE_MS = 24 * 60 * 60 * 1000;
 
 class Refusal extends Error {
   constructor(
@@ -1211,10 +1230,50 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return { ok: true };
   });
 
+  /**
+   * The map: everything on the ground — the boxes awaiting their truck
+   * included, because they still stand in their slots until loaded.
+   */
   app.get('/api/state', (request): YardStateDto => {
     requireAuth(request);
     return { containers: store.listInYard(db) };
   });
+
+  /**
+   * A number already on the ground is refused by its own cause: a box still
+   * standing, or — «بانتظار التحميل» — one whose exit card is written and that
+   * waits in its slot for its truck. That one is not free to come back in
+   * until its loading is confirmed, and the refusal says so.
+   */
+  const refuseNumberOnGround = (holder: ContainerDto, number: string): never =>
+    refuse(409, holder.exitedAt === null ? 'NUMBER_IN_YARD' : 'NUMBER_AWAITING_LOAD', { number });
+
+  /**
+   * A landing the rules refuse. OCCUPIED by a box awaiting its truck says so
+   * by name: that slot frees the moment the box is confirmed loaded, so the
+   * remedy is that confirmation — or another slot — and not a hunt for
+   * whoever "stands" there. The holder is the refusal's own `other`, matched
+   * to the waiting box in the target's column: a box that came down a tier
+   * in a move's projection is still in that column. The shared rules stay
+   * pure and unaware of paper; the server alone reads it.
+   */
+  const refuseLanding = (refusal: RuleRefusal, to: Position): never => {
+    if (refusal.code === 'OCCUPIED' && refusal.other !== undefined) {
+      const span = baySpan(to.bay);
+      const holder = store
+        .listAwaitingLoad(db)
+        .find(
+          (box) =>
+            box.number === refusal.other &&
+            box.position !== null &&
+            box.position.zone === to.zone &&
+            box.position.stack === to.stack &&
+            baySpan(box.position.bay).some((bay) => span.includes(bay)),
+        );
+      if (holder !== undefined) refuse(409, 'SLOT_AWAITING_LOAD', { other: holder.number });
+    }
+    return refuseRule(refusal);
+  };
 
   app.post('/api/containers', (request, reply) => {
     const actor = requirePerm(request, 'GATE_IN');
@@ -1222,13 +1281,15 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     const check = checkNumber(body.number);
 
     return transaction(db, () => {
-      // The same number may return for a new visit, but cannot stand twice at once.
+      // The same number may return for a new visit, but cannot stand twice at
+      // once — and a box whose exit card is written still stands until it is
+      // loaded, so its number is not free to come back in before that.
       const duplicate = store.findStandingByNumber(db, check.normalized);
-      if (duplicate !== null) refuse(409, 'NUMBER_IN_YARD', { number: check.normalized });
+      if (duplicate !== null) refuseNumberOnGround(duplicate, check.normalized);
 
       const standing = store.listStanding(db);
       const refusal = canPlace(layoutNow(), standing, body.size, body.position);
-      if (refusal !== null) refuseRule(refusal);
+      if (refusal !== null) refuseLanding(refusal, body.position);
 
       const at = now();
       // The serial counts within the Amman year of this very moment, and the
@@ -1267,6 +1328,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   });
 
+  /**
+   * A container that is on the ground — the GROUND test, so a box awaiting
+   * its truck passes: it may still be moved while it waits, because the
+   * machine may truly shift it. Routes for which the paper matters (a second
+   * exit, a تجهيز) add their own `exitedAt` test.
+   */
   const standingContainer = (id: number): { dto: ContainerDto; position: Position } => {
     const dto = store.getContainer(db, id);
     if (dto === null) refuse(404, 'NOT_FOUND');
@@ -1281,12 +1348,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * left comes down one tier — lowest first — and each descent is its own
    * `DROP` movement carrying the number of the container that caused it, so
    * the log never claims a member of staff carried a box they never touched.
+   * `bySystem`: no person's act caused it — the 24-hour loading clock.
    */
   const settleAbove = (
     descents: readonly Descent[],
     at: string,
     cause: string,
     userId: number | null,
+    bySystem = false,
   ): void => {
     for (const descent of descents) {
       store.setPosition(db, descent.container.id, descent.to);
@@ -1299,6 +1368,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         descent.to,
         cause,
         userId,
+        null,
+        bySystem,
       );
     }
   };
@@ -1310,6 +1381,98 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     if (!plan.ok) throw new Error('unreachable');
     return plan.descents;
   };
+
+  /**
+   * «تأكيد التحميل» — the second half of an exit. The exit card was written
+   * while the box still stood in its slot; this is the lift onto the truck:
+   * the box leaves the ground and whatever rested on it comes down a tier,
+   * each descent its own DROP, exactly as the exit itself used to do.
+   *
+   * Three hands may confirm it, whichever comes first: the machine driver's
+   * «تم» on the loading task (TASK), the office's «تم التحميل» (DESK), and
+   * the 24-hour clock (SWEEP). Gravity is planned from the LIVE slot — the
+   * box may have been shifted while it waited — and a box carried away from
+   * the slot its exit card names has that departure rewritten to where it
+   * truly left from, so «إلغاء الخروج» and the registers name the true slot.
+   *
+   * A blocked descent (a 40 lying across two 20s, one of them waiting) is
+   * refused at the desk, which can act on the sentence; the driver's «تم»
+   * and the clock leave the box waiting in its slot instead, and nothing is
+   * broken. Runs inside the caller's transaction; answers whether it loaded.
+   */
+  const confirmLoading = (
+    id: number,
+    at: string,
+    userId: number | null,
+    how: 'TASK' | 'DESK' | 'SWEEP',
+  ): boolean => {
+    const dto = store.getContainer(db, id);
+    if (dto === null) refuse(404, 'NOT_FOUND');
+    if (dto === null) throw new Error('unreachable');
+    const position = dto.position;
+    if (dto.exitedAt === null || dto.loadedAt !== null || position === null) {
+      refuse(409, 'NOT_AWAITING_LOAD');
+    }
+    if (position === null) throw new Error('unreachable');
+
+    const plan = planRemoval(layoutNow(), store.listStanding(db), {
+      id,
+      number: dto.number,
+      size: dto.size,
+      position,
+    });
+    if (!plan.ok) {
+      if (how === 'DESK') refuseRule(plan.refusal);
+      return false;
+    }
+
+    const bySystem = how === 'SWEEP';
+    store.markLoaded(db, id, at);
+    settleAbove(plan.descents, at, dto.number, userId, bySystem);
+    const departure = store.lastExitMovementId(db, id);
+    const leftFrom = departure === null ? null : (store.getMovement(db, departure)?.from ?? null);
+    if (departure !== null && (leftFrom === null || !samePosition(leftFrom, position))) {
+      store.refromMovement(db, departure, position);
+    }
+    // The task whose own «تم» did this is already closed under its driver's
+    // name — that is his work. Anything else still asking is answered.
+    store.closePendingTasks(db, id, 'OUT', at, userId, 'AUTO_LOADED', bySystem);
+    return true;
+  };
+
+  /**
+   * A machine's «تم» on an exit task whose box is awaiting its truck IS the
+   * loading. Anything else — an entry task, a تجهيز answered before the exit
+   * was written — closes as it always did and loads nothing.
+   */
+  const loadOnTaskDone = (task: TaskDto, at: string, userId: number | null): void => {
+    if (task.kind !== 'OUT') return;
+    const box = store.getContainer(db, task.containerId);
+    if (box === null || box.exitedAt === null || box.loadedAt !== null || box.position === null) {
+      return;
+    }
+    confirmLoading(box.id, at, userId, 'TASK');
+  };
+
+  app.decorate('sweepLoading', (nowIso?: string): number => {
+    const at = nowIso ?? now();
+    const due = Date.parse(at) - LOADING_GRACE_MS;
+    let loaded = 0;
+    for (const box of store.listAwaitingLoad(db)) {
+      // Compared as instants, not as text: an exit date corrected by hand
+      // may carry an offset of its own.
+      const exited = box.exitedAt === null ? Number.NaN : Date.parse(box.exitedAt);
+      if (!(exited <= due)) continue;
+      try {
+        // One box, one transaction: a box that cannot come down yet stays
+        // waiting and never holds the others back.
+        if (transaction(db, () => confirmLoading(box.id, at, null, 'SWEEP'))) loaded += 1;
+      } catch (error) {
+        console.error(`[loading] ${box.number}`, error);
+      }
+    }
+    return loaded;
+  });
 
   app.post('/api/containers/:id/move', (request) => {
     const actor = requirePerm(request, 'MOVE');
@@ -1323,7 +1486,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // The lift AND the landing — and the landing is judged against the yard
       // as it stands AFTER the stack above has come down.
       const refusal = canMove(layoutNow(), standing, mover, body.to);
-      if (refusal !== null) refuseRule(refusal);
+      if (refusal !== null) refuseLanding(refusal, body.to);
       const descents = liftPlan(standing, mover);
 
       const at = now();
@@ -1416,6 +1579,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   });
 
+  /**
+   * تسجيل الخروج — the exit CARD. «بانتظار التحميل»: the office writes the
+   * exit first because it needs the printed card while the box still stands
+   * on the ground, so the paper is written exactly as it always was — the
+   * year's serial, the truck, the driver, the OUT movement at this instant
+   * from the slot it stands in — and the box KEEPS its slot. Nothing above it
+   * comes down yet: it leaves the ground when its loading is confirmed.
+   */
   app.post('/api/containers/:id/exit', (request) => {
     const actor = requirePerm(request, 'GATE_OUT');
     const id = idParam(request);
@@ -1423,10 +1594,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
     return transaction(db, () => {
       const { dto, position } = standingContainer(id);
-      // A buried container no longer refuses to leave: whatever stands on it
-      // comes down a tier as it goes, exactly as the yard restacks.
-      const standing = store.listStanding(db);
-      const descents = liftPlan(standing, { id, number: dto.number, size: dto.size, position });
+      // Its card is already written; it is only waiting for its truck.
+      if (dto.exitedAt !== null) refuse(409, 'ALREADY_OUT');
+      // A buried container does not refuse to leave: whatever stands on it
+      // will come down a tier when it is lifted. But a lift that would leave
+      // a box with no landing is refused NOW, at the card, exactly as before
+      // — not a day later at the truck.
+      liftPlan(store.listStanding(db), { id, number: dto.number, size: dto.size, position });
       const at = now();
       const year = ammanYear(at);
       store.markExited(db, id, at, {
@@ -1436,17 +1610,17 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         cardOutYear: year,
       });
       store.recordMovement(db, id, 'OUT', at, position, null, '', actorId(actor));
-      settleAbove(descents, at, dto.number, actorId(actor));
-      // The queue follows the gate: a pending تجهيز is now answered, and a
-      // stale entry task dies with the visit. If NO تجهيز preceded this
-      // exit, one is born right here — already pending, carrying the truck
-      // and the slot the box stood in, so nothing is ever missed. It goes to
-      // the machine the clerk named at the gate, and only failing that to
-      // the one that unloaded it: the yard's two machines take turns.
-      const closedOut = store.closePendingTasks(db, id, 'OUT', at, actorId(actor), 'AUTO_EXIT');
+      // The queue follows the gate: a stale entry task dies with the visit.
+      // A pending تجهيز is NOT answered by the card any more — it becomes
+      // the loading task, and its driver's «تم» is what lifts the box off
+      // the ground. If NO تجهيز is pending, the loading task is born right
+      // here — already pending, carrying the truck and the slot the box
+      // stands in, so nothing is ever missed. It goes to the machine the
+      // clerk named at the gate, and only failing that to the one that
+      // unloaded it: the yard's two machines take turns.
       store.closePendingTasks(db, id, 'IN', at, actorId(actor), 'AUTO_EXIT');
       const outMachine = gate.machine ?? dto.handling;
-      if (closedOut === 0 && outMachine !== null) {
+      if (!store.pendingTaskExists(db, id, 'OUT') && outMachine !== null) {
         store.insertTask(db, {
           kind: 'OUT',
           containerId: id,
@@ -1457,6 +1631,22 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           truck: gate.truck,
         });
       }
+      return store.getContainer(db, id);
+    });
+  });
+
+  /**
+   * «تم التحميل» من المكتب — the office confirms that a box awaiting its
+   * truck has been lifted onto it, for whoever may write the exit itself. A
+   * box that is not waiting — still standing with no card, or already gone —
+   * is refused by name; a lift that would leave a box above with no landing
+   * is refused with that box named, so the clerk knows what to move first.
+   */
+  app.post('/api/containers/:id/loaded', (request) => {
+    const actor = requirePerm(request, 'GATE_OUT');
+    const id = idParam(request);
+    return transaction(db, () => {
+      confirmLoading(id, now(), actorId(actor), 'DESK');
       return store.getContainer(db, id);
     });
   });
@@ -1474,6 +1664,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     const body = parseOrRefuse(prepareSchema, request.body);
     return transaction(db, () => {
       const { dto, position } = standingContainer(body.containerId);
+      // A box whose card is written already has its loading task — the
+      // exit's own, or the تجهيز that became it.
+      if (dto.exitedAt !== null) refuse(409, 'ALREADY_OUT');
       if (store.pendingTaskExists(db, dto.id, 'OUT')) refuse(409, 'TASK_EXISTS');
       const machine = body.machine ?? dto.handling;
       if (machine === null) refuse(400, 'VALIDATION', { field: 'machine' });
@@ -1494,6 +1687,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   /**
    * «بنخرجها دفعة وحده البوليصة كاملة»: one تجهيز for the whole bill — a
    * task per standing container, skipping any that already has one pending.
+   * A box whose exit card is written is not standing here, though it waits
+   * on the ground: its loading task already exists.
    */
   app.post('/api/tasks/prepare-bill', (request, reply) => {
     const actor = requirePerm(request, 'GATE_OUT');
@@ -1501,7 +1696,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     return transaction(db, () => {
       const standing = store
         .listByBill(db, body.bill)
-        .filter((container) => container.position !== null);
+        .filter((container) => container.position !== null && container.exitedAt === null);
       if (standing.length === 0) refuse(404, 'NOT_FOUND');
       // All-or-nothing on the machine question: a row that names no machine
       // and gets no override would route nowhere, so the batch refuses whole.
@@ -1537,7 +1732,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
   /**
    * «تحديد الكل ثم تم»: the desk closes many at once — a shift's finished
    * work in one press. A task already closed is skipped and counted, not
-   * refused: the screen may be one poll behind the tablets.
+   * refused: the screen may be one poll behind the tablets. An exit task
+   * among them whose box awaits its truck loads it, as a single «تم» does.
    */
   app.post('/api/tasks/done-many', (request) => {
     const actor = requireAuth(request);
@@ -1557,12 +1753,19 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           continue;
         }
         store.setTaskDone(db, id, at, actorId(actor));
+        loadOnTaskDone(task, at, actorId(actor));
         done += 1;
       }
       return { done, skipped };
     });
   });
 
+  /**
+   * «تم» on an exit task whose box awaits its truck is the loading itself:
+   * the box leaves the map and what stood on it comes down. When it cannot
+   * come down yet (a 40 across two 20s), the «تم» is still the driver's, the
+   * task closes under his name, and the box simply waits in its slot.
+   */
   app.post('/api/tasks/:id/done', (request) => {
     const actor = requireAuth(request);
     const id = idParam(request);
@@ -1572,7 +1775,9 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (task === null) throw new Error('unreachable');
       if (!canRunTasks(actor) && actor.machine !== task.machine) refuse(403, 'FORBIDDEN');
       if (task.status !== 'PENDING') refuse(409, 'TASK_CLOSED');
-      store.setTaskDone(db, id, now(), actorId(actor));
+      const at = now();
+      store.setTaskDone(db, id, at, actorId(actor));
+      loadOnTaskDone(task, at, actorId(actor));
       return store.getTask(db, id);
     });
   });
@@ -1670,11 +1875,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       const check = checkNumber(body.number);
 
       // Renaming to a number that is standing elsewhere would put one number
-      // in two places on the map.
+      // in two places on the map — a GROUND question, so a box awaiting its
+      // truck counts on either side, and a clash with one is named as such.
       if (check.normalized !== existing.number && existing.position !== null) {
         const duplicate = store.findStandingByNumber(db, check.normalized);
         if (duplicate !== null && duplicate.id !== id) {
-          refuse(409, 'NUMBER_IN_YARD', { number: check.normalized });
+          refuseNumberOnGround(duplicate, check.normalized);
         }
       }
 
@@ -1689,6 +1895,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       // The exit paperwork only exists once there has been an exit; offering
       // it on a standing container would invent a departure that never was.
+      // Judged by the PAPER: a box awaiting its truck has its card, so it is
+      // edited exactly like a departed one — and its OUT is retimed with it.
       const stillStanding = existing.exitedAt === null;
       const exitFields = [body.truckOut, body.driverOut];
       if (stillStanding && (body.exitedAt !== null || exitFields.some((v) => v !== ''))) {
@@ -1808,6 +2016,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * back one wrong tap. So the clerk may name where it lands: «اريد عند
    * الغاء الخروج ان يختار مدخل البيانات المكان الذي سوف يعيده فيها». The
    * named slot is checked by exactly the same rules as any landing.
+   *
+   * «بانتظار التحميل»: a box whose card is written but which was never
+   * loaded has not moved at all, so its exit is cancelled IN PLACE — only the
+   * paper goes, and it stands on in the slot it never left. A slot named for
+   * such a box is refused unless it is that very slot: carrying it elsewhere
+   * is a move, with a move card of its own, not a footnote to a cancelled
+   * exit. A box already loaded comes back exactly as it always did.
    */
   app.post('/api/containers/:id/unexit', (request) => {
     const actor = requirePerm(request, 'GATE_OUT');
@@ -1823,14 +2038,24 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (existing === null) throw new Error('unreachable');
       if (existing.exitedAt === null) refuse(409, 'NOT_EXITED');
 
-      const wasAt = body.position ?? store.lastExitPosition(db, id);
-      if (wasAt === null) refuse(409, 'BAD_SLOT');
-      if (wasAt === null) throw new Error('unreachable');
-      // The slot must fit the class the record now carries — the bay's
-      // parity IS the class, here as everywhere else on this ground.
-      if (sizeOfBay(wasAt.bay) !== existing.size) refuse(409, 'RETURN_SIZE_CHANGED');
-      const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, wasAt);
-      if (refusal !== null) refuseRule(refusal);
+      const waitingAt = existing.position;
+      let wasAt: Position;
+      if (waitingAt !== null) {
+        if (body.position !== undefined && !samePosition(body.position, waitingAt)) {
+          refuse(400, 'VALIDATION', { field: 'position' });
+        }
+        wasAt = waitingAt;
+      } else {
+        const named = body.position ?? store.lastExitPosition(db, id);
+        if (named === null) refuse(409, 'BAD_SLOT');
+        if (named === null) throw new Error('unreachable');
+        // The slot must fit the class the record now carries — the bay's
+        // parity IS the class, here as everywhere else on this ground.
+        if (sizeOfBay(named.bay) !== existing.size) refuse(409, 'RETURN_SIZE_CHANGED');
+        const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, named);
+        if (refusal !== null) refuseLanding(refusal, named);
+        wasAt = named;
+      }
 
       store.cancelExit(db, id, wasAt);
       const returnedAt = now();
@@ -1856,11 +2081,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       if (existing === null) throw new Error('unreachable');
       if (!existing.deleted) refuse(409, 'NOT_DELETED');
 
+      // A box struck while it awaited its truck comes back awaiting it: its
+      // card is untouched by the strike, and so is the clock that clears it.
       const wasAt = store.lastDeletePosition(db, id);
       if (wasAt !== null) {
         if (sizeOfBay(wasAt.bay) !== existing.size) refuse(409, 'RETURN_SIZE_CHANGED');
         const refusal = canPlace(layoutNow(), store.listStanding(db), existing.size, wasAt);
-        if (refusal !== null) refuseRule(refusal);
+        if (refusal !== null) refuseLanding(refusal, wasAt);
       }
       store.restoreContainer(db, id, wasAt);
 
@@ -1895,7 +2122,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
       // Striking the record empties its slot, so the same gravity applies —
       // without this, deleting a buried container left the one above it
-      // standing on air.
+      // standing on air. A box awaiting its truck holds ground like any.
       const position = existing.position;
       const descents =
         position === null
@@ -2300,7 +2527,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
       // back talking about a container that cannot find a landing.
       if (restingOn(standing, mover).length > 0) refuse(409, 'MOVE_BURIED');
       const refusal = canPlace(layoutNow(), standing, dto.size, body.to, containerId);
-      if (refusal !== null) refuseRule(refusal);
+      if (refusal !== null) refuseLanding(refusal, body.to);
       store.setPosition(db, containerId, body.to);
       store.retargetMovement(db, id, body.to);
       store.recordMovement(
@@ -2372,7 +2599,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
 
         const size = sizeOfBay(body.to.bay);
         const refusal = canPlace(layoutNow(), standing, size, body.to, id);
-        if (refusal !== null) refuseRule(refusal);
+        if (refusal !== null) refuseLanding(refusal, body.to);
 
         store.setSize(db, id, size);
         store.setPosition(db, id, body.to);

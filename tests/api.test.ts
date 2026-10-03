@@ -134,12 +134,21 @@ async function editWith(
   });
 }
 
+/**
+ * The exit CARD. Since «بانتظار التحميل» it is the paper half alone: the box
+ * keeps its slot until its loading is confirmed — `load` below.
+ */
 async function gateOut(id: number | undefined): Promise<{ status: number; body: unknown }> {
   return call({
     method: 'POST',
     url: `/api/containers/${String(id)}/exit`,
     payload: { truck: '522', seal: 'JO100001', driver: 'أبو علي' },
   });
+}
+
+/** «تم التحميل»: the lift onto the truck — the box leaves the ground. */
+async function load(id: number | undefined): Promise<{ status: number; body: unknown }> {
+  return call({ method: 'POST', url: `/api/containers/${String(id)}/loaded`, payload: {} });
 }
 
 /** Yesterday to tomorrow — a range every movement of a test lands inside. */
@@ -350,7 +359,14 @@ describe('gate in — the official grid decides', () => {
     expect(dupe.status).toBe(409);
     expect(dupe.body.code).toBe('NUMBER_IN_YARD');
 
+    // Its card written, it still stands in its slot awaiting its truck — the
+    // number is not free until it has truly left.
     await gateOut(first.body.id);
+    const waiting = await gateIn('MSCU1234566', 20, slot('B', 11, 3, 'A'));
+    expect(waiting.status).toBe(409);
+    expect(waiting.body.code).toBe('NUMBER_AWAITING_LOAD');
+
+    expect((await load(first.body.id)).status).toBe(200);
     const back = await gateIn('MSCU1234566', 20, slot('B', 11, 3, 'A'));
     expect(back.status).toBe(201);
   });
@@ -526,7 +542,18 @@ describe('gate out', () => {
     const entered = await gateIn('EXIT0001', 20, slot('B', 1, 1, 'A'));
     const exited = await gateOut(entered.body.id);
     expect(exited.status).toBe(200);
-    expect((exited.body as { position: Position | null }).position).toBeNull();
+    // The card is written; the box still stands there awaiting its truck.
+    expect((exited.body as { position: Position | null }).position).toEqual(
+      slot('B', 1, 1, 'A'),
+    );
+    const held = await gateIn('EXIT0002', 20, slot('B', 1, 1, 'A'));
+    expect(held.status).toBe(409);
+    expect(held.body.code).toBe('SLOT_AWAITING_LOAD');
+
+    // Loaded onto its truck, it leaves the ground.
+    const lifted = await load(entered.body.id);
+    expect(lifted.status).toBe(200);
+    expect((lifted.body as { position: Position | null }).position).toBeNull();
 
     // The slot is free again.
     const replacement = await gateIn('EXIT0002', 20, slot('B', 1, 1, 'A'));
@@ -547,6 +574,12 @@ describe('gate out', () => {
       const card = await call({ method: 'GET', url: `/api/containers/${String(id)}` });
       return (card.body as { container: { position: Position | null } }).container.position;
     };
+    // The card alone lifts nothing: the stack stands as it stood.
+    expect(await where(middle.body.id)).toEqual(slot('B', 1, 1, 'B'));
+    expect(await where(top.body.id)).toEqual(slot('B', 1, 1, 'C'));
+
+    // The bottom one is lifted onto its truck — gravity does the rest.
+    expect((await load(ground.body.id)).status).toBe(200);
     expect(await where(middle.body.id)).toEqual(slot('B', 1, 1, 'A'));
     expect(await where(top.body.id)).toEqual(slot('B', 1, 1, 'B'));
   });
@@ -741,7 +774,9 @@ describe('edit and delete', () => {
     expect(blocked.status).toBe(409);
     expect((blocked.body as { code: string }).code).toBe('OCCUPIED');
 
+    // Its card alone does not free the slot — it is lifted onto its truck.
     await gateOut(squatter.body.id);
+    expect((await load(squatter.body.id)).status).toBe(200);
     const restored = await call({
       method: 'POST',
       url: `/api/containers/${String(entered.body.id)}/restore`,
@@ -1058,8 +1093,9 @@ describe('reports', () => {
     const middle = await gateIn('DROP0002', 20, slot('B', 25, 1, 'B'));
     const top = await gateIn('DROP0003', 20, slot('B', 25, 1, 'C'));
 
-    // The bottom one leaves; gravity does the rest.
+    // The bottom one leaves — its card, then its truck; gravity does the rest.
     expect((await gateOut(ground.body.id)).status).toBe(200);
+    expect((await load(ground.body.id)).status).toBe(200);
 
     // Each one is now a tier lower — on its own card first of all.
     for (const [container, tier] of [
@@ -1574,9 +1610,21 @@ describe('رقم البوليصة', () => {
     await withBill('BILL0006', 5, 1, '5555');
     await gateOut((first.body as { id: number }).id);
 
-    const sheet = await call({ method: 'GET', url: '/api/reports/bill?number=4444' });
-    expect(sheet.status).toBe(200);
-    const rows = (sheet.body as { rows: Array<{ number: string; position: unknown }> }).rows;
+    const sheetRows = async (): Promise<Array<{ number: string; position: unknown }>> => {
+      const sheet = await call({ method: 'GET', url: '/api/reports/bill?number=4444' });
+      expect(sheet.status).toBe(200);
+      return (sheet.body as { rows: Array<{ number: string; position: unknown }> }).rows;
+    };
+    // The sheet is PAPER: from its exit card the box files with the departed,
+    // though it still stands in its slot awaiting the truck.
+    const waiting = await sheetRows();
+    expect(waiting).toHaveLength(2);
+    expect(waiting[0]?.number).toBe('BILL0005');
+    expect(waiting[1]?.number).toBe('BILL0004');
+    expect(waiting[1]?.position).not.toBeNull();
+
+    await load((first.body as { id: number }).id);
+    const rows = await sheetRows();
     expect(rows).toHaveLength(2);
     // The standing one leads; the departed one closes the sheet.
     expect(rows[0]?.number).toBe('BILL0005');

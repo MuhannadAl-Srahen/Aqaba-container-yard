@@ -49,6 +49,15 @@ describe('اتجاه الترميز داخل الجملة العربية', () =>
     ['correctMoveDone', AR.correctMoveDone(BOX, SLOT), [BOX, SLOT]],
     ['movingBanner', AR.movingBanner(BOX), [BOX]],
     ['correctingBanner', AR.correctingBanner(BOX), [BOX]],
+    // «بانتظار التحميل»
+    ['exitDone', AR.exitDone(BOX), [BOX]],
+    ['confirmExitBody', AR.confirmExitBody(BOX), [BOX]],
+    ['loadedDone', AR.loadedDone(BOX), [BOX]],
+    ['confirmLoadedBody', AR.confirmLoadedBody(BOX), [BOX]],
+    ['confirmUnexitInPlaceBody', AR.confirmUnexitInPlaceBody(BOX, SLOT), [BOX, SLOT]],
+    ['unexitInPlaceDone', AR.unexitInPlaceDone(BOX, SLOT), [BOX, SLOT]],
+    ['noLanding40Awaiting', AR.noLanding40Awaiting('02', SLOT, BOX), [SLOT, BOX]],
+    ['errorWith SLOT_AWAITING_LOAD', AR.errorWith('SLOT_AWAITING_LOAD', BOX), [BOX]],
     ['toolsSeedDone', AR.toolsSeedDone(5, 2, BAY), [BAY]],
     ['doubtTruck', AR.doubtTruck, ['60-12345']],
   ];

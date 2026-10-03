@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { HANDLING, type Handling, type TaskDto, type TaskStatus } from '../shared/types';
 import { positionLabel } from '../shared/address';
-import { ApiFailure, api, formatDate } from './api';
+import { ApiFailure, api, formatDate, invalidateYard } from './api';
 import { AR } from './ar';
 import { ThemePicker } from './ThemePicker';
 import { Button, Confirm, Toast } from './ui';
@@ -73,7 +73,9 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
       .finally(() => {
         setBusy(false);
         setConfirmingMany(false);
-        void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        // An exit task among them loads its box: the map and every list of
+        // containers must read the yard it leaves behind.
+        invalidateYard(queryClient);
       });
   };
 
@@ -89,11 +91,10 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
       .finally(() => {
         setBusy(false);
         setRerouting(null);
-        void queryClient.invalidateQueries({ queryKey: ['tasks'] });
-        // An IN re-route rewrites the container's المناولة — the map and any
-        // open card must read the corrected record.
-        void queryClient.invalidateQueries({ queryKey: ['state'] });
-        void queryClient.invalidateQueries({ queryKey: ['container'] });
+        // An IN re-route rewrites the container's المناولة, and a «تم» on an
+        // exit task lifts its box off the map — the map, any open card and
+        // every list of containers must read the yard as it now is.
+        invalidateYard(queryClient);
       });
   };
 
@@ -237,9 +238,12 @@ export function TaskMonitorScreen(props: { onBack: () => void }): ReactElement {
               {task.status === 'DONE' && task.doneBy !== null && (
                 <span>
                   ·{' '}
+                  {/* A blank hand is nobody's — the 24-hour clock closed it —
+                      and it must not read as a person, least of all as the
+                      owner. */}
                   {task.closedNote !== ''
-                    ? `${AR.taskClosedNote[task.closedNote]} (${task.doneBy})`
-                    : AR.taskDoneBy(task.doneBy)}
+                    ? `${AR.taskClosedNote[task.closedNote]} (${task.doneBy === '' ? AR.systemHand : task.doneBy})`
+                    : AR.taskDoneBy(task.doneBy === '' ? AR.systemHand : task.doneBy)}
                   {task.doneAt !== null && (
                     <span dir="ltr"> — {formatDate(task.doneAt)}</span>
                   )}

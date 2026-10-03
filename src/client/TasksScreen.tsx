@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Handling, TaskDto } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { ltrCode } from '../shared/bidi';
-import { ApiFailure, api, formatDate, formatDateOnly } from './api';
+import { ApiFailure, api, formatDate, formatDateOnly, invalidateYard } from './api';
 import { AR } from './ar';
 import { ThemePicker } from './ThemePicker';
 import { Button, Confirm, Toast } from './ui';
@@ -110,7 +110,10 @@ export function TasksScreen(props: {
       .finally(() => {
         setBusy(false);
         setConfirming(null);
-        void queryClient.invalidateQueries({ queryKey: ['tasks'] });
+        // «بانتظار التحميل»: «تم» on an exit task IS the loading — the box
+        // leaves the map and what stood on it comes down. The map and every
+        // list of containers hear it now, not on their next poll.
+        invalidateYard(queryClient);
       });
   };
 

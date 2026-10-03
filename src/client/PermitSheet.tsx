@@ -148,7 +148,10 @@ export function PermitSheet(props: {
                     <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-muted">
                       {AR.feet(container.size)}
                     </span>
-                    {container.position === null && (
+                    {/* The paper's own reading: out from its exit card,
+                        even while the box still waits in its slot for the
+                        truck — the permit is paper too. */}
+                    {container.exitedAt !== null && (
                       <span className="shrink-0 rounded bg-sunken px-1.5 py-0.5 text-[11px] font-bold text-amber-600">
                         {AR.permitExited}
                       </span>

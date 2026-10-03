@@ -127,7 +127,57 @@ describe('schema v9 — the cutover to the official yard', () => {
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(30);
+    ).toBe(31);
+    db.close();
+  });
+
+  it('v31: every exit recorded before «بانتظار التحميل» reads as loaded at its exit', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'yard.db');
+    // A v30 yard: one box left (its slot already cleared, as v30 exits did),
+    // one still standing. The column did not exist yet.
+    const first = openDatabase(file);
+    first.exec(`
+      INSERT INTO containers (number, number_valid, size, entered_at, exited_at, card_out, card_out_year)
+      VALUES ('GONE0001', 1, 20, '2026-08-20T09:00:00.000Z', '2026-08-25T11:30:00.000Z', 4, 2026);
+      INSERT INTO containers (number, number_valid, size, entered_at, zone, bay, stack, tier)
+      VALUES ('STAY0001', 1, 20, '2026-08-21T09:00:00.000Z', 'B', 1, 1, 'A');
+      ALTER TABLE containers DROP COLUMN loaded_at;
+    `);
+    first.close();
+
+    const db = openDatabase(file);
+    const rows = db
+      .prepare('SELECT number, exited_at, loaded_at FROM containers ORDER BY id')
+      .all() as Array<{ number: string; exited_at: string | null; loaded_at: string | null }>;
+    expect(rows).toEqual([
+      { number: 'GONE0001', exited_at: '2026-08-25T11:30:00.000Z', loaded_at: '2026-08-25T11:30:00.000Z' },
+      { number: 'STAY0001', exited_at: null, loaded_at: null },
+    ]);
+    db.close();
+  });
+
+  it('v31: the clock’s own mark joins movements and tasks, and every older row is a person’s', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'yard.db');
+    // A v30 yard: a movement and a closed task written by the owner, whose
+    // hand is NULL in both tables. Neither table knew the mark yet.
+    const first = openDatabase(file);
+    first.exec(`
+      INSERT INTO containers (number, number_valid, size, entered_at, zone, bay, stack, tier)
+      VALUES ('HAND0001', 1, 20, '2026-08-21T09:00:00.000Z', 'B', 1, 1, 'A');
+      INSERT INTO movements (container_id, type, at, to_zone, to_bay, to_stack, to_tier, user_id)
+      VALUES (1, 'IN', '2026-08-21T09:00:00.000Z', 'B', 1, 1, 'A', NULL);
+      INSERT INTO tasks (kind, container_id, machine, status, created_at, done_at, done_by)
+      VALUES ('IN', 1, 'CRANE', 'DONE', '2026-08-21T09:00:00.000Z', '2026-08-21T09:30:00.000Z', NULL);
+      ALTER TABLE movements DROP COLUMN by_system;
+      ALTER TABLE tasks DROP COLUMN by_system;
+    `);
+    first.close();
+
+    const db = openDatabase(file);
+    expect(db.prepare('SELECT by_system FROM movements').all()).toEqual([{ by_system: 0 }]);
+    expect(db.prepare('SELECT by_system FROM tasks').all()).toEqual([{ by_system: 0 }]);
     db.close();
   });
 

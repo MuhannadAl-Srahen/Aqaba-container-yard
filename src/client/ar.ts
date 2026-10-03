@@ -422,6 +422,10 @@ export const AR = {
    */
   noLanding40Occupied: (even: string, partnerCell: string, other: string): string =>
     `عبر الباي ${even}: الخانة الشريكة ${ltrCode(partnerCell)} مشغولة بالحاوية ${ltrCode(other)}.`,
+  /** The same partner half, held by a box whose exit card is written. */
+  noLanding40Awaiting: (even: string, partnerCell: string, other: string): string =>
+    `عبر الباي ${even}: الخانة الشريكة ${ltrCode(partnerCell)} تشغلها الحاوية ${ltrCode(other)} ` +
+    'بانتظار التحميل. اضغط «تم التحميل» في بطاقتها بعد رفعها على الشاحنة، أو اختر خانة أخرى.',
   noLanding40NoSupport: (even: string): string =>
     `عبر الباي ${even}: لا يوجد سند كامل تحت الأربعين في هذا الطابق.`,
   noLanding40NoGround: (even: string, partnerBay: string): string =>
@@ -514,6 +518,42 @@ export const AR = {
     'الخروج بالخطأ.',
   unexitDone: (number: string, slot: string): string =>
     `تم إلغاء خروج الحاوية ${ltrCode(number)}، وعادت إلى الموقع ${ltrCode(slot)}`,
+
+  // ---- بانتظار التحميل — الخروج لحظتان: البطاقة ثم الشاحنة ----
+  /**
+   * The office writes the exit card while the box still stands on the
+   * ground, and the box leaves the map only when its loading is confirmed.
+   * Between the two it is WAITING — the one word the map's legend, the bay
+   * sheet, the card and the search all wear for it.
+   */
+  awaitingLoad: 'بانتظار التحميل',
+  /** The card's state line: the paper is out, the steel is not — since when. */
+  awaitingLoadSince: (since: string): string => `خرجت على الورق — بانتظار التحميل منذ ${since}`,
+  awaitingLoadHint:
+    'تبقى في موقعها على الخريطة حتى يُؤكَّد تحميلها: بضغط سائق الآلية «تم» على مهمتها، ' +
+    'أو بزر «تم التحميل» هنا، أو تلقائياً بعد 24 ساعة من بطاقة الخروج.',
+  /** The header's count, beside the hatched swatch it explains. */
+  awaitingCount: (n: number): string => `بانتظار التحميل: ${String(n)}`,
+  actionLoaded: 'تم التحميل',
+  confirmLoadedTitle: 'تأكيد التحميل',
+  confirmLoadedBody: (number: string): string =>
+    `هل رُفعت الحاوية ${ltrCode(number)} على شاحنتها؟ تُزال من الخريطة، وتنزل الحاويات ` +
+    'التي فوقها طابقاً واحداً.',
+  loadedDone: (number: string): string =>
+    `تم تسجيل تحميل الحاوية ${ltrCode(number)}، وأُزيلت من الخريطة.`,
+  /** A box that never left its slot: only the paper is cancelled, in place. */
+  confirmUnexitInPlaceBody: (number: string, slot: string): string =>
+    `هل تريد إلغاء خروج الحاوية ${ltrCode(number)}؟ تبقى في موقعها ${ltrCode(slot)} كما هي، ` +
+    'وتُلغى بطاقة خروجها ويبقى رقمها محجوزاً لها فلا تأخذه حاوية أخرى. استخدم هذا إذا ' +
+    'سُجّل الخروج بالخطأ.',
+  unexitInPlaceDone: (number: string, slot: string): string =>
+    `تم إلغاء خروج الحاوية ${ltrCode(number)}، وبقيت في موقعها ${ltrCode(slot)}.`,
+  /**
+   * The hand of a row no person wrote — the 24-hour clock that clears a box
+   * nobody confirmed loaded. The wire sends it as a blank name; it must never
+   * read as the owner's.
+   */
+  systemHand: 'تلقائياً بعد 24 ساعة',
   /** The reprint buttons and the edit stay open after a departure. */
   departedStillEditable: 'الحاوية خارج الساحة — يمكن تصحيح بياناتها أو إلغاء خروجها.',
   movementsTitle: 'الحركات',
@@ -605,6 +645,7 @@ export const AR = {
     AUTO_EXIT: 'أُغلقت بتسجيل الخروج',
     AUTO_RETURN: 'أُغلقت بإلغاء الخروج',
     AUTO_DELETE: 'أُغلقت بحذف السجل',
+    AUTO_LOADED: 'أُغلقت بتسجيل التحميل',
   } satisfies Record<TaskCloseNote, string>,
   prepareAction: 'تجهيز للإخراج',
   prepareTitle: 'إرسال مهمة تجهيز',
@@ -906,9 +947,17 @@ export const AR = {
 
   // ---- exit ----
   confirmExitTitle: 'تسجيل الخروج',
+  /**
+   * «بانتظار التحميل»: the card is written now, the box leaves the map when
+   * its loading is confirmed — the dialog says both, so nobody expects the
+   * slot to empty under the printer.
+   */
   confirmExitBody: (number: string): string =>
-    `هل تريد إخراج الحاوية ${number} من الساحة؟ يُخلى الموقع ويبقى السجل محفوظاً.`,
-  exitDone: (number: string): string => `تم إخراج الحاوية ${number} من الساحة`,
+    `هل تريد تسجيل خروج الحاوية ${ltrCode(number)}؟ تُكتب بطاقة الخروج الآن، وتبقى الحاوية ` +
+    'في موقعها بانتظار التحميل حتى يضغط سائق الآلية «تم»، أو يُضغط «تم التحميل» في بطاقتها، ' +
+    'أو تمضي 24 ساعة. ويبقى السجل محفوظاً.',
+  exitDone: (number: string): string =>
+    `تم تسجيل خروج الحاوية ${ltrCode(number)}، وهي في موقعها بانتظار التحميل.`,
   /** «ليس دائما التي ادخلتها هي نفسها التي سوف تخرجها» — فيُسأل عند كل خروج. */
   exitMachineLabel: "أي آلية ستُحمّل الشاحنة؟",
   exitMachineHint: "تصل المهمة إلى شاشة الآلية المختارة فور تسجيل الخروج.",
@@ -1324,7 +1373,19 @@ export const AR = {
       'تاريخ الخروج أسبق من تاريخ الدخول، والحاوية لا تخرج قبل أن تدخل. ' +
       'صحّح أحد التاريخين ليصير الخروج بعد الدخول.',
     NUMBER_IN_YARD: 'هذا الرقم موجود في الساحة حالياً. راجع الأوراق.',
-    ALREADY_OUT: 'هذه الحاوية خرجت من الساحة من قبل.',
+    NUMBER_AWAITING_LOAD:
+      'هذا الرقم لحاوية سُجّل خروجها وما زالت في موقعها بانتظار التحميل، فلا تُستلم مرة ' +
+      'ثانية قبل أن تغادر. اضغط «تم التحميل» في بطاقتها بعد رفعها على الشاحنة ثم أعد ' +
+      'الإدخال، أو راجع الرقم إن كان مكتوباً خطأً.',
+    SLOT_AWAITING_LOAD:
+      'هذه الخانة تشغلها حاوية سُجّل خروجها وما زالت بانتظار التحميل. اضغط «تم التحميل» ' +
+      'في بطاقتها بعد رفعها على الشاحنة، أو اختر خانة أخرى.',
+    NOT_AWAITING_LOAD:
+      'هذه الحاوية ليست بانتظار التحميل: فإمّا أنها واقفة لم يُسجَّل خروجها بعد، وإمّا ' +
+      'أنها حُمّلت وغادرت من قبل. حدّث الشاشة لتقرأ حالتها الحالية.',
+    ALREADY_OUT:
+      'سُجّل خروج هذه الحاوية من قبل، فلا تُجرى عليها هذه العملية. حدّث الشاشة لتقرأ ' +
+      'حالتها الحالية.',
     TASK_EXISTS: 'لهذه الحاوية مهمة تجهيز معلّقة من قبل، فلا حاجة لإرسال أخرى.',
     TASK_CLOSED: 'هذه المهمة أُنجزت أو أُغلقت من قبل. حدّث الشاشة لتقرأ حالتها الجديدة.',
     PERMIT_EMPTY:
@@ -1373,9 +1434,12 @@ export const AR = {
       'الملف يحمل أكثر من 2000 سطر وهذا أكبر من أي دفعة واحدة. قسّم الكشف على ملفات أصغر ثم ارفع كل جزء وحده.',
   } satisfies Record<ErrorCode, string>,
   /** The refusals that involve another container name it in the sentence. */
-  errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED', other: string): string =>
+  errorWith: (code: 'BLOCKED_DESCENT' | 'OCCUPIED' | 'SLOT_AWAITING_LOAD', other: string): string =>
     code === 'BLOCKED_DESCENT'
       ? `الحاوية ${other} التي فوقها لا تجد موقعاً تنزل إليه. انقل الحاوية ${other} إلى موقع آخر أولاً.`
-      : `الخانة مشغولة بالحاوية ${other}.`,
+      : code === 'SLOT_AWAITING_LOAD'
+        ? `الخانة تشغلها الحاوية ${ltrCode(other)}، وقد سُجّل خروجها وما زالت بانتظار التحميل. ` +
+          'اضغط «تم التحميل» في بطاقتها بعد رفعها على الشاحنة، أو اختر خانة أخرى.'
+        : `الخانة مشغولة بالحاوية ${other}.`,
   networkError: 'تعذّر الاتصال بالخادم. تأكد من الاتصال وأعد المحاولة.',
 } as const;

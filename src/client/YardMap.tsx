@@ -4,6 +4,7 @@ import { TIERS } from '../shared/types';
 import { AR } from './ar';
 import {
   MAP,
+  awaitingLoad,
   bayKey,
   bayWidths,
   laneGrid,
@@ -57,6 +58,9 @@ const C = {
   text: 'var(--yard-text)',
   landmark: 'var(--yard-landmark)',
   landmarkLine: 'var(--yard-landmark-line)',
+  /** بانتظار التحميل: the amber stripes (the pattern in YardMap's defs). */
+  awaiting: 'url(#await-hatch)',
+  awaitingLine: 'var(--yard-await-line)',
 } as const;
 
 export interface MapProps {
@@ -219,19 +223,39 @@ function RunCell(props: {
 
   // The miniature's ink for one standing container: the moving or selected
   // one wears the selection blue, a search hit its amber, and otherwise the
-  // class speaks — twenties and forties each in their own colour.
+  // class speaks — twenties and forties each in their own colour. A box
+  // awaiting its truck wears the amber STRIPES whatever else is true of it;
+  // its selection or search hit moves to the square's outline, so neither
+  // fact hides the other.
   const boxInk = (container: ContainerDto): string =>
-    container.id === view.selectedId || container.id === view.movingId
-      ? C.selected
-      : view.matches.has(container.id)
-        ? C.match
-        : container.size === 40
-          ? 'var(--yard-box40)'
-          : 'var(--yard-box20)';
+    awaitingLoad(container)
+      ? C.awaiting
+      : container.id === view.selectedId || container.id === view.movingId
+        ? C.selected
+        : view.matches.has(container.id)
+          ? C.match
+          : container.size === 40
+            ? 'var(--yard-box40)'
+            : 'var(--yard-box20)';
+  const boxEdge = (container: ContainerDto): string | undefined =>
+    !awaitingLoad(container)
+      ? undefined
+      : container.id === view.selectedId || container.id === view.movingId
+        ? C.selected
+        : view.matches.has(container.id)
+          ? C.match
+          : C.awaitingLine;
   const strong = holdsSelected || holdsMoving || holdsMatch || isTarget;
   // A note on any container here earns a dot: the crew writes the dents, the
   // opened locks and the customs holds there, and the map must not hide it.
   const noted = load.some((container) => container.notes !== '');
+  /**
+   * «بانتظار التحميل»: a box on this ground is carded out and still waits for
+   * its truck. The fill and bills paints draw no boxes, so the tile wears a
+   * striped band along its top edge instead — the contents paint stripes the
+   * box's own square.
+   */
+  const awaiting = load.some(awaitingLoad);
 
   const pad2 = (bay: number): string => String(bay).padStart(2, '0');
   const first = cell.bays[0];
@@ -352,8 +376,19 @@ function RunCell(props: {
               // متشابهات» — and the missing ground beside it draws nothing.
               const whole = cell.bays.every((_bay, at) => halves?.[at]?.id === one.id);
               if (whole) {
+                const edge = boxEdge(one);
                 squares.push(
-                  <rect key={slotKey} x={sqX} y={sqY} width={sqW} height={sqH} rx={2} fill={boxInk(one)} />,
+                  <rect
+                    key={slotKey}
+                    x={sqX}
+                    y={sqY}
+                    width={sqW}
+                    height={sqH}
+                    rx={2}
+                    fill={boxInk(one)}
+                    stroke={edge}
+                    strokeWidth={edge === undefined ? undefined : 1.5}
+                  />,
                 );
                 return;
               }
@@ -363,6 +398,7 @@ function RunCell(props: {
               cell.bays.forEach((bay, at) => {
                 if (!(zone.stacks[String(bay)] ?? []).includes(stack)) return;
                 const holder = halves?.[at];
+                const edge = holder === undefined ? undefined : boxEdge(holder);
                 squares.push(
                   <rect
                     key={`${slotKey}|${String(bay)}`}
@@ -372,6 +408,8 @@ function RunCell(props: {
                     height={sqH}
                     rx={2}
                     fill={holder === undefined ? 'var(--yard-slot)' : boxInk(holder)}
+                    stroke={edge}
+                    strokeWidth={edge === undefined ? undefined : 1.5}
                   />,
                 );
               });
@@ -379,6 +417,20 @@ function RunCell(props: {
           });
           return <g>{squares}</g>;
         })()}
+      {/* «بانتظار التحميل» in the fill and bills paints: a striped band
+          along the tile's top edge, clear of the bay number below it. */}
+      {awaiting && !detail && (
+        <rect
+          x={x + 5}
+          y={y + 3}
+          width={Math.max(width - 6, 1)}
+          height={9}
+          rx={2}
+          fill={C.awaiting}
+          stroke={C.awaitingLine}
+          strokeWidth={0.8}
+        />
+      )}
       {noted && (
         <circle
           cx={detail ? x + width - 6 : x + (width + 4) / 2}
@@ -604,6 +656,12 @@ export const YardMap = memo(function YardMap(props: {
         <pattern id="landmark-hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
           <rect width="7" height="7" fill={C.landmark} />
           <line x1="0" y1="0" x2="0" y2="7" stroke={C.landmarkLine} strokeWidth="1.4" opacity="0.55" />
+        </pattern>
+        {/* بانتظار التحميل: amber stripes in the theme's own two inks — a
+            pattern no other state of the drawing wears. */}
+        <pattern id="await-hatch" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+          <rect width="6" height="6" fill="var(--yard-await)" />
+          <rect width="2.4" height="6" fill={C.awaitingLine} />
         </pattern>
       </defs>
       <g transform={`translate(${String(MAP.outerPad)}, ${String(MAP.outerPad)})`}>

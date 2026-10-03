@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addressMatch,
+  awaitingLoad,
   bayKey,
   bayLandings,
   billBands,
@@ -41,6 +42,7 @@ function box(number: string, position: Position | null, size: Size = 20): Contai
     billKind: null,
     enteredAt: '2026-08-01T08:00:00.000Z',
     exitedAt: null,
+    loadedAt: null,
     position,
     notes: '',
     weight: '',
@@ -62,6 +64,28 @@ const at = (bay: number, stack: number, tier: 'A' | 'B' | 'C'): Position => ({
   bay,
   stack,
   tier,
+});
+
+describe('بانتظار التحميل', () => {
+  it('is the box whose card is written and which still stands — and it still holds ground', () => {
+    const standing = box('STND0001', at(1, 1, 'A'));
+    const waiting = { ...box('WAIT0001', at(3, 1, 'A')), exitedAt: '2026-08-02T08:00:00.000Z' };
+    const gone = {
+      ...box('GONE0001', null),
+      exitedAt: '2026-08-02T08:00:00.000Z',
+      loadedAt: '2026-08-02T09:00:00.000Z',
+    };
+    expect(awaitingLoad(standing)).toBe(false);
+    expect(awaitingLoad(waiting)).toBe(true);
+    expect(awaitingLoad(gone)).toBe(false);
+
+    // The ground counts it: the map draws it and its slot is taken.
+    const loads = buildBayLoads([standing, waiting, gone]);
+    expect(loads.get(bayKey('A', 3))?.map((container) => container.number)).toEqual(['WAIT0001']);
+    expect(bayLandings(layout, zoneA, 3, [standing, waiting, gone], 20)).not.toContainEqual(
+      at(3, 1, 'A'),
+    );
+  });
 });
 
 describe('bay loads', () => {

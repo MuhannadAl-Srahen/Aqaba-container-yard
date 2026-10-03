@@ -88,7 +88,10 @@ function logModel(rows: readonly LogReportRow[]): TableModel {
       cellLtr(row.number),
       cellLtr(row.from === null ? dash : positionLabel(row.from)),
       cellLtr(row.to === null ? dash : positionLabel(row.to)),
-      cellText(row.user),
+      // A blank hand is nobody's: the 24-hour clock clearing a box nobody
+      // confirmed loaded, and what came down with it. Said as such — it must
+      // never read as a person, least of all as the owner.
+      cellText(row.user === '' ? AR.systemHand : row.user),
       noteParts.length === 0 ? cellText(dash) : cellWrap(noteParts.join(' — ')),
     ];
   });

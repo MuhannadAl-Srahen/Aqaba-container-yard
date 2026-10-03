@@ -51,6 +51,23 @@ if (existsSync(distDir)) {
 const port = Number(process.env['PORT'] ?? 8787);
 const host = process.env['HOST'] ?? '0.0.0.0';
 
+/**
+ * «بانتظار التحميل»: a box whose exit card nobody confirmed loaded leaves the
+ * map by itself 24 hours after the card. Checked at start — a server that was
+ * down overnight catches up at once — and every five minutes after. A fault
+ * is logged and the next round tries again; it never takes the server down.
+ */
+const LOADING_SWEEP_MS = 5 * 60 * 1000;
+
+function sweepLoading(): void {
+  try {
+    const loaded = app.sweepLoading();
+    if (loaded > 0) console.log(`[loading] ${String(loaded)} cleared after 24 hours`);
+  } catch (error: unknown) {
+    console.error('[loading]', error);
+  }
+}
+
 app
   .listen({ port, host })
   .then(() => {
@@ -58,6 +75,8 @@ app
     // النسخة الليلية: 02:30 بتوقيت عمّان، كل ليلة — وإلى البريد إن وُجدت
     // إعدادات SMTP في البيئة.
     startNightly(db);
+    sweepLoading();
+    setInterval(sweepLoading, LOADING_SWEEP_MS).unref();
   })
   .catch((error: unknown) => {
     console.error(error);

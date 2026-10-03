@@ -254,8 +254,10 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- records from before the question existed.
       bill_kind     TEXT    CHECK (bill_kind IN ('SINGLE', 'MANIFEST')),
       -- The exact official slot (1-A-03-01-A), present exactly while it
-      -- stands in the yard. The bay's parity repeats the size on purpose:
-      -- odd bay = 20, even bay = a 40 across the two odd bays around it.
+      -- stands on the GROUND — which, since v31, outlasts the paper exit
+      -- until the box is loaded onto its truck (see loaded_at). The bay's
+      -- parity repeats the size on purpose: odd bay = 20, even bay = a 40
+      -- across the two odd bays around it.
       zone          TEXT,
       bay           INTEGER,
       stack         INTEGER,
@@ -281,7 +283,11 @@ export function migrate(db: DatabaseSync, file: string): void {
       card_in_year  INTEGER,
       card_out_year INTEGER,
       -- Soft delete for a record that was a mistake. Never removed.
-      deleted_at    TEXT
+      deleted_at    TEXT,
+      -- v31 «بانتظار التحميل»: the moment the box was lifted onto its truck.
+      -- exited_at is the exit CARD; between the two the box still stands in
+      -- its slot. NULL while it waits (or while it never left at all).
+      loaded_at     TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_containers_number ON containers (number);
@@ -313,7 +319,11 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- own, counted per year like the two gate ledgers. Null on every other
       -- kind of movement — nothing else is printed.
       card         INTEGER,
-      card_year    INTEGER
+      card_year    INTEGER,
+      -- v31: 1 when NO PERSON wrote this row — the yard's own 24-hour clock
+      -- clearing a box nobody confirmed loaded brings what stood on it down.
+      -- user_id is NULL on such a row and means nobody, not the owner.
+      by_system    INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE INDEX IF NOT EXISTS idx_movements_container ON movements (container_id);
@@ -472,15 +482,18 @@ export function migrate(db: DatabaseSync, file: string): void {
       done_at      TEXT,
       done_by      INTEGER REFERENCES users (id),
       -- '' for a driver's own «تم»; otherwise a close CODE (AUTO_EXIT,
-      -- AUTO_RETURN, AUTO_DELETE) — the client owns the Arabic sentence.
+      -- AUTO_RETURN, AUTO_DELETE, AUTO_LOADED) — the client owns the Arabic.
       closed_note  TEXT    NOT NULL DEFAULT '',
-      -- The slot at task birth: an exited container keeps no live position,
+      -- The slot at task birth: a loaded container keeps no live position,
       -- and the driver must still be told which slot the box stood in.
       pos_zone     TEXT,
       pos_bay      INTEGER,
       pos_stack    INTEGER,
       pos_tier     TEXT,
-      truck        TEXT    NOT NULL DEFAULT ''
+      truck        TEXT    NOT NULL DEFAULT '',
+      -- v31: 1 when no person closed it — the 24-hour clock confirmed the
+      -- loading; done_by is NULL then and means nobody, not the owner.
+      by_system    INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (machine, status);
     CREATE INDEX IF NOT EXISTS idx_tasks_container ON tasks (container_id);
@@ -538,7 +551,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_gate_calls_status ON gate_calls (status, id);
 
-    PRAGMA user_version = 30;
+    PRAGMA user_version = 31;
   `);
 
   // v29 upgrade: a gate_calls table from before the per-container call gets
@@ -561,6 +574,32 @@ export function migrate(db: DatabaseSync, file: string): void {
       ALTER TABLE permit_items ADD COLUMN deleted_at TEXT;
       ALTER TABLE permit_items ADD COLUMN deleted_by INTEGER REFERENCES users (id);
     `);
+  }
+
+  // v31 upgrade: «بانتظار التحميل». The office records the exit to print its
+  // card while the box still stands on the ground, so leaving the paper and
+  // leaving the ground became two moments: exited_at is the card, loaded_at
+  // the lift onto the truck. Every exit recorded before this column existed
+  // already left the map at its exit, so it reads as loaded at that instant.
+  // ALTER and backfill in ONE transaction, as the v20 note below explains.
+  if (!columnExists(db, 'containers', 'loaded_at')) {
+    db.exec(`
+      BEGIN;
+      ALTER TABLE containers ADD COLUMN loaded_at TEXT;
+      UPDATE containers SET loaded_at = exited_at WHERE exited_at IS NOT NULL;
+      COMMIT;
+    `);
+  }
+  // The same round: a box nobody confirms loaded clears by itself 24 hours
+  // after its card, and what the clock writes must not read as the owner's
+  // hand — NULL already means the owner on these two tables. Every row from
+  // before was written by a person, so the default 0 is the truth for them.
+  // Asked per column, so a file that took loaded_at first still gets these.
+  if (!columnExists(db, 'movements', 'by_system')) {
+    db.exec('ALTER TABLE movements ADD COLUMN by_system INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!columnExists(db, 'tasks', 'by_system')) {
+    db.exec('ALTER TABLE tasks ADD COLUMN by_system INTEGER NOT NULL DEFAULT 0');
   }
 
   // v26 upgrade: drivers joined the staff. A users table from before the

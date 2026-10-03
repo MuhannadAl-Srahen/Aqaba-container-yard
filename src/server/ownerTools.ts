@@ -384,6 +384,9 @@ export function seedDemoYard(db: DatabaseSync): {
         cardOut: store.nextCardNumber(db, 'out', ammanYear(exitedAt)),
         cardOutYear: ammanYear(exitedAt),
       });
+      // A FULL exit — card and truck at once. A practice box must never be
+      // left awaiting loading, standing on the map with its card written.
+      store.markLoaded(db, id, exitedAt);
       store.recordMovement(db, id, 'OUT', exitedAt, slot, null, '', null);
       departed += 1;
       continue;

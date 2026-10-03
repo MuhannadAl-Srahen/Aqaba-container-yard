@@ -80,6 +80,7 @@ interface ContainerRow {
   card_out: number | null;
   card_out_year: number | null;
   deleted_at: string | null;
+  loaded_at: string | null;
 }
 
 function slotOf(
@@ -102,6 +103,7 @@ function toDto(row: ContainerRow): ContainerDto {
     billKind: (row.bill_kind ?? null) as ContainerDto['billKind'],
     enteredAt: row.entered_at,
     exitedAt: row.exited_at,
+    loadedAt: row.loaded_at,
     position: slotOf(row.zone, row.bay, row.stack, row.tier),
     notes: row.notes,
     weight: row.weight,
@@ -268,6 +270,8 @@ interface TaskRow {
   pos_stack: number | null;
   pos_tier: string | null;
   truck: string;
+  /** 1 when no person closed it — the 24-hour loading clock did. */
+  by_system: number;
   number: string;
   size: number;
   bill: string;
@@ -327,7 +331,8 @@ function toTask(row: TaskRow, names: Readonly<Record<string, string>>): TaskDto 
     createdAt: row.created_at,
     createdBy: userLabel(names, row.created_by),
     doneAt: row.done_at,
-    doneBy: row.done_at === null ? null : userLabel(names, row.done_by),
+    // A close the clock wrote names nobody: its NULL is not the owner's.
+    doneBy: row.done_at === null ? null : row.by_system === 1 ? '' : userLabel(names, row.done_by),
     closedNote: row.closed_note as TaskCloseNote | '',
     truck: row.truck,
     number: row.number,
@@ -341,8 +346,9 @@ function toTask(row: TaskRow, names: Readonly<Record<string, string>>): TaskDto 
       const gate = gateTruckOf(row);
       return { gateTruck: gate.truck, gateDriver: gate.driver };
     })(),
-    // The live slot while the box stands; the birth snapshot once it no
-    // longer does — the driver must still be told where it stood.
+    // The live slot while the box stands — a box awaiting its truck included,
+    // wherever it was carried while it waited; the birth snapshot once it is
+    // loaded and gone — the driver must still be told where it stood.
     position:
       slotOf(row.live_zone, row.live_bay, row.live_stack, row.live_tier) ??
       slotOf(row.pos_zone, row.pos_bay, row.pos_stack, row.pos_tier),
@@ -425,6 +431,8 @@ export function pendingTaskExists(db: DatabaseSync, containerId: number, kind: T
 /**
  * Close every PENDING task on a container (optionally one kind) — the gate
  * acted, so the queue must not keep asking. Returns how many closed.
+ * `bySystem` marks a close no person made (the 24-hour loading clock), so
+ * its NULL hand reads as nobody rather than as the owner.
  */
 export function closePendingTasks(
   db: DatabaseSync,
@@ -433,21 +441,23 @@ export function closePendingTasks(
   at: string,
   byId: number | null,
   note: TaskCloseNote,
+  bySystem = false,
 ): number {
+  const system = bySystem ? 1 : 0;
   const result =
     kind === null
       ? db
           .prepare(
-            `UPDATE tasks SET status = 'DONE', done_at = ?, done_by = ?, closed_note = ?
+            `UPDATE tasks SET status = 'DONE', done_at = ?, done_by = ?, closed_note = ?, by_system = ?
              WHERE container_id = ? AND status = 'PENDING'`,
           )
-          .run(at, byId, note, containerId)
+          .run(at, byId, note, system, containerId)
       : db
           .prepare(
-            `UPDATE tasks SET status = 'DONE', done_at = ?, done_by = ?, closed_note = ?
+            `UPDATE tasks SET status = 'DONE', done_at = ?, done_by = ?, closed_note = ?, by_system = ?
              WHERE container_id = ? AND kind = ? AND status = 'PENDING'`,
           )
-          .run(at, byId, note, containerId, kind);
+          .run(at, byId, note, system, containerId, kind);
   return Number(result.changes);
 }
 
@@ -521,7 +531,8 @@ export function mergeDriverNames(
  * كشف إنتاجية الآليات: what each hand finished per machine in the period,
  * with the mean minutes from the order's birth to its «تم». Auto-closed
  * tasks (closed_note != '') are the gate's bookkeeping, not work done, and
- * are left out.
+ * are left out — a loading confirmed at the desk or by the 24-hour clock
+ * among them; the driver's own «تم» on a loading task is his work.
  */
 export function machineProductivity(
   db: DatabaseSync,
@@ -560,7 +571,11 @@ export function machineProductivity(
   }));
 }
 
-/** Everyone currently standing in the yard, as the rules see them. */
+/**
+ * Everyone currently standing on the GROUND, as the rules see them — a box
+ * awaiting its truck included: until it is loaded it occupies its slot,
+ * carries what rests on it and blocks its cells, exactly like any other.
+ */
 export function listStanding(db: DatabaseSync): Standing[] {
   const rows = db
     .prepare('SELECT * FROM containers WHERE zone IS NOT NULL AND deleted_at IS NULL')
@@ -572,6 +587,7 @@ export function listStanding(db: DatabaseSync): Standing[] {
   });
 }
 
+/** The map's contents: everything on the ground, the boxes awaiting loading too. */
 export function listInYard(db: DatabaseSync): ContainerDto[] {
   const rows = db
     .prepare(
@@ -588,7 +604,11 @@ export function getContainer(db: DatabaseSync, id: number): ContainerDto | null 
   return row === undefined ? null : toDto(row);
 }
 
-/** The standing container with this number, if the number is in the yard now. */
+/**
+ * The record with this number that is on the ground now, if any — standing,
+ * or awaiting its truck (`exitedAt` set), which the caller tells apart: one
+ * number may not stand in two places on the map either way.
+ */
 export function findStandingByNumber(db: DatabaseSync, number: string): ContainerDto | null {
   const row = db
     .prepare(
@@ -599,6 +619,14 @@ export function findStandingByNumber(db: DatabaseSync, number: string): Containe
 }
 
 /**
+ * The register's own split between the standing and the departed. It is
+ * PAPER: a box whose exit card is written is out from that card, so one still
+ * awaiting its truck files with the departed. Records with no slot and no
+ * exit — none exist in practice — keep filing with the departed as before.
+ */
+const DEPARTED_LAST = '(zone IS NULL OR exited_at IS NOT NULL)';
+
+/**
  * كشف البوليصة: every container that ever travelled under this bill —
  * the standing ones first (they need attention), then the departed.
  */
@@ -607,7 +635,7 @@ export function listByBill(db: DatabaseSync, bill: string): ContainerDto[] {
     .prepare(
       `SELECT * FROM containers
        WHERE bill = ? AND deleted_at IS NULL
-       ORDER BY (zone IS NULL), entered_at, id`,
+       ORDER BY ${DEPARTED_LAST}, entered_at, id`,
     )
     .all(bill) as unknown as ContainerRow[];
   return rows.map(toDto);
@@ -623,7 +651,7 @@ export function listBillRegister(db: DatabaseSync): ContainerDto[] {
     .prepare(
       `SELECT * FROM containers
        WHERE deleted_at IS NULL
-       ORDER BY (zone IS NULL), entered_at, id`,
+       ORDER BY ${DEPARTED_LAST}, entered_at, id`,
     )
     .all() as unknown as ContainerRow[];
   return rows.map(toDto);
@@ -639,6 +667,8 @@ export function searchContainers(db: DatabaseSync, rawQuery: string): ContainerD
   // everything; \ is the declared escape character below.
   const escaped = query.replace(/[\\%_]/g, (ch) => `\\${ch}`);
   const like = `%${escaped}%`;
+  // The search finds steel, so it orders by the GROUND: a box awaiting its
+  // truck still stands in its slot and lists among the standing.
   const rows = db
     .prepare(
       `SELECT * FROM containers
@@ -733,16 +763,47 @@ export interface GateOut {
 }
 
 /**
+ * The exit CARD — the paper half of a departure. The slot is NOT touched:
+ * «بانتظار التحميل», the office writes the card while the box still stands
+ * on the ground, and it keeps its slot until `markLoaded` lifts it off.
+ *
  * `seal_out` is not written: the exit stopped asking for a seal, so the one
  * recorded at entry is the container's seal and the only one anything shows.
  * The column stays where it is, holding what the old exits recorded.
  */
 export function markExited(db: DatabaseSync, id: number, at: string, gate: GateOut): void {
   db.prepare(
-    `UPDATE containers SET exited_at = ?, zone = NULL, bay = NULL, stack = NULL, tier = NULL,
+    `UPDATE containers SET exited_at = ?,
        truck_out = ?, driver_out = ?, card_out = ?, card_out_year = ?
      WHERE id = ?`,
   ).run(at, gate.truck, gate.driver, gate.cardOut, gate.cardOutYear, id);
+}
+
+/**
+ * The ground half: the box is lifted onto its truck and leaves its slot. The
+ * caller has already brought down whatever stood on it.
+ */
+export function markLoaded(db: DatabaseSync, id: number, at: string): void {
+  db.prepare(
+    `UPDATE containers SET loaded_at = ?, zone = NULL, bay = NULL, stack = NULL, tier = NULL
+     WHERE id = ?`,
+  ).run(at, id);
+}
+
+/**
+ * The boxes awaiting their truck: exit card written, not yet loaded, still in
+ * a slot — oldest card first, the order the 24-hour clock clears them in.
+ */
+export function listAwaitingLoad(db: DatabaseSync): ContainerDto[] {
+  const rows = db
+    .prepare(
+      `SELECT * FROM containers
+        WHERE exited_at IS NOT NULL AND loaded_at IS NULL
+          AND zone IS NOT NULL AND deleted_at IS NULL
+        ORDER BY exited_at, id`,
+    )
+    .all() as unknown as ContainerRow[];
+  return rows.map(toDto);
 }
 
 export interface ContainerEdit {
@@ -915,11 +976,15 @@ export function lastExitPosition(db: DatabaseSync, id: number): Position | null 
  * paperwork is voided outright — the truck, the driver and THE CARD. The card
  * is not kept "for the record": it was never a departure, and leaving its
  * serial behind would hold a number out of the year's count for nothing.
+ *
+ * A box still awaiting its truck is handed its own slot back: nothing moves,
+ * only the paper is cancelled. A loaded one stands where the clerk chose, and
+ * its loading is undone with the card.
  */
 export function cancelExit(db: DatabaseSync, id: number, position: Position): void {
   db.prepare(
     `UPDATE containers
-        SET exited_at = NULL, zone = ?, bay = ?, stack = ?, tier = ?,
+        SET exited_at = NULL, loaded_at = NULL, zone = ?, bay = ?, stack = ?, tier = ?,
             truck_out = '', driver_out = '', card_out = NULL, card_out_year = NULL
       WHERE id = ?`,
   ).run(position.zone, position.bay, position.stack, position.tier, id);
@@ -950,13 +1015,18 @@ export function recordMovement(
   userId: number | null,
   /** A printed card of its own — only a MOVE carries one. */
   card: { serial: number; year: number } | null = null,
+  /**
+   * No person wrote it: the 24-hour loading clock's descents. `userId` is
+   * null then and the row names nobody — never the owner.
+   */
+  bySystem = false,
 ): number {
   const result = db
     .prepare(
       `INSERT INTO movements
        (container_id, type, at, from_zone, from_bay, from_stack, from_tier,
-        to_zone, to_bay, to_stack, to_tier, note, user_id, card, card_year)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        to_zone, to_bay, to_stack, to_tier, note, user_id, card, card_year, by_system)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .run(
       containerId,
@@ -974,6 +1044,7 @@ export function recordMovement(
       userId === OWNER_ID ? null : userId,
       card?.serial ?? null,
       card?.year ?? null,
+      bySystem ? 1 : 0,
     );
   return Number(result.lastInsertRowid);
 }
@@ -994,6 +1065,16 @@ interface MovementRow {
   user_id: number | null;
   card: number | null;
   card_year: number | null;
+  /** Present wherever the row's hand is named: 1 = no person wrote it. */
+  by_system?: number;
+}
+
+/**
+ * The hand a movement names. A row the clock wrote names NOBODY — its NULL
+ * user is not the owner's — so it reads '' rather than «المالك».
+ */
+function movementUser(row: MovementRow, names: Readonly<Record<string, string>>): string {
+  return row.by_system === 1 ? '' : userLabel(names, row.user_id);
 }
 
 /** One movement as the wire carries it — a MOVE brings its card along. */
@@ -1007,7 +1088,7 @@ function movementOf(row: MovementRow, names: Readonly<Record<string, string>>): 
     note: row.note,
     card: row.card,
     cardYear: row.card_year,
-    user: userLabel(names, row.user_id),
+    user: movementUser(row, names),
   };
 }
 
@@ -1131,7 +1212,7 @@ interface GateRow {
   size: number;
   weight: string;
   notes: string;
-  /** Where the container IS now — null once it has left. */
+  /** Where the container IS now — null once it has been loaded and gone. */
   live_zone: string | null;
   live_bay: number | null;
   live_stack: number | null;
@@ -1484,6 +1565,10 @@ interface StandingRow extends ContainerRow {
  * كشف الحاويات بالساحة: everything standing right now, oldest first, each
  * with the employee who received it at the gate. The dwell itself is counted
  * by the caller against the Amman calendar.
+ *
+ * A PAPER count: a box whose exit card is written is out from that card,
+ * even while it still waits in its slot for the truck — the map shows it on
+ * the ground, this sheet does not count it in the yard.
  */
 export function listStandingContainers(
   db: DatabaseSync,
@@ -1496,7 +1581,7 @@ export function listStandingContainers(
                 WHERE m.container_id = k.id AND m.type = 'IN'
                 ORDER BY m.at, m.id LIMIT 1) AS in_user
        FROM containers k
-       WHERE k.zone IS NOT NULL AND k.deleted_at IS NULL
+       WHERE k.zone IS NOT NULL AND k.exited_at IS NULL AND k.deleted_at IS NULL
        ORDER BY k.entered_at, k.id`,
     )
     .all() as unknown as StandingRow[];
@@ -1516,7 +1601,7 @@ export function listOperationsLog(
   const names = listUserNames(db);
   const rows = db
     .prepare(
-      `SELECT m.container_id, m.type, m.at, m.note, m.user_id,
+      `SELECT m.container_id, m.type, m.at, m.note, m.user_id, m.by_system,
               m.from_zone, m.from_bay, m.from_stack, m.from_tier,
               m.to_zone, m.to_bay, m.to_stack, m.to_tier,
               k.number, k.deleted_at
@@ -1540,7 +1625,7 @@ export function listOperationsLog(
     from: slotOf(row.from_zone, row.from_bay, row.from_stack, row.from_tier),
     to: slotOf(row.to_zone, row.to_bay, row.to_stack, row.to_tier),
     note: row.note,
-    user: userLabel(names, row.user_id),
+    user: movementUser(row, names),
     deleted: row.deleted_at !== null,
   }));
 }
@@ -2597,12 +2682,14 @@ export function getBatch(db: DatabaseSync, id: number): BatchDto | null {
   if (head === undefined) return null;
 
   // Each row meets the LATEST live visit of its number — a container that
-  // left and came back answers with the visit that is standing now.
+  // left and came back answers with the visit that is standing now. The
+  // status is PAPER: a box whose exit card is written reads خرجت from that
+  // card, though it may still wait in its slot for the truck.
   const rows = db
     .prepare(
       `SELECT r.id, r.seq, r.number, r.size, r.size_raw, r.bill, r.line_op,
               c.id AS container_id, c.entered_at, c.exited_at,
-              (c.zone IS NOT NULL) AS standing
+              (c.zone IS NOT NULL AND c.exited_at IS NULL) AS standing
          FROM batch_rows r
          LEFT JOIN containers c ON c.id = (
            SELECT c2.id FROM containers c2

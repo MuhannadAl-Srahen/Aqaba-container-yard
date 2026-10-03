@@ -261,6 +261,10 @@ describe('تصحيح فئة الحاوية', () => {
       url: `/api/containers/${String(id)}/exit`,
       payload: { truck: '60-22222', driver: 'أبو علي' },
     });
+    // The card alone leaves it standing, awaiting its truck — departed means
+    // loaded too.
+    expect((await detail(id)).container.position).toEqual(at(3));
+    await call({ method: 'POST', url: `/api/containers/${String(id)}/loaded`, payload: {} });
     expect((await detail(id)).container.position).toBeNull();
 
     expect((await reclass(id, at(2))).status).toBe(200);
