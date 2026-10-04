@@ -33,6 +33,15 @@ import {
 const PAD = MAP.pad;
 const TITLE_H = MAP.titleH;
 
+/**
+ * About how wide a run of the app's Arabic text sets at this size, in yard
+ * units — a deliberately generous average glyph, used only to decide whether
+ * two labels can share a line. SVG cannot measure before it draws.
+ */
+function textWidth(text: string, fontSize: number): number {
+  return text.length * fontSize * 0.56;
+}
+
 /** The bay sheet reads C over B over A; its miniature reads the same. */
 const TIERS_TOP_DOWN = [...TIERS].reverse();
 
@@ -507,6 +516,14 @@ const ZonePanel = memo(
       return { dx: event.clientX - start.startX, dy: event.clientY - start.startY };
     };
 
+    const title = AR.zoneTitle(zone.zone, zone.yard);
+    const load = AR.fullAndFree(summary.usedTeu, summary.totalTeu - summary.usedTeu);
+    // The drawing's small blocks (two or three bays) are too narrow for the
+    // name and the load side by side — they printed over each other. There
+    // the load takes the second line, in place of the build note: the load
+    // is what a glance at the map is for.
+    const narrow = textWidth(title, 15) + textWidth(load, 11.5) + 16 > zone.w - 2 * PAD;
+
     return (
       <g
         transform={`translate(${String(zone.x + (drag?.dx ?? 0))}, ${String(zone.y + (drag?.dy ?? 0))})`}
@@ -522,14 +539,22 @@ const ZonePanel = memo(
           fontWeight={700}
           fill={C.text}
         >
-          {AR.zoneTitle(zone.zone, zone.yard)}
+          {title}
         </text>
-        <text x={zone.w - PAD} y={TITLE_H - 6} textAnchor="start" fontSize={10.5} fill={C.label}>
-          {AR.zoneBuild(maxStackOf(zone))}
-        </text>
-        <text x={PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={700} fill={C.label}>
-          {AR.fullAndFree(summary.usedTeu, summary.totalTeu - summary.usedTeu)}
-        </text>
+        {narrow ? (
+          <text x={zone.w - PAD} y={TITLE_H - 6} textAnchor="start" fontSize={10.5} fontWeight={700} fill={C.label}>
+            {load}
+          </text>
+        ) : (
+          <>
+            <text x={zone.w - PAD} y={TITLE_H - 6} textAnchor="start" fontSize={10.5} fill={C.label}>
+              {AR.zoneBuild(maxStackOf(zone))}
+            </text>
+            <text x={PAD} y={22} textAnchor="end" fontSize={11.5} fontWeight={700} fill={C.label}>
+              {load}
+            </text>
+          </>
+        )}
         {zoneCells(zone, view.loads).map((cell) => {
           const index = zone.bays.indexOf(cell.bays[0] ?? -1);
           return (
