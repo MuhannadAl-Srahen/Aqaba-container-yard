@@ -90,6 +90,12 @@ describe('placing', () => {
       'BAD_SLOT',
     );
     expect(canPlace(ASEZA, [], 40, { zone: 'A', bay: 48, stack: 1, tier: 'A' })).toBeNull();
+    // The newer drawing continues A on its old stack lines: a 40 at bay 54
+    // lies across old bay 53 and new bay 55 wherever both have the stack.
+    expect(canPlace(ASEZA, [], 40, { zone: 'A', bay: 54, stack: 6, tier: 'A' })).toBeNull();
+    expect(canPlace(ASEZA, [], 40, { zone: 'A', bay: 54, stack: 5, tier: 'A' })?.code).toBe(
+      'BAD_SLOT',
+    );
   });
 
   it('one cell, one container — and a spanning 40 blocks both bays', () => {
@@ -236,11 +242,11 @@ describe('what is free right now', () => {
   });
 
   it('agrees with the official totals on the real empty yard', () => {
-    // The whole decoded drawing is SAHA 2: one yard, 681 ground slots, the
-    // 571 and 110 of the printed sheet being two parts of it.
+    // The whole decoded drawing is SAHA 2: one yard of 1053 ground slots,
+    // counted on the authority's newer plan.
     const empty = freeNow(ASEZA, []);
     expect(empty).toHaveLength(1);
-    expect(roomIn(empty, 2).t20).toBe(681);
+    expect(roomIn(empty, 2).t20).toBe(1053);
   });
 });
 

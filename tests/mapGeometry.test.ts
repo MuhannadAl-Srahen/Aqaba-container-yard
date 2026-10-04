@@ -42,12 +42,71 @@ describe('the ordinary paints keep the plan', () => {
     }
   });
 
-  it('draws the canvas around the plan exactly as before', () => {
+  it('draws the canvas around the plan, from the origin', () => {
     const layout = computeLayout(ASEZA);
-    expect(layout.width).toBe(2830 + MAP.outerPad * 2);
-    expect(layout.height).toBe(660 + MAP.outerPad * 2);
+    expect(layout.width).toBe(4366 + MAP.outerPad * 2);
+    expect(layout.height).toBe(1369 + MAP.outerPad * 2);
     expect(layout.zones).toBe(ASEZA.zones);
     expect(layout.landmarks).toBe(ASEZA.landmarks);
+    // The canvas is measured from 0, 0: the plan starts exactly there.
+    const rects: Rect[] = [...ASEZA.zones, ...ASEZA.landmarks];
+    expect(Math.min(...rects.map((rect) => rect.x))).toBe(0);
+    expect(Math.min(...rects.map((rect) => rect.y))).toBe(0);
+  });
+});
+
+describe('the plan stands where the drawing puts it', () => {
+  const byName = new Map(ASEZA.zones.map((zone) => [zone.zone, zone]));
+  const zone = (name: string): ZoneDef => {
+    const found = byName.get(name);
+    if (found === undefined) throw new Error('plan zone missing: ' + name);
+    return found;
+  };
+
+  it('gives every strip room for exactly its bays, 58 a bay inside the frame', () => {
+    for (const z of ASEZA.zones) {
+      expect(z.w).toBe(MAP.pad * 2 + z.bays.length * 58);
+      expect(z.h).toBe(150);
+      expect(z.h).toBeGreaterThanOrEqual(MAP.titleH + MAP.cellH + MAP.pad);
+    }
+  });
+
+  it('overlaps nothing — no two zones, and no landmark on a zone', () => {
+    const rects: Rect[] = [...ASEZA.zones, ...ASEZA.landmarks];
+    for (let i = 0; i < ASEZA.zones.length; i += 1) {
+      for (let j = i + 1; j < rects.length; j += 1) {
+        const a = rects[i];
+        const b = rects[j];
+        if (a === undefined || b === undefined) throw new Error('unreachable');
+        expect(overlaps(a, b)).toBe(false);
+      }
+    }
+  });
+
+  it('keeps A above B, E to the right of B, C and D below them', () => {
+    const below = (lower: Rect, upper: Rect): boolean => lower.y >= upper.y + upper.h;
+    expect(below(zone('B'), zone('A'))).toBe(true);
+    expect(zone('E').x).toBeGreaterThanOrEqual(zone('B').x + zone('B').w);
+    for (const name of ['C', 'D']) {
+      expect(below(zone(name), zone('A'))).toBe(true);
+      expect(below(zone(name), zone('B'))).toBe(true);
+    }
+    expect(below(zone('D'), zone('C'))).toBe(true);
+  });
+
+  it('marks what the drawing names: three hangars, three buildings, a tower, a caravan, the sand', () => {
+    const count = (kind: string): number => ASEZA.landmarks.filter((mark) => mark.kind === kind).length;
+    expect([count('hangar'), count('building'), count('tower'), count('caravan'), count('sand')]).toEqual([
+      3, 3, 1, 1, 1,
+    ]);
+  });
+
+  it('sets the sand square between J and H, with F below it, as the drawing does', () => {
+    const square = ASEZA.landmarks.find((mark) => mark.kind === 'sand');
+    if (square === undefined) throw new Error('the sand square is missing');
+    expect(zone('J').x + zone('J').w).toBeLessThanOrEqual(square.x);
+    expect(zone('H').x).toBeGreaterThanOrEqual(square.x + square.w);
+    expect(zone('F').y).toBeGreaterThanOrEqual(square.y + square.h);
   });
 });
 

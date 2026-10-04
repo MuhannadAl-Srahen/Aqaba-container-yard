@@ -297,7 +297,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
    * running underneath.
    *
    * That poll is not cheap: each answer rebuilds the whole yard model — the
-   * load of every one of 681 ground slots, the free-space arithmetic, the
+   * load of every one of 1053 ground slots, the free-space arithmetic, the
    * search index — and then re-renders whatever screen is actually in front.
    * Every eight seconds, while somebody is typing an employee's name. It is
    * paid for gladly when the map is on screen, since that IS the map, and it

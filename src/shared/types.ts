@@ -3,19 +3,24 @@
  * the client only mirrors checks for a faster answer on screen.
  *
  * Since schema v9 the yard is the official ASEZA yard: the ground truth lives
- * in `asezaLayout.ts`, generated from the authority's own drawing and locked
- * by tests to its printed totals (A+B+C+D = 571, E = 110, TOTAL = 681 — all
- * of it SAHA 2; yards 1 and 3 are other grounds, not modelled yet).
+ * in `asezaLayout.ts`, generated from the authority's own drawing (its newer
+ * plan, a PDF) and locked by tests to the slots counted on it — A 305,
+ * B 376, C 54, D 50, E 176, F 48, G 24, H 14, J 6, TOTAL = 1053, all of it
+ * SAHA 2; yards 1 and 3 are other grounds, not modelled yet. The first
+ * plan's 681 slots are all still there, unchanged.
  */
 
 /** The two container sizes this yard receives, in feet. */
 export const SIZES = [20, 40] as const;
 export type Size = (typeof SIZES)[number];
 
-/** The five zones of the official plan, all of them inside SAHA 2. */
-export const ZONES = ['A', 'B', 'C', 'D', 'E'] as const;
 /**
- * A zone name. The official plan paints A…E; the owner's own zones (in his
+ * The nine zones of the official plan, all of them inside SAHA 2. The letter
+ * I is skipped on purpose — on the ground it reads like a 1.
+ */
+export const ZONES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J'] as const;
+/**
+ * A zone name. The official plan paints A…J; the owner's own zones (in his
  * yards 1 and 3, or added beside the plan) carry whatever letter he gives
  * them — so the type is open, and the LAYOUT is the judge of what exists.
  */
@@ -203,7 +208,7 @@ export interface ZoneDef extends Rect {
 }
 
 /** Orientation marks from the printed plan — nothing stands on them. */
-export type LandmarkKind = 'hangar' | 'building' | 'tower' | 'caravan';
+export type LandmarkKind = 'hangar' | 'building' | 'tower' | 'caravan' | 'sand';
 export interface Landmark extends Rect {
   readonly kind: LandmarkKind;
   readonly label: string;

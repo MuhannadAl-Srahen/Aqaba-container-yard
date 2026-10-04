@@ -45,7 +45,7 @@ function cellKey(zone: Zone, oddBay: number, stack: number, tier: Tier): string 
 /**
  * Who covers which cell. A 20 covers one cell; a 40 at an even bay covers the
  * same cell of both odd bays it lies across. Built once per check or screen
- * frame — the yard is 681 ground slots, this is nothing.
+ * frame — the yard is 1053 ground slots, this is nothing.
  */
 export function buildOccupancy(standing: readonly Standing[]): ReadonlyMap<string, Standing> {
   const map = new Map<string, Standing>();
@@ -466,7 +466,7 @@ export function freeNow(layout: YardLayout, standing: readonly Standing[]): Free
  * HOW MUCH ROOM IS LEFT — «كم باقي على الساحة ان تمتلئ».
  *
  * `freeNow` above answers a different question: how many slots would accept a
- * container RIGHT NOW, in one move each. For an empty yard that is 681 — one
+ * container RIGHT NOW, in one move each. For an empty yard that is 1053 — one
  * ground slot per stack — and its forty-foot figure counts POSITIONS, not
  * containers: every 40 swallows two of them and cancels the positions either
  * side. Read as «كم أربعين تدخل» it was simply wrong, and the owner said so.

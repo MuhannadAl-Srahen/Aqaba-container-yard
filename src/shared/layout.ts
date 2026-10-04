@@ -9,7 +9,10 @@ import { registerYards } from './address';
  * from the same pieces, and the server stays the only authority on placing.
  */
 
-/** The ASEZA drawing's own scale: zone A spreads 27 odd bays over 1594 units. */
+/**
+ * The ASEZA drawing's own scale, about 59 units a bay: zone A spreads its 38
+ * odd bays over 2232 units (58 a bay inside a 14-unit frame).
+ */
 const BAY_W = 59;
 const ZONE_H = 150;
 const ROW_GAP = 20;

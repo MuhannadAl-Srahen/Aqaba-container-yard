@@ -47,8 +47,9 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
   /**
    * The floor a gesture may not go below — and it is NOT a constant.
    *
-   * The yard is some 2860 units wide. A desk screen fits it at about 0.48,
-   * so the 0.2 floor never showed; a phone needs 0.13, so the floor held the
+   * The yard is some 4420 units wide since the authority's newer plan (it was
+   * 2860 when this was measured). A desk screen fitted that at about 0.48,
+   * so the 0.2 floor never showed; a phone needed 0.13, so the floor held the
    * drawing at 0.2 and the yard was rendered 572 pixels wide inside a
    * 393-pixel screen — cut off at both edges, on the one screen he uses most
    * while walking the ground. The floor is now the FIT itself whenever the
@@ -80,7 +81,7 @@ export function usePanZoom(contentWidth: number, contentHeight: number) {
   }, [contentWidth, contentHeight]);
 
   /**
-   * The view the app OPENS on. The yard is four times wider than it is deep,
+   * The view the app OPENS on. The yard is three times wider than it is deep,
    * and a phone is twice as deep as it is wide, so fitting the whole drawing
    * on one leaves a thread of a yard adrift in an empty screen — everything
    * visible and nothing readable. The opening view keeps the bay numbers

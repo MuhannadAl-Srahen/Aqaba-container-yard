@@ -125,10 +125,10 @@ describe('how much room is left', () => {
   it('answers for the real yard, and the two heights differ by a third', () => {
     const three = fillPlan(ASEZA, [], 3).total;
     const two = fillPlan(ASEZA, [], 2).total;
-    // 681 ground slots on the official plan.
-    expect(three.capacity).toBe(681 * 3);
-    expect(three.twenties).toBe(2043);
-    expect(two.twenties).toBe(1362);
+    // 1053 ground slots on the official plan.
+    expect(three.capacity).toBe(1053 * 3);
+    expect(three.twenties).toBe(3159);
+    expect(two.twenties).toBe(2106);
     // Forties are fewer than half the twenties: a lone bay at the end of a
     // line has nothing to pair with.
     expect(three.forties).toBeGreaterThan(0);
@@ -138,7 +138,7 @@ describe('how much room is left', () => {
 
   it('splits the answer per zone, and the parts add to the whole', () => {
     const { total, zones } = fillPlan(ASEZA, [], 3);
-    expect(zones).toHaveLength(5);
+    expect(zones).toHaveLength(9);
     expect(zones.reduce((sum, zone) => sum + zone.twenties, 0)).toBe(total.twenties);
     expect(zones.reduce((sum, zone) => sum + zone.forties, 0)).toBe(total.forties);
     expect(zones.every((zone) => zone.yard === 2)).toBe(true);

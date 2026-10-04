@@ -90,7 +90,7 @@ const freeGroundSlot = async (): Promise<Position> => {
       }
     }
   }
-  throw new Error('the demo yard filled 681 slots, which it cannot have');
+  throw new Error('the demo yard filled 1053 slots, which it cannot have');
 };
 
 describe('البيانات التجريبية', () => {

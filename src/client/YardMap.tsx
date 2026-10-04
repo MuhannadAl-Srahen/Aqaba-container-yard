@@ -18,9 +18,9 @@ import {
 
 /**
  * The official ASEZA yard drawn to scale as SVG: zone strips with their bays
- * exactly as the authority's plan numbers them, and the hangars, buildings,
- * tower and caravan standing where the printed map puts them, so the screen
- * reads like the paper the yard already knows.
+ * exactly as the authority's plan numbers them, each standing where its plan
+ * puts it, and the hangars, buildings, tower, caravan and sand square beside
+ * them, so the screen reads like the paper the yard already knows.
  *
  * A map cell is one ODD bay — the ground itself. What stands in it (both
  * tiers, and any 40 reaching over from an even bay) is one tap away.
@@ -607,6 +607,10 @@ const ZonePanel = memo(
 
 function LandmarkShape(props: { landmark: Landmark }): ReactElement {
   const { landmark } = props;
+  // The drawing gives every mark its real size, and a building there is
+  // smaller than its own name: a label that cannot sit inside its outline
+  // stands just under it instead of spilling across its edges.
+  const fits = landmark.w >= landmark.label.length * 7 + 6 && landmark.h >= 18;
   return (
     <g>
       <rect
@@ -614,14 +618,17 @@ function LandmarkShape(props: { landmark: Landmark }): ReactElement {
         y={landmark.y}
         width={landmark.w}
         height={landmark.h}
-        rx={6}
-        fill="url(#landmark-hatch)"
+        rx={Math.min(6, landmark.w / 4, landmark.h / 4)}
+        // Built ground hatches like the printed plan; the sand square is
+        // open ground, so it is dotted instead — in the same ink.
+        fill={landmark.kind === 'sand' ? 'url(#landmark-sand)' : 'url(#landmark-hatch)'}
         stroke={C.landmarkLine}
         strokeWidth={1.5}
+        strokeDasharray={landmark.kind === 'sand' ? '6 4' : undefined}
       />
       <text
         x={landmark.x + landmark.w / 2}
-        y={landmark.y + landmark.h / 2 + 4}
+        y={fits ? landmark.y + landmark.h / 2 + 4 : landmark.y + landmark.h + 14}
         textAnchor="middle"
         fontSize={12}
         fontWeight={700}
@@ -662,6 +669,12 @@ export const YardMap = memo(function YardMap(props: {
         <pattern id="await-hatch" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
           <rect width="6" height="6" fill="var(--yard-await)" />
           <rect width="2.4" height="6" fill={C.awaitingLine} />
+        </pattern>
+        {/* The sand square is open ground: sand grains, not a roof. */}
+        <pattern id="landmark-sand" width="9" height="9" patternUnits="userSpaceOnUse">
+          <rect width="9" height="9" fill={C.landmark} />
+          <circle cx="2.5" cy="2.5" r="1.1" fill={C.landmarkLine} opacity="0.5" />
+          <circle cx="7" cy="6.5" r="0.9" fill={C.landmarkLine} opacity="0.4" />
         </pattern>
       </defs>
       <g transform={`translate(${String(MAP.outerPad)}, ${String(MAP.outerPad)})`}>

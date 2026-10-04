@@ -665,8 +665,9 @@ export function billMatches(
 
 /**
  * The map's metrics, in yard units. The panel's inner metrics (padding,
- * title) must match the decoder's zone rects — tools/decode-aseza.mjs and
- * src/shared/layout.ts draw every strip 150 tall with a 14-unit padding.
+ * title) must match the decoder's zone rects — tools/decode-aseza-pdf.mjs
+ * and src/shared/layout.ts draw every strip 150 tall with a 14-unit padding,
+ * one bay 58 units wide.
  */
 export const MAP = {
   /** Breathing room around the whole drawing. */
@@ -739,7 +740,11 @@ export interface MapLayout {
   readonly landmarks: readonly Landmark[];
 }
 
-/** The canvas around a set of rects: their extent plus breathing room. */
+/**
+ * The canvas around a set of rects: their extent plus breathing room,
+ * measured from the origin — the decoder starts the plan at 0, 0 and the
+ * server parks no owner zone left of or above it.
+ */
 function extentOf(zones: readonly ZoneDef[], landmarks: readonly Landmark[]): MapLayout {
   let maxX = 0;
   let maxY = 0;

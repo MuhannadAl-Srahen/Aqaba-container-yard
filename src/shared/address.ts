@@ -9,7 +9,7 @@ import { ASEZA } from './asezaLayout';
  *     │ │  │  │ └─ tier: A الطابق الأول، B الثاني
  *     │ │  │  └─── stack: 01…10 across the strip
  *     │ │  └────── bay: odd = a 20; even = a 40 across the two odd bays
- *     │ └───────── zone: A…E as painted on the ground
+ *     │ └───────── zone: A…J (no I) as painted on the ground
  *     └─────────── yard: derived, not typed — everything here is SAHA 2
  *
  * Western digits, LTR — the code reads the same on screen, paper and radio.
@@ -17,7 +17,7 @@ import { ASEZA } from './asezaLayout';
 
 /**
  * Which yard each zone belongs to — the address digit nobody types by hand.
- * Seeded from the official plan (A…E are SAHA 2) and taught the owner's own
+ * Seeded from the official plan (A…J are SAHA 2) and taught the owner's own
  * zones whenever the effective layout is composed; an unknown letter reads
  * as yard 2, the plan's own ground.
  */
