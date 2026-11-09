@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ContainerDto, Handling, MovementDto, Permission, PhotoDto } from '../shared/types';
-import { HANDLING } from '../shared/types';
+import { HANDLING, cardSerial } from '../shared/types';
 import { positionLabel } from '../shared/address';
 import { checkNumber } from '../shared/iso6346';
 import { findPlateDriver, findTruck } from '../shared/fleet';
@@ -222,6 +222,12 @@ export function ContainerCard(props: {
    * live row, so the form can only ever describe the record that exists.
    */
   const container = detail.data?.container ?? props.container;
+  /**
+   * «منقولة إلى مديرية التخزين»: the live storage paper carrying this box,
+   * read with the record. Computed on the server from the paper itself, so a
+   * struck line or a voided permit clears it with no help from here.
+   */
+  const storageMark = detail.data?.storage ?? null;
 
   /** On the ground: standing, or carded out and awaiting its truck. */
   const inYard = container.position !== null;
@@ -281,6 +287,16 @@ export function ContainerCard(props: {
           {!inYard && <Badge text={AR.outOfYard} tone="slate" />}
           {awaiting && <Badge text={AR.awaitingLoad} tone="amber" />}
         </div>
+
+        {storageMark !== null && (
+          <p className="rounded-xl border border-line bg-sunken px-3 py-2 text-sm font-bold text-ink">
+            {AR.storageMark(
+              cardSerial(storageMark.serial, storageMark.serialYear) ??
+                String(storageMark.serial),
+              formatDateOnly(storageMark.at),
+            )}
+          </p>
+        )}
 
         {/* «خرجت على الورق — بانتظار التحميل منذ …»: the paper is out, the
             steel is not. The stripes are the map's own mark for it. */}

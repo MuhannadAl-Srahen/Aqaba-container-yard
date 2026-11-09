@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openDatabase } from '../src/server/db';
-import { nextCardNumber } from '../src/server/store';
+import { getPermit, nextCardNumber, nextPermitNumber } from '../src/server/store';
 
 /**
  * v9 is a cutover, not a carry-over: the owner ordered the old test-era
@@ -127,7 +127,38 @@ describe('schema v9 — the cutover to the official yard', () => {
     ]);
     expect(
       (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-    ).toBe(31);
+    ).toBe(32);
+    db.close();
+  });
+
+  it('v32: every permit already issued reads EXIT, and its lines read the permit’s bill', () => {
+    const dir = scratch();
+    const file = path.join(dir, 'yard.db');
+    // A yard that issued an exit permit under v31: no kind on the permit, no
+    // bill on the line.
+    const first = openDatabase(file);
+    first.exec(`
+      INSERT INTO containers (number, number_valid, size, bill, entered_at, zone, bay, stack, tier,
+                              truck_in, driver_in, seal_in, card_in, card_in_year)
+      VALUES ('MIGR0032', 1, 20, '3210', '2026-08-20T09:00:00.000Z', 'B', 1, 1, 'A',
+              '60-84785', 'سائق', 'JO1', 7, 2026);
+      INSERT INTO permits (serial, serial_year, bill, at) VALUES (4, 2026, '3210', '2026-08-21T09:00:00.000Z');
+      INSERT INTO permit_items (permit_id, container_id, number, entered_at)
+        VALUES (1, 1, 'MIGR0032', '2026-08-20T09:00:00.000Z');
+      ALTER TABLE permits DROP COLUMN kind;
+      ALTER TABLE permit_items DROP COLUMN bill;
+    `);
+    first.close();
+
+    const db = openDatabase(file);
+    expect(db.prepare('SELECT kind FROM permits').all()).toEqual([{ kind: 'EXIT' }]);
+    expect(db.prepare('SELECT bill FROM permit_items').all()).toEqual([{ bill: null }]);
+    const permit = getPermit(db, 1);
+    expect(permit?.kind).toBe('EXIT');
+    expect(permit?.items[0]?.bill).toBe('3210');
+    // The exit book carries on from its own top; the storage book starts at 1.
+    expect(nextPermitNumber(db, 'EXIT', 2026)).toBe(5);
+    expect(nextPermitNumber(db, 'STORAGE', 2026)).toBe(1);
     db.close();
   });
 

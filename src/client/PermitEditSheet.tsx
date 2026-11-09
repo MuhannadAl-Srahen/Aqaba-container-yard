@@ -60,10 +60,14 @@ export function PermitEditSheet(props: {
       });
   };
 
+  // The storage book's paper is corrected the same way; only its name and
+  // what striking a line means — the box loses «منقولة للتخزين» — differ.
+  const storage = permit.data?.kind === 'STORAGE';
+  const heading = storage ? AR.storagePermitEdit : AR.permitEdit;
   const title =
     permit.data === undefined
-      ? AR.permitEdit
-      : `${AR.permitEdit} — ${cardSerialText(permit.data.serial)}/${String(permit.data.serialYear)}`;
+      ? heading
+      : `${heading} — ${cardSerialText(permit.data.serial)}/${String(permit.data.serialYear)}`;
 
   return (
     <Sheet title={title} onClose={props.onClose}>
@@ -79,7 +83,9 @@ export function PermitEditSheet(props: {
             submit();
           }}
         >
-          <p className="text-xs leading-5 text-faint">{AR.permitEditHint}</p>
+          <p className="text-xs leading-5 text-faint">
+            {storage ? AR.storagePermitEditHint : AR.permitEditHint}
+          </p>
 
           <ul className="divide-y divide-line rounded-xl border border-line">
             {items.map((item) => {

@@ -2,6 +2,7 @@ import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
 import type { PermitDto } from '../shared/types';
 import { cardSerial, cardSerialText } from '../shared/types';
+import { daysBetween } from '../shared/dates';
 import { AR } from './ar';
 import { Button, useEscape } from './ui';
 
@@ -12,6 +13,12 @@ import { Button, useEscape } from './ui';
  * numbered per year like the gate cards, and closed by the storage
  * directorate's signature and stamp. Rendered as an overlay; printing
  * isolates it through the same .print-area CSS the cards use.
+ *
+ * The same paper serves the storage book — «تصريح نقل حاويات إلى مديرية
+ * التخزين», a transfer inside the yard and not an exit. Its heading and its
+ * sentence are its own; it names no single bill, so the strip's middle box
+ * counts the containers, and the table gains the bill each line carries and
+ * how long the box had sat when the paper moved it.
  */
 
 const dayFormat = new Intl.DateTimeFormat('ar-JO', { weekday: 'long', timeZone: 'Asia/Amman' });
@@ -53,6 +60,8 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
   const bodyCell = 'border border-rule px-2 py-1.5 text-center text-[13px] text-ink';
   const t20 = permit.items.filter((item) => item.size === 20).length;
   const t40 = permit.items.length - t20;
+  const storage = permit.kind === 'STORAGE';
+  const columns = storage ? 7 : 5;
 
   return createPortal(
     // permit-print: on paper this overlay leaves the viewport and lies at the
@@ -68,7 +77,9 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
               organisation line and the long title are both struck. No fill
               behind it — «ما بدي يصرف حبر» applies to every paper alike. */}
           <div className="border-b-2 border-rule-strong px-3 py-3 text-center">
-            <p className="text-xl font-extrabold text-ink">{AR.permitTitle(yard)}</p>
+            <p className="text-xl font-extrabold text-ink">
+              {storage ? AR.storagePermitTitle(yard) : AR.permitTitle(yard)}
+            </p>
           </div>
 
           {/* The voucher strip: serial | bill | date. */}
@@ -86,9 +97,11 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
               </span>
             </div>
             <div className="flex flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2">
-              <span className="text-[10px] font-semibold text-muted">{AR.permitBill}</span>
+              <span className="text-[10px] font-semibold text-muted">
+                {storage ? AR.colPermitCount : AR.permitBill}
+              </span>
               <span className="font-mono text-2xl font-extrabold tracking-wider" dir="ltr">
-                {permit.bill}
+                {storage ? String(permit.items.length) : permit.bill}
               </span>
             </div>
             <div className="flex w-40 flex-col items-center justify-center gap-0.5 border-s border-rule-strong px-3 py-2 text-center text-[12px]">
@@ -102,7 +115,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
 
           {/* The permission sentence — what the stamp below makes true. */}
           <p className="border-b-2 border-rule-strong px-3.5 py-3 text-[13px] font-semibold leading-7 text-ink">
-            {AR.permitSentence(yard)}
+            {storage ? AR.storagePermitSentence(yard) : AR.permitSentence(yard)}
           </p>
 
           <table className="w-full border-collapse">
@@ -111,8 +124,10 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                 <th className={`${headCell} w-10`}>{AR.colSeq}</th>
                 <th className={headCell}>{AR.colEntryCard}</th>
                 <th className={headCell}>{AR.colNumber}</th>
+                {storage && <th className={headCell}>{AR.colBill}</th>}
                 <th className={headCell}>{AR.colWeight}</th>
                 <th className={headCell}>{AR.colEnteredAt}</th>
+                {storage && <th className={headCell}>{AR.colDwellAtTransfer}</th>}
               </tr>
             </thead>
             <tbody>
@@ -125,6 +140,11 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                   <td className={`${bodyCell} font-mono tracking-wider`} dir="ltr">
                     {item.number}
                   </td>
+                  {storage && (
+                    <td className={`${bodyCell} font-mono`} dir="ltr">
+                      {item.bill === '' ? '—' : item.bill}
+                    </td>
+                  )}
                   {/* «اظهارها بالطباعة»: the weight as the paper was issued —
                       the row's own dash where none was recorded. */}
                   <td className={bodyCell} dir="ltr">
@@ -135,6 +155,14 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                   <td className={bodyCell} dir="ltr">
                     {dateFormat.format(new Date(item.enteredAt))}
                   </td>
+                  {/* The truth for each box on its own line: the sentence
+                      speaks of ninety days, and the owner allows an earlier
+                      transfer with a warning — this column says which. */}
+                  {storage && (
+                    <td className={bodyCell}>
+                      {AR.daysCount(daysBetween(item.enteredAt, permit.at))}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -144,7 +172,7 @@ export function PrintPermit(props: { permit: PermitDto; onClose: () => void }): 
                   {AR.totalRow}
                 </td>
                 <td
-                  colSpan={4}
+                  colSpan={columns - 1}
                   className={`${bodyCell} border-t-2 border-t-rule-strong font-bold`}
                 >
                   {AR.billTotals(permit.items.length, t20, t40)}

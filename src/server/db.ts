@@ -380,7 +380,12 @@ export function migrate(db: DatabaseSync, file: string): void {
       at          TEXT    NOT NULL,
       user_id     INTEGER REFERENCES users (id),
       yard        INTEGER NOT NULL DEFAULT 2,
-      deleted_at  TEXT
+      deleted_at  TEXT,
+      -- v32: «تصريح نقل حاويات إلى مديرية التخزين» — نقل وليست إخراج. A
+      -- second paper on the same machinery, with a numbered book of its own:
+      -- every serial query asks for its kind. An exit permit's bill is the
+      -- one it is for; a storage permit gathers many bills and writes ''.
+      kind        TEXT    NOT NULL DEFAULT 'EXIT' CHECK (kind IN ('EXIT', 'STORAGE'))
     );
 
     -- v20: each line keeps the container's facts AS THE PAPER WAS ISSUED —
@@ -407,7 +412,10 @@ export function migrate(db: DatabaseSync, file: string): void {
       -- permit itself being voided. Soft, like every removal here: the
       -- struck line stays in the file with who struck it and when.
       deleted_at   TEXT,
-      deleted_by   INTEGER REFERENCES users (id)
+      deleted_by   INTEGER REFERENCES users (id),
+      -- v32: the bill pinned on the LINE, now that a storage permit mixes
+      -- bills. NULL on lines issued before it — those read their permit's.
+      bill         TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_permit_items_permit ON permit_items (permit_id);
@@ -551,7 +559,7 @@ export function migrate(db: DatabaseSync, file: string): void {
     );
     CREATE INDEX IF NOT EXISTS idx_gate_calls_status ON gate_calls (status, id);
 
-    PRAGMA user_version = 31;
+    PRAGMA user_version = 32;
   `);
 
   // v29 upgrade: a gate_calls table from before the per-container call gets
@@ -600,6 +608,18 @@ export function migrate(db: DatabaseSync, file: string): void {
   }
   if (!columnExists(db, 'tasks', 'by_system')) {
     db.exec('ALTER TABLE tasks ADD COLUMN by_system INTEGER NOT NULL DEFAULT 0');
+  }
+
+  // v32 upgrade: «تصريح نقل حاويات إلى مديرية التخزين». Purely additive —
+  // every permit already issued reads EXIT, which is what it is, and every
+  // line already issued keeps a NULL bill and reads its permit's own.
+  if (!columnExists(db, 'permits', 'kind')) {
+    db.exec(
+      "ALTER TABLE permits ADD COLUMN kind TEXT NOT NULL DEFAULT 'EXIT' CHECK (kind IN ('EXIT', 'STORAGE'))",
+    );
+  }
+  if (!columnExists(db, 'permit_items', 'bill')) {
+    db.exec('ALTER TABLE permit_items ADD COLUMN bill TEXT');
   }
 
   // v26 upgrade: drivers joined the staff. A users table from before the

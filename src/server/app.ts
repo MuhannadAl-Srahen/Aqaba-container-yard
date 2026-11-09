@@ -23,14 +23,24 @@ import type {
   MeDto,
   Permission,
   PermitDto,
+  PermitKind,
   PermitReportRow,
   Position,
   StandingReportRow,
+  StorageReportRow,
   TaskDto,
   UnassignedPlateRow,
   YardStateDto,
 } from '../shared/types';
-import { HANDLING, OWNER_ID, PERMISSIONS, TIERS, ZONES, sizeOfBay } from '../shared/types';
+import {
+  HANDLING,
+  OWNER_ID,
+  PERMISSIONS,
+  PERMIT_KINDS,
+  TIERS,
+  ZONES,
+  sizeOfBay,
+} from '../shared/types';
 import type { DriverHaulRow, OrphanWageRow } from '../shared/types';
 import type { PlateDriver } from '../shared/fleet';
 import { normalizePlate, plateMatches } from '../shared/fleet';
@@ -239,9 +249,16 @@ const carrierSchema = z.object({
   name: z.string().trim().min(1).max(60),
 });
 
-/** تصريح تحميل وخروج داخلي: one bill and the containers it lets out. */
+/**
+ * A numbered permit. EXIT — تصريح تحميل وخروج داخلي: one bill and the
+ * containers it lets out, so the bill is required (checked in the route).
+ * STORAGE — تصريح نقل حاويات إلى مديرية التخزين: many bills on one paper,
+ * so none is named. A body without `kind` is an exit permit, as every body
+ * was before the storage paper existed.
+ */
 const permitSchema = z.object({
-  bill: z.string().trim().min(1).max(40),
+  kind: z.enum(PERMIT_KINDS).default('EXIT'),
+  bill: z.string().trim().max(40).default(''),
   items: z
     .array(
       z.object({
@@ -881,8 +898,13 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * at the gate one by one. Issued under GATE_OUT: it is exit paperwork.
    */
   app.post('/api/permits', (request, reply) => {
-    const actor = requirePerm(request, 'GATE_OUT');
+    // Peek at the kind before the guard: an exit paper is GATE_OUT's, a
+    // storage transfer is MOVE's — «نقل وليست اخراج».
+    const asked = (request.body as { kind?: unknown } | null)?.kind;
+    const actor = requirePerm(request, asked === 'STORAGE' ? 'MOVE' : 'GATE_OUT');
     const body = parseOrRefuse(permitSchema, request.body);
+    if (body.kind === 'STORAGE') return issueStoragePermit(actor, body, reply);
+    if (body.bill === '') refuse(400, 'VALIDATION', { field: 'bill' });
     return transaction(db, () => {
       // One line per container: the same box twice would double-count the
       // paper the storage directorate stamps.
@@ -911,6 +933,7 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
           // Pinned like the rest, now that «تصحيح الفئة» can change the live
           // class: a stamped paper's «عشرين / أربعين» line must not move.
           size: container.size,
+          bill: container.bill,
         };
       });
       const at = now();
@@ -929,7 +952,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         .find((position) => position !== null);
       const yard = anchor === undefined || anchor === null ? 2 : yardOf(anchor.zone);
       const id = store.insertPermit(db, {
-        serial: store.nextPermitNumber(db, year),
+        kind: 'EXIT',
+        serial: store.nextPermitNumber(db, 'EXIT', year),
         serialYear: year,
         bill: body.bill,
         at,
@@ -942,12 +966,99 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     });
   });
 
-  /** كشف خروج وتحميل داخلي: the permits issued in a period. */
+  /**
+   * تصريح نقل حاويات إلى مديرية التخزين — «اذا قعدت اكثر من تسعين يوم
+   * بننقلهم ل مكان داخل الساحة … وهي نقل وليست اخراج».
+   *
+   * A paper and a mark, nothing more: issuing it moves no steel — the crew
+   * carries the boxes with the ordinary move, which prints its own move card
+   * — and the container reads «منقولة للتخزين» for as long as a live line of
+   * a live storage permit carries it. Many bills on one paper, each line
+   * pinning its own.
+   *
+   * Only a box standing in the yard on paper can be transferred: one whose
+   * exit card is written is leaving, and one already gone has nothing to
+   * move. The ninety days are NOT checked here — the owner's call: the issue
+   * screen warns in amber and never bars, since the directorate may order an
+   * early transfer.
+   */
+  const issueStoragePermit = (
+    actor: MeDto,
+    body: z.infer<typeof permitSchema>,
+    reply: FastifyReply,
+  ): PermitDto | null =>
+    transaction(db, () => {
+      const distinct = new Set(body.items.map((item) => item.containerId));
+      if (distinct.size !== body.items.length) refuse(400, 'VALIDATION');
+      const containers = body.items.map((item) => {
+        const container = store.getContainer(db, item.containerId);
+        if (container === null) refuse(404, 'NOT_FOUND');
+        if (container === null) throw new Error('unreachable');
+        if (container.exitedAt !== null || container.position === null) {
+          refuse(409, 'STORAGE_NOT_STANDING', { other: container.number });
+        }
+        return { container, weight: item.weight };
+      });
+      const lines = containers.map(({ container, weight }) => ({
+        containerId: container.id,
+        truck: '',
+        number: container.number,
+        cardIn: container.cardIn,
+        cardInYear: container.cardInYear,
+        enteredAt: container.enteredAt,
+        weight,
+        size: container.size,
+        bill: container.bill,
+      }));
+      const at = now();
+      const year = ammanYear(at);
+      layoutNow();
+      const anchor = containers.find(({ container }) => container.position !== null)?.container
+        .position;
+      const yard = anchor === undefined || anchor === null ? 2 : yardOf(anchor.zone);
+      const id = store.insertPermit(db, {
+        kind: 'STORAGE',
+        serial: store.nextPermitNumber(db, 'STORAGE', year),
+        serialYear: year,
+        bill: '',
+        at,
+        userId: actorId(actor),
+        yard,
+        items: lines,
+      });
+      void reply.status(201);
+      return store.getPermit(db, id);
+    });
+
+  /** `?kind=` names the book; anything else is the exit book, as before. */
+  const kindParam = (raw: unknown): PermitKind => (raw === 'STORAGE' ? 'STORAGE' : 'EXIT');
+
+  /** One permit book — exit or storage — for a period. */
   app.get('/api/permits', (request): { rows: PermitReportRow[] } => {
+    requirePerm(request, 'REPORTS');
+    const query = request.query as { from?: string; to?: string; kind?: string };
+    const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
+    return { rows: store.listPermits(db, kindParam(query.kind), range.from, range.to) };
+  });
+
+  /**
+   * كشف المنقولة للتخزين: every container on a live storage paper issued in
+   * the period, with how long it had sat when it was transferred and how long
+   * it has sat by now — or by its exit card, once it has gone.
+   */
+  app.get('/api/reports/storage', (request): { rows: StorageReportRow[] } => {
     requirePerm(request, 'REPORTS');
     const query = request.query as { from?: string; to?: string };
     const range = parseOrRefuse(rangeSchema, { from: query.from, to: query.to });
-    return { rows: store.listPermits(db, range.from, range.to) };
+    const at = now();
+    const rows = store.listStorageTransfers(db, range.from, range.to).map(
+      (row): StorageReportRow => ({
+        ...row,
+        dwellAtTransfer: daysBetween(row.enteredAt, row.at),
+        dwellDays: daysBetween(row.enteredAt, row.exitedAt ?? at),
+      }),
+    );
+    return { rows };
   });
 
   /**
@@ -955,14 +1066,17 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * before a second paper is stamped for the same box.
    */
   app.get('/api/permits/for', (request) => {
-    requirePerm(request, 'GATE_OUT');
-    const query = request.query as { ids?: string };
+    const query = request.query as { ids?: string; kind?: string };
+    const kind = kindParam(query.kind);
+    // Each book warns its own issuer: an exit paper never reads as a second
+    // storage paper, nor the other way round.
+    requirePerm(request, kind === 'STORAGE' ? 'MOVE' : 'GATE_OUT');
     const ids = (query.ids ?? '')
       .split(',')
       .map((part) => Number(part.trim()))
       .filter((id) => Number.isInteger(id) && id > 0)
       .slice(0, 500);
-    return { rows: store.permitsOfContainers(db, ids) };
+    return { rows: store.permitsOfContainers(db, ids, kind) };
   });
 
   /** One permit, exactly as issued — for reprinting from its register row. */
@@ -988,8 +1102,14 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
    * which is the owner's own act.
    */
   app.patch('/api/permits/:id', (request): PermitDto => {
-    const actor = requirePerm(request, 'GATE_OUT');
     const id = idParam(request);
+    // The hand that issues a paper corrects it: GATE_OUT for an exit permit,
+    // MOVE for a storage one. A permit that does not exist is guarded as an
+    // exit paper, so the refusal order is the one it always was.
+    const actor = requirePerm(
+      request,
+      store.permitKind(db, id) === 'STORAGE' ? 'MOVE' : 'GATE_OUT',
+    );
     const body = parseOrRefuse(
       z.object({ remove: z.array(z.number().int().positive()).min(1).max(200) }),
       request.body,
@@ -2205,6 +2325,8 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
         bill: container.bill,
         position: container.position,
         seal: container.sealIn,
+        cardIn: container.cardIn,
+        cardInYear: container.cardInYear,
         enteredAt: container.enteredAt,
         weight: container.weight,
         dwellDays: daysBetween(container.enteredAt, at),
@@ -2904,7 +3026,12 @@ export function buildApp(db: DatabaseSync): FastifyInstance {
     const container = store.getContainer(db, id);
     if (container === null) refuse(404, 'NOT_FOUND');
     if (container === null) throw new Error('unreachable');
-    return { container, movements: store.listMovements(db, id) };
+    return {
+      container,
+      movements: store.listMovements(db, id),
+      // «منقولة إلى مديرية التخزين» — the live storage paper carrying it.
+      storage: store.storageMarkOf(db, id),
+    };
   });
 
   // The owner's training tools, for the period the staff are learning on the

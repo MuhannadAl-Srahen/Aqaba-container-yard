@@ -1,5 +1,6 @@
 import { useEffect, type ReactElement } from 'react';
 import { createPortal } from 'react-dom';
+import type { PermitKind } from '../shared/types';
 import { cardSerialText } from '../shared/types';
 import { AR } from './ar';
 import { Button, useEscape } from './ui';
@@ -25,12 +26,15 @@ const timeFormat = new Intl.DateTimeFormat('en-GB', {
 });
 
 export function PrintVoidPermit(props: {
+  /** Which book's stub — each kind voids its own numbers. */
+  kind: PermitKind;
   serial: number;
   serialYear: number;
   yard: number;
   onClose: () => void;
 }): ReactElement {
   useEscape(props.onClose);
+  const storage = props.kind === 'STORAGE';
 
   // The paper wins the printer while it is up, exactly as a real one does.
   useEffect(() => {
@@ -50,7 +54,9 @@ export function PrintVoidPermit(props: {
       <div className="max-h-full w-full max-w-2xl overflow-y-auto">
         <div className="print-area gate-card paper-light overflow-hidden rounded-xl border-2 border-rule-strong bg-surface shadow-2xl">
           <div className="border-b-2 border-rule-strong px-3 py-3 text-center">
-            <p className="text-xl font-extrabold text-ink">{AR.permitTitle(props.yard)}</p>
+            <p className="text-xl font-extrabold text-ink">
+              {storage ? AR.storagePermitTitle(props.yard) : AR.permitTitle(props.yard)}
+            </p>
           </div>
 
           {/* The voucher strip: the number is the whole point of this paper,
@@ -70,8 +76,12 @@ export function PrintVoidPermit(props: {
               </span>
             </div>
             <div className="flex flex-1 flex-col items-center justify-center gap-0.5 px-2 py-2">
-              <span className="text-[10px] font-semibold text-muted">{AR.permitBill}</span>
-              <span className="text-2xl font-extrabold">{AR.permitVoidTitle}</span>
+              <span className="text-[10px] font-semibold text-muted">
+                {storage ? AR.colPermitCount : AR.permitBill}
+              </span>
+              <span className="text-2xl font-extrabold">
+                {storage ? AR.storagePermitVoidTitle : AR.permitVoidTitle}
+              </span>
             </div>
             <div className="flex w-40 flex-col items-center justify-center gap-0.5 border-s border-rule-strong px-3 py-2 text-center text-[12px]">
               <span className="text-[10px] font-semibold text-muted">{AR.permitDate}</span>
@@ -82,7 +92,7 @@ export function PrintVoidPermit(props: {
           {/* Why the paper is empty, in one sentence — so nobody reading the
               drawer later takes a blank permit for a lost one. */}
           <p className="border-b-2 border-rule-strong px-3.5 py-3 text-[13px] font-semibold leading-7 text-ink">
-            {AR.permitVoidNote}
+            {storage ? AR.storagePermitVoidNote : AR.permitVoidNote}
           </p>
 
           <table className="w-full border-collapse">

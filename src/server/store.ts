@@ -14,6 +14,7 @@ import type {
   GateCallRow,
   HaulDirection,
   PermitDto,
+  PermitKind,
   PermitReportRow,
   PhotoDto,
   RetiredZoneDto,
@@ -26,6 +27,8 @@ import type {
   Permission,
   Position,
   Size,
+  StorageMark,
+  StorageReportRow,
   TaskCloseNote,
   TaskDto,
   TaskKind,
@@ -1920,13 +1923,17 @@ export function listGateMovementsBoth(
 }
 
 // ---------------------------------------------------------------------------
-// تصريح تحميل وخروج داخلي — the permit ledger. One bill, its containers as
-// listed the moment the paper was issued, and the truck assigned to each.
-// A numbered yearly ledger like the gate cards, held to the same 1 … N rule.
+// The permit ledgers. Two numbered papers on one machinery (v32):
+//   EXIT    — تصريح تحميل وخروج داخلي: one bill, its containers out.
+//   STORAGE — تصريح نقل حاويات إلى مديرية التخزين: many bills, moved to the
+//             directorate's ground INSIDE the yard. A transfer, not an exit.
+// Each line pins the container's facts the moment the paper was issued. Each
+// kind is its own yearly book: every serial query below asks for its kind.
 // ---------------------------------------------------------------------------
 
 interface PermitRow {
   id: number;
+  kind: string;
   serial: number;
   serial_year: number;
   bill: string;
@@ -1936,23 +1943,34 @@ interface PermitRow {
   deleted_at: string | null;
 }
 
-/** The next serial in this year's permit book, counted over live permits. */
-export function nextPermitNumber(db: DatabaseSync, year: number): number {
+const permitKindOf = (raw: string): PermitKind => (raw === 'STORAGE' ? 'STORAGE' : 'EXIT');
+
+/**
+ * The next serial in this year's book of this kind. Voided permits count: a
+ * number that left the office under a stamp is never handed out again.
+ */
+export function nextPermitNumber(db: DatabaseSync, kind: PermitKind, year: number): number {
   const row = db
-    .prepare(
-      // A voided permit keeps its number for ever, like every other paper
-      // that left the office under a stamp.
-      'SELECT MAX(serial) AS top FROM permits WHERE serial_year = ?',
-    )
-    .get(year) as { top: number | null };
+    .prepare('SELECT MAX(serial) AS top FROM permits WHERE kind = ? AND serial_year = ?')
+    .get(kind, year) as { top: number | null };
   return (row.top ?? 0) + 1;
+}
+
+/** The kind of a live permit — for the guard on who may correct it. */
+export function permitKind(db: DatabaseSync, id: number): PermitKind | null {
+  const row = db.prepare('SELECT kind FROM permits WHERE id = ? AND deleted_at IS NULL').get(id) as
+    | { kind: string }
+    | undefined;
+  return row === undefined ? null : permitKindOf(row.kind);
 }
 
 export function insertPermit(
   db: DatabaseSync,
   permit: {
+    kind: PermitKind;
     serial: number;
     serialYear: number;
+    /** The exit permit's one bill; '' for a storage permit. */
     bill: string;
     at: string;
     userId: number | null;
@@ -1969,21 +1987,31 @@ export function insertPermit(
       weight: string;
       /** v24: pinned, now that «تصحيح الفئة» can change the live one. */
       size: Size;
+      /** v32: the container's own bill — a storage paper mixes them. */
+      bill: string;
     }>;
   },
 ): number {
   const id = Number(
     db
       .prepare(
-        'INSERT INTO permits (serial, serial_year, bill, at, user_id, yard) VALUES (?, ?, ?, ?, ?, ?)',
+        'INSERT INTO permits (kind, serial, serial_year, bill, at, user_id, yard) VALUES (?, ?, ?, ?, ?, ?, ?)',
       )
-      .run(permit.serial, permit.serialYear, permit.bill, permit.at, permit.userId, permit.yard)
+      .run(
+        permit.kind,
+        permit.serial,
+        permit.serialYear,
+        permit.bill,
+        permit.at,
+        permit.userId,
+        permit.yard,
+      )
       .lastInsertRowid,
   );
   const addItem = db.prepare(
     `INSERT INTO permit_items
-       (permit_id, container_id, truck, number, card_in, card_in_year, entered_at, weight, size)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (permit_id, container_id, truck, number, card_in, card_in_year, entered_at, weight, size, bill)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const item of permit.items) {
     addItem.run(
@@ -1996,6 +2024,7 @@ export function insertPermit(
       item.enteredAt,
       item.weight,
       item.size,
+      item.bill,
     );
   }
   return id;
@@ -2018,9 +2047,12 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
   // at v24 like every other fact on the line.
   const items = db
     .prepare(
+      // A line from before v32 holds no bill of its own and reads its
+      // permit's — which, on an exit paper, is exactly what it was for.
       `SELECT i.container_id, i.truck, i.number, i.card_in, i.card_in_year, i.entered_at,
-              i.weight, i.size
+              i.weight, i.size, COALESCE(i.bill, p.bill) AS bill
        FROM permit_items i
+       JOIN permits p ON p.id = i.permit_id
        WHERE i.permit_id = ? AND i.deleted_at IS NULL
        ORDER BY i.id`,
     )
@@ -2033,9 +2065,11 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
     entered_at: string;
     weight: string;
     size: number;
+    bill: string;
   }>;
   return {
     id: row.id,
+    kind: permitKindOf(row.kind),
     serial: row.serial,
     serialYear: row.serial_year,
     bill: row.bill,
@@ -2051,6 +2085,7 @@ export function getPermit(db: DatabaseSync, id: number): PermitDto | null {
       weight: item.weight,
       size: (item.size === 40 ? 40 : 20) as Size,
       truck: item.truck,
+      bill: item.bill,
     })),
   };
 }
@@ -2091,8 +2126,17 @@ export function permitItemCount(db: DatabaseSync, permitId: number): number {
   return row.n;
 }
 
-/** كشف خروج وتحميل داخلي: the permits issued in [from, to), oldest first. */
-export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): PermitReportRow[] {
+/**
+ * One permit book — كشف خروج وتحميل داخلي, or the storage book: the papers
+ * of this kind issued in [from, to), in serial order. The other book's papers
+ * and stubs never appear — its numbers are not this book's holes.
+ */
+export function listPermits(
+  db: DatabaseSync,
+  kind: PermitKind,
+  fromIso: string,
+  toIso: string,
+): PermitReportRow[] {
   const names = listUserNames(db);
   const rows = db
     .prepare(
@@ -2104,10 +2148,10 @@ export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): P
       `SELECT p.*, (SELECT COUNT(*) FROM permit_items i
                  WHERE i.permit_id = p.id AND i.deleted_at IS NULL) AS containers
        FROM permits p
-       WHERE p.at >= ? AND p.at < ? AND p.deleted_at IS NULL
+       WHERE p.kind = ? AND p.at >= ? AND p.at < ? AND p.deleted_at IS NULL
        ORDER BY p.serial_year, p.serial, p.id`,
     )
-    .all(fromIso, toIso) as unknown as Array<PermitRow & { containers: number }>;
+    .all(kind, fromIso, toIso) as unknown as Array<PermitRow & { containers: number }>;
   const live: PermitReportRow[] = rows.map((row) => ({
     id: row.id,
     serial: row.serial,
@@ -2125,9 +2169,9 @@ export function listPermits(db: DatabaseSync, fromIso: string, toIso: string): P
   const struck = db
     .prepare(
       `SELECT serial, serial_year, at, yard FROM permits
-       WHERE at >= ? AND at < ? AND deleted_at IS NOT NULL`,
+       WHERE kind = ? AND at >= ? AND at < ? AND deleted_at IS NOT NULL`,
     )
-    .all(fromIso, toIso) as unknown as Array<{
+    .all(kind, fromIso, toIso) as unknown as Array<{
     serial: number;
     serial_year: number;
     at: string;
@@ -2195,6 +2239,99 @@ function withVoidedPermits(
 
 export function softDeletePermit(db: DatabaseSync, id: number, at: string): void {
   db.prepare('UPDATE permits SET deleted_at = ? WHERE id = ?').run(at, id);
+}
+
+/**
+ * كشف المنقولة للتخزين: one row per container on a live line of a live
+ * storage permit issued in [from, to), in the book's own order — serial,
+ * then line. The dwell figures are counted by the caller, against its clock.
+ *
+ * The facts the paper pinned (number, entry card, bill, weight, size) are
+ * read off the line, so the register agrees with the stamped paper; the
+ * location is where the container IS, or where it left from once it has
+ * gone — the rule every register here keeps.
+ */
+export function listStorageTransfers(
+  db: DatabaseSync,
+  fromIso: string,
+  toIso: string,
+): Array<Omit<StorageReportRow, 'dwellAtTransfer' | 'dwellDays'>> {
+  const names = listUserNames(db);
+  const rows = db
+    .prepare(
+      `SELECT i.container_id, p.id AS permit_id, p.serial, p.serial_year, p.at, p.user_id,
+              i.number, i.size, COALESCE(i.bill, p.bill) AS bill, i.card_in, i.card_in_year,
+              i.entered_at, i.weight,
+              k.zone, k.bay, k.stack, k.tier, k.exited_at
+       FROM permit_items i
+       JOIN permits p ON p.id = i.permit_id
+       JOIN containers k ON k.id = i.container_id
+       WHERE p.kind = 'STORAGE' AND p.deleted_at IS NULL AND i.deleted_at IS NULL
+         AND k.deleted_at IS NULL AND p.at >= ? AND p.at < ?
+       ORDER BY p.serial_year, p.serial, p.id, i.id`,
+    )
+    .all(fromIso, toIso) as unknown as Array<{
+    container_id: number;
+    permit_id: number;
+    serial: number;
+    serial_year: number;
+    at: string;
+    user_id: number | null;
+    number: string;
+    size: number;
+    bill: string;
+    card_in: number | null;
+    card_in_year: number | null;
+    entered_at: string;
+    weight: string;
+    zone: string | null;
+    bay: number | null;
+    stack: number | null;
+    tier: string | null;
+    exited_at: string | null;
+  }>;
+  return rows.map((row) => ({
+    containerId: row.container_id,
+    permitId: row.permit_id,
+    serial: row.serial,
+    serialYear: row.serial_year,
+    at: row.at,
+    number: row.number,
+    size: (row.size === 40 ? 40 : 20) as Size,
+    bill: row.bill,
+    cardIn: row.card_in,
+    cardInYear: row.card_in_year,
+    enteredAt: row.entered_at,
+    weight: row.weight,
+    position:
+      slotOf(row.zone, row.bay, row.stack, row.tier) ??
+      (row.exited_at === null ? null : lastExitPosition(db, row.container_id)),
+    exitedAt: row.exited_at,
+    user: userLabel(names, row.user_id),
+  }));
+}
+
+/**
+ * «منقولة إلى مديرية التخزين»: the newest live storage paper that carries
+ * this container on a live line, or null. Computed, never stored — striking
+ * the line or voiding the permit takes the mark away by itself.
+ */
+export function storageMarkOf(db: DatabaseSync, containerId: number): StorageMark | null {
+  const row = db
+    .prepare(
+      `SELECT p.id, p.serial, p.serial_year, p.at
+         FROM permit_items i
+         JOIN permits p ON p.id = i.permit_id
+        WHERE p.kind = 'STORAGE' AND p.deleted_at IS NULL AND i.deleted_at IS NULL
+          AND i.container_id = ?
+        ORDER BY p.at DESC, p.id DESC LIMIT 1`,
+    )
+    .get(containerId) as
+    | { id: number; serial: number; serial_year: number; at: string }
+    | undefined;
+  return row === undefined
+    ? null
+    : { permitId: row.id, serial: row.serial, serialYear: row.serial_year, at: row.at };
 }
 
 
@@ -2799,6 +2936,7 @@ export function listOrphanWages(db: DatabaseSync): OrphanWageRow[] {
 export function permitsOfContainers(
   db: DatabaseSync,
   ids: readonly number[],
+  kind: PermitKind,
 ): Array<{ containerId: number; serial: number; serialYear: number; at: string }> {
   if (ids.length === 0) return [];
   const marks = ids.map(() => '?').join(', ');
@@ -2808,10 +2946,11 @@ export function permitsOfContainers(
               p.serial_year AS serialYear, p.at AS at
          FROM permit_items i
          JOIN permits p ON p.id = i.permit_id
-        WHERE p.deleted_at IS NULL AND i.deleted_at IS NULL AND i.container_id IN (${marks})
+        WHERE p.kind = ? AND p.deleted_at IS NULL AND i.deleted_at IS NULL
+          AND i.container_id IN (${marks})
         ORDER BY p.serial_year, p.serial`,
     )
-    .all(...ids) as unknown as Array<{
+    .all(kind, ...ids) as unknown as Array<{
     containerId: number;
     serial: number;
     serialYear: number;

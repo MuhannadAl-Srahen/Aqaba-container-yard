@@ -528,6 +528,9 @@ export interface StandingReportRow {
   readonly bill: string;
   readonly position: Position | null;
   readonly seal: string;
+  /** سند بطاقة الإدخال — for the storage permit's issue sheet. */
+  readonly cardIn: number | null;
+  readonly cardInYear: number | null;
   readonly enteredAt: string;
   /** As the scale ticket was copied at the gate; '' when none arrived. */
   readonly weight: string;
@@ -625,6 +628,27 @@ export interface BatchMatch {
 }
 
 /**
+ * Which numbered paper a permit is. Two books on one machinery:
+ *
+ * - EXIT — تصريح خروج من الساحة, one bill's containers out to موقع المقص.
+ * - STORAGE — «تصريح نقل حاويات إلى مديرية التخزين»: containers that have
+ *   sat past ninety days, moved to the directorate's ground INSIDE the yard
+ *   — «نقل وليست اخراج». Many bills on one paper.
+ *
+ * Each kind counts its own serials, voids its own stubs, and warns about its
+ * own second papers; neither ever reads the other's.
+ */
+export const PERMIT_KINDS = ['EXIT', 'STORAGE'] as const;
+export type PermitKind = (typeof PERMIT_KINDS)[number];
+
+/**
+ * «اذا قعدت اكثر من تسعين يوم بننقلهم»: the span after which a container is
+ * due for the storage directorate. A WARNING on the issue screen and never a
+ * bar — the owner's call; the server does not check it.
+ */
+export const STORAGE_DWELL_DAYS = 90;
+
+/**
  * تصريح خروج من الساحة: the paper the yard issues for one bill of
  * lading — permission to load the containers listed on it out of the yard
  * and into موقع المقص only. A numbered ledger of its own, counted per year
@@ -643,27 +667,73 @@ export interface PermitItemDto {
   readonly weight: string;
   /**
    * For the paper's totals line, the bill sheet's own «n حاوية — عشرين ·
-   * أربعين». Read live rather than snapshotted, which is safe for this one
-   * fact alone: a container's size is locked for life (SIZE_LOCKED).
+   * أربعين». Pinned at issue time (v24) like the rest of the line, since
+   * «تصحيح الفئة» can change the live class.
    */
   readonly size: Size;
   /** The truck that will carry this container out; blank = written by hand. */
   readonly truck: string;
+  /**
+   * The container's bill as the paper was issued. A storage permit gathers
+   * many bills, so the line carries its own; an exit permit's lines all read
+   * the permit's one bill.
+   */
+  readonly bill: string;
 }
 
 export interface PermitDto {
   readonly id: number;
+  readonly kind: PermitKind;
   readonly serial: number;
   readonly serialYear: number;
   /** The yard the paper names — pinned at issue time like every other fact. */
   readonly yard: number;
+  /** The bill an exit permit is for; '' on a storage permit, which mixes. */
   readonly bill: string;
   readonly at: string;
   readonly user: string;
   readonly items: readonly PermitItemDto[];
 }
 
-/** One row of كشف خروج وتحميل داخلي. */
+/**
+ * One row of كشف المنقولة للتخزين — one container on a live storage permit,
+ * with the paper that moved it and how long it had sat.
+ */
+export interface StorageReportRow {
+  readonly containerId: number;
+  readonly permitId: number;
+  readonly serial: number;
+  readonly serialYear: number;
+  /** The transfer: the instant its storage permit was issued. */
+  readonly at: string;
+  readonly number: string;
+  readonly size: Size;
+  readonly bill: string;
+  readonly cardIn: number | null;
+  readonly cardInYear: number | null;
+  readonly enteredAt: string;
+  /** الوزن as the permit was issued with it. */
+  readonly weight: string;
+  /** Calendar days from the entry to the transfer. */
+  readonly dwellAtTransfer: number;
+  /** Calendar days from the entry to today — or to its exit card, if it left. */
+  readonly dwellDays: number;
+  /** Where it is now; where it left from, once it has gone. */
+  readonly position: Position | null;
+  readonly exitedAt: string | null;
+  /** Who issued the storage permit. */
+  readonly user: string;
+}
+
+/** «منقولة إلى مديرية التخزين» — the live storage paper a container is on. */
+export interface StorageMark {
+  readonly permitId: number;
+  readonly serial: number;
+  readonly serialYear: number;
+  readonly at: string;
+}
+
+/** One row of a permit book — كشف خروج وتحميل داخلي, or its storage twin. */
 export interface PermitReportRow {
   /** 0 on a voided stub: it is a number with a paper, and no record. */
   readonly id: number;
@@ -842,6 +912,12 @@ export const ERROR_CODES = [
   'TASK_CLOSED',
   /** تعديل تصريح: a paper that covers nothing is voided, not emptied. */
   'PERMIT_EMPTY',
+  /**
+   * تصريح نقل إلى مديرية التخزين offered for a container that is not
+   * standing in the yard on paper — its exit card is written, or it has
+   * gone. `details.other` names it.
+   */
+  'STORAGE_NOT_STANDING',
   'NAME_TAKEN',
   'NOT_DELETED',
   /** Asked to take back an exit for a container that is standing in the yard. */

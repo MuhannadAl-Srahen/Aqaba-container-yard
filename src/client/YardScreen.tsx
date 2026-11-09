@@ -13,7 +13,9 @@ import type {
   GateCallRow,
   Permission,
   PermitDto,
+  PermitKind,
   Position,
+  StandingReportRow,
   Zone,
 } from '../shared/types';
 import { composeLayout, yardSlice, yardsOf } from '../shared/layout';
@@ -31,6 +33,7 @@ import { PrintVoidCard } from './PrintVoidCard';
 import { PrintVoidPermit } from './PrintVoidPermit';
 import { PrintPermit } from './PrintPermit';
 import { PermitSheet } from './PermitSheet';
+import { StoragePermitSheet } from './StoragePermitSheet';
 import { FillSheet } from './FillSheet';
 import {
   addressMatch,
@@ -137,10 +140,13 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
   );
   /** تصريح ملغى: the permit book's own empty stub. */
   const [voidPermit, setVoidPermit] = useState<{
+    kind: PermitKind;
     serial: number;
     serialYear: number;
     yard: number;
   } | null>(null);
+  /** تصريح نقل إلى مديرية التخزين: the dormancy rows it is issued from. */
+  const [storageCreate, setStorageCreate] = useState<readonly StandingReportRow[] | null>(null);
   /** تصريح تحميل وخروج داخلي: the paper on screen, and the issue form. */
   const [permitPrint, setPermitPrint] = useState<PermitDto | null>(null);
   const [permitCreate, setPermitCreate] = useState<{
@@ -973,8 +979,8 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           // The stub's own paper: nothing to fetch, the number IS the paper.
           setVoidCard({ serial, serialYear });
         }}
-        onVoidPermit={(serial, serialYear, yard) => {
-          setVoidPermit({ serial, serialYear, yard });
+        onVoidPermit={(kind, serial, serialYear, yard) => {
+          setVoidPermit({ kind, serial, serialYear, yard });
         }}
         onEdit={(containerId) => {
           // «تعديل بيانات الصف … دون الرجوع الى مكان وجود الحاوية»: the
@@ -1000,6 +1006,11 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           setPermitCreate({ bill, containers: billContainers });
         }}
         canPermit={may('GATE_OUT')}
+        onCreateStoragePermit={(rows) => {
+          setStorageCreate(rows);
+        }}
+        // «نقل وليست اخراج»: the storage paper is a transfer's — MOVE.
+        canStorage={may('MOVE')}
         canEdit={may('EDIT')}
         isOwner={isOwner}
         onBack={() => {
@@ -1768,6 +1779,23 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
           }}
         />
       )}
+      {storageCreate !== null && (
+        <StoragePermitSheet
+          rows={storageCreate}
+          onDone={(permit, message) => {
+            setStorageCreate(null);
+            setToast(message);
+            void queryClient.invalidateQueries({ queryKey: ['report-permits'] });
+            void queryClient.invalidateQueries({ queryKey: ['report-storage'] });
+            void queryClient.invalidateQueries({ queryKey: ['permits-for'] });
+            void queryClient.invalidateQueries({ queryKey: ['container'] });
+            setPermitPrint(permit);
+          }}
+          onClose={() => {
+            setStorageCreate(null);
+          }}
+        />
+      )}
       {permitPrint !== null && (
         <PrintPermit
           permit={permitPrint}
@@ -1846,6 +1874,7 @@ export function YardScreen(props: { onUnauthorized: () => void }): ReactElement 
       )}
       {voidPermit !== null && (
         <PrintVoidPermit
+          kind={voidPermit.kind}
           serial={voidPermit.serial}
           serialYear={voidPermit.serialYear}
           yard={voidPermit.yard}

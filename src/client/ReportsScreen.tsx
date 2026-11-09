@@ -6,8 +6,10 @@ import type {
   GateReportRow,
   Handling,
   MachineReportRow,
+  PermitKind,
   PermitReportRow,
   StandingReportRow,
+  StorageReportRow,
 } from '../shared/types';
 import { HANDLING, cardSerial } from '../shared/types';
 import { carrierOfPlate } from '../shared/fleet';
@@ -42,7 +44,17 @@ import {
  * operations log lives on its own screen.
  */
 
-type Tab = 'in' | 'out' | 'standing' | 'aging' | 'daily' | 'machines' | 'truck' | 'bill' | 'permits';
+type Tab =
+  | 'in'
+  | 'out'
+  | 'standing'
+  | 'aging'
+  | 'daily'
+  | 'machines'
+  | 'truck'
+  | 'bill'
+  | 'permits'
+  | 'storage';
 
 /** The bill cell is a doorway: tap it, get that bill's own sheet. */
 const billCell = (bill: string, onBill: (bill: string) => void): TableCell =>
@@ -402,17 +414,27 @@ const TABS: ReadonlyArray<readonly [Tab, string]> = [
   ['machines', AR.reportMachines],
   ['truck', AR.reportTruck],
   ['permits', AR.reportPermits],
+  ['storage', AR.reportStorage],
 ];
 
-/** كشف خروج وتحميل داخلي: التصاريح الصادرة في الفترة، الأقدم أولاً. */
-function permitsModel(rows: readonly PermitReportRow[], onBill: (bill: string) => void): TableModel {
+/**
+ * A permit book: the papers issued in the period, in serial order. The exit
+ * book carries a bill column; a storage paper mixes bills, so its book has
+ * none — the bills live on the paper's own lines and in كشف المنقولة للتخزين.
+ */
+function permitsModel(
+  rows: readonly PermitReportRow[],
+  onBill: (bill: string) => void,
+  kind: PermitKind,
+): TableModel {
+  const exit = kind === 'EXIT';
   const head = [
     AR.colSeq,
     AR.permitSerial,
     AR.colDay,
     AR.colDate,
     AR.colTime,
-    AR.colBill,
+    ...(exit ? [AR.colBill] : []),
     AR.colPermitCount,
     AR.colUser,
   ];
@@ -429,8 +451,8 @@ function permitsModel(rows: readonly PermitReportRow[], onBill: (bill: string) =
           cellText(dash),
           cellLtr(dash),
           cellLtr(dash),
-          cellText(AR.permitVoidStatement),
-          cellText(dash, 0),
+          ...(exit ? [cellText(AR.permitVoidStatement)] : []),
+          exit ? cellText(dash, 0) : cellText(AR.permitVoidStatement, 0),
           cellText(dash),
         ]
       : [
@@ -441,7 +463,7 @@ function permitsModel(rows: readonly PermitReportRow[], onBill: (bill: string) =
             row.serialYear * 100_000 + row.serial,
           ),
           ...stampCells(new Date(row.at)),
-          billCell(row.bill, onBill),
+          ...(exit ? [billCell(row.bill, onBill)] : []),
           cellText(String(row.containers), row.containers),
           cellText(row.user),
         ],
@@ -454,6 +476,63 @@ function permitsModel(rows: readonly PermitReportRow[], onBill: (bill: string) =
   return { head, body, footer, counted: true };
 }
 
+/**
+ * كشف المنقولة للتخزين — «كشف للحاويات المنقولة للتخزين مثل كشف حاويات
+ * الدخول … تاريخ النقل كم صارلها الحاوية راكدة كم وزنها». One line per
+ * container on a live storage paper of the period, in the book's own order.
+ * Two spans: how long it had sat when the paper moved it, and how long it
+ * has sat by now — or by its exit card, once it has gone.
+ */
+function storageModel(
+  rows: readonly StorageReportRow[],
+  onBill: (bill: string) => void,
+): TableModel {
+  const head = [
+    AR.colSeq,
+    AR.colStoragePermit,
+    AR.colDay,
+    AR.colTransferDate,
+    AR.colCardIn,
+    AR.colNumber,
+    AR.colSize,
+    AR.colBill,
+    AR.colWeight,
+    AR.colEnteredAt,
+    AR.colDwellAtTransfer,
+    AR.colDwellNow,
+    AR.colSlot,
+    AR.colUser,
+  ];
+  const body = rows.map((row, index) => [
+    cellText(String(index + 1)),
+    cellLtr(
+      cardSerial(row.serial, row.serialYear) ?? dash,
+      row.serialYear * 100_000 + row.serial,
+    ),
+    cellText(dayFormat.format(new Date(row.at))),
+    cellLtr(dateFormat.format(new Date(row.at)), Date.parse(row.at)),
+    cellLtr(
+      cardSerial(row.cardIn, row.cardInYear) ?? dash,
+      (row.cardInYear ?? 0) * 100_000 + (row.cardIn ?? 0),
+    ),
+    cellLtr(row.number),
+    cellText(String(row.size)),
+    billCell(row.bill, onBill),
+    cellNumeric(row.weight, dash),
+    cellLtr(dateFormat.format(new Date(row.enteredAt)), Date.parse(row.enteredAt)),
+    cellText(AR.daysCount(row.dwellAtTransfer), row.dwellAtTransfer),
+    cellText(AR.daysCount(row.dwellDays), row.dwellDays),
+    cellLtr(row.position === null ? dash : positionLabel(row.position)),
+    cellText(row.user),
+  ]);
+  const t20 = rows.filter((row) => row.size === 20).length;
+  const footer =
+    rows.length === 0
+      ? null
+      : [cellText(AR.totalRow), cellText(AR.billTotals(rows.length, t20, rows.length - t20))];
+  return { head, body, footer, counted: true };
+}
+
 export function ReportsScreen(props: {
   /** Land straight on one bill's sheet — the search's doorway. */
   initialBill?: string | undefined;
@@ -462,7 +541,7 @@ export function ReportsScreen(props: {
   /** The empty stub of a voided serial — it has a paper but no record. */
   onVoidCard: (serial: number, serialYear: number | null) => void;
   /** تصريح ملغى — the permit book's own empty stub, printable. */
-  onVoidPermit: (serial: number, serialYear: number, yard: number) => void;
+  onVoidPermit: (kind: PermitKind, serial: number, serialYear: number, yard: number) => void;
   /** The register row's pencil: the container's card opens editing at once. */
   onEdit: (containerId: number) => void;
   /** Open a permit's paper from its register row. */
@@ -471,6 +550,13 @@ export function ReportsScreen(props: {
   onCreatePermit: (bill: string, containers: readonly ContainerDto[]) => void;
   /** May this person issue a permit? It is exit paperwork — GATE_OUT. */
   canPermit: boolean;
+  /**
+   * تصريح نقل إلى مديرية التخزين, from كشف الرُّكود: the rows the register
+   * is showing right now, oldest first.
+   */
+  onCreateStoragePermit: (rows: readonly StandingReportRow[]) => void;
+  /** May this person issue or correct a storage paper? A transfer — MOVE. */
+  canStorage: boolean;
   /**
    * May this person edit a container? The row's pencil opens the very same
    * form the container's card opens, so it answers to the very same
@@ -495,6 +581,8 @@ export function ReportsScreen(props: {
   /** «فصل بين سيارات التي اخرجت وبين التي ادخلت» — the truck sheet splits. */
   const [truckDir, setTruckDir] = useState<'ALL' | 'IN' | 'OUT'>('ALL');
   const [bill, setBill] = useState(props.initialBill ?? '');
+  /** Which permit book the permits tab reads — «الخروج / التخزين». */
+  const [permitKind, setPermitKind] = useState<PermitKind>('EXIT');
   const [removingPermit, setRemovingPermit] = useState<PermitReportRow | null>(null);
   /** تعديل تصريح مُصدَر: which paper's lines are being struck. */
   const [editingPermit, setEditingPermit] = useState<number | null>(null);
@@ -614,11 +702,30 @@ export function ReportsScreen(props: {
     refetchInterval: LIVE,
   });
   const permits = useQuery({
-    queryKey: ['report-permits', fromIso, toIso],
-    queryFn: () => api.reportPermits(fromIso, toIso),
+    queryKey: ['report-permits', permitKind, fromIso, toIso],
+    queryFn: () => api.reportPermits(permitKind, fromIso, toIso),
     enabled: valid && tab === 'permits',
     refetchInterval: LIVE,
   });
+  const storage = useQuery({
+    queryKey: ['report-storage', fromIso, toIso],
+    queryFn: () => api.reportStorage(fromIso, toIso),
+    enabled: valid && tab === 'storage',
+    refetchInterval: (query) => liveFor(query.state.data?.rows.length),
+  });
+
+  /**
+   * كشف الرُّكود's own rows — the SAME array the sheet draws and the storage
+   * permit is issued from, so the paper offers exactly what is on the screen.
+   */
+  const agingRows = useMemo(
+    () =>
+      (standing.data?.rows ?? [])
+        .filter((row) => row.dwellDays >= agingDays)
+        .slice()
+        .sort((left, right) => right.dwellDays - left.dwellDays),
+    [standing.data, agingDays],
+  );
 
   /** The truck rows the sheet actually shows — the actions column reads the
    * SAME array, so a row's buttons always belong to the row they sit on. */
@@ -647,7 +754,9 @@ export function ReportsScreen(props: {
             ? `${baseTitle} ${ltrCode(bill.trim())}`
             : tab === 'bill'
               ? AR.billAllTitle
-              : baseTitle;
+              : tab === 'permits' && permitKind === 'STORAGE'
+                ? AR.reportStoragePermits
+                : baseTitle;
 
   const model = useMemo<TableModel>(() => {
     const openTruck = (plate: string): void => {
@@ -665,13 +774,7 @@ export function ReportsScreen(props: {
       case 'standing':
         return standingModel(standing.data?.rows ?? [], openBill);
       case 'aging':
-        return agingModel(
-          (standing.data?.rows ?? [])
-            .filter((row) => row.dwellDays >= agingDays)
-            .slice()
-            .sort((left, right) => right.dwellDays - left.dwellDays),
-          openBill,
-        );
+        return agingModel(agingRows, openBill);
       case 'daily':
         return dailyModel(daily.data?.rows ?? []);
       case 'machines':
@@ -692,9 +795,14 @@ export function ReportsScreen(props: {
       case 'bill':
         return billModel(billReport.data?.rows ?? [], billReady ? null : openBill);
       case 'permits':
-        return permitsModel(permits.data?.rows ?? [], openBill);
+        return permitsModel(permits.data?.rows ?? [], openBill, permitKind);
+      case 'storage':
+        return storageModel(storage.data?.rows ?? [], openBill);
     }
-  }, [tab, gate.data, standing.data, daily.data, machines.data, truckRows, billReport.data, permits.data, activeCarrier, truckReady, billReady]);
+  }, [tab, gate.data, standing.data, agingRows, daily.data, machines.data, truckRows, billReport.data, permits.data, permitKind, storage.data, activeCarrier, truckReady, billReady]);
+
+  /** Who may correct a paper of the book on screen: its issuer's permission. */
+  const canEditPermit = permitKind === 'STORAGE' ? props.canStorage : props.canPermit;
 
   // A register row carries its own card: no hunting the exact number down in
   // the search box to reprint the paper the driver already lost. The permits
@@ -715,7 +823,7 @@ export function ReportsScreen(props: {
                   <button
                     type="button"
                     onClick={() => {
-                      props.onVoidPermit(row.serial, row.serialYear, row.yard);
+                      props.onVoidPermit(permitKind, row.serial, row.serialYear, row.yard);
                     }}
                     className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
                   >
@@ -737,7 +845,7 @@ export function ReportsScreen(props: {
                 </button>
                 {/* المخلّص الذي وعد بخمس عشرة وجاء بخمس: the paper is
                     corrected, not thrown away. Whoever issues it corrects it. */}
-                {props.canPermit && (
+                {canEditPermit && (
                   <button
                     type="button"
                     disabled={busy}
@@ -759,6 +867,39 @@ export function ReportsScreen(props: {
                     className="rounded-lg bg-red-50 px-2.5 py-1 text-xs font-bold text-red-700 hover:bg-red-100 disabled:opacity-40 dark:bg-red-950 dark:text-red-300"
                   >
                     {AR.permitDelete}
+                  </button>
+                )}
+              </span>
+            );
+          },
+        }
+      : tab === 'storage'
+      ? {
+          header: AR.actionColumn,
+          render: (rowIndex: number): ReactNode => {
+            const row = storage.data?.rows[rowIndex];
+            if (row === undefined) return null;
+            return (
+              <span className="flex justify-center gap-1.5">
+                {/* The paper that moved it, reprinted as issued. */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.onPermit(row.permitId);
+                  }}
+                  className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700 hover:bg-blue-100 dark:bg-blue-950 dark:text-blue-200"
+                >
+                  {AR.permitAction}
+                </button>
+                {props.canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      props.onEdit(row.containerId);
+                    }}
+                    className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700 hover:bg-amber-100 dark:bg-amber-950 dark:text-amber-200"
+                  >
+                    {AR.actionEdit}
                   </button>
                 )}
               </span>
@@ -888,11 +1029,13 @@ export function ReportsScreen(props: {
       }
       extraFilters={
         tab === 'aging' ? (
-          /* كشف الرُّكود: «أطول من» — a week, two, three, a month. The sheet
-             is the same standing snapshot cut at the span he picks. */
+          /* كشف الرُّكود: «أطول من» — a week, two, three, a month, and the
+             storage directorate's ninety days. The sheet is the same standing
+             snapshot cut at the span he picks, and the storage permit is
+             issued from exactly the rows it shows. */
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs font-bold text-muted">{AR.agingPick}</span>
-            {[7, 15, 21, 30].map((days) => (
+            {[7, 15, 21, 30, 90].map((days) => (
               <button
                 key={days}
                 type="button"
@@ -907,6 +1050,44 @@ export function ReportsScreen(props: {
                 }
               >
                 {AR.agingDays(days)}
+              </button>
+            ))}
+            {props.canStorage && (
+              <Button
+                kind="quiet"
+                disabled={agingRows.length === 0}
+                onClick={() => {
+                  props.onCreateStoragePermit(agingRows);
+                }}
+              >
+                {AR.storagePermitCreate}
+              </Button>
+            )}
+          </div>
+        ) : tab === 'permits' ? (
+          /* The two books side by side on one tab: each keeps its own
+             serials, its own void stubs and its own issuer. */
+          <div className="flex gap-1 rounded-xl border border-line bg-sunken p-1">
+            {(
+              [
+                ['EXIT', AR.permitKindExit],
+                ['STORAGE', AR.permitKindStorage],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => {
+                  setPermitKind(value);
+                }}
+                className={
+                  'rounded-lg px-2.5 py-1 text-xs font-bold transition-colors ' +
+                  (permitKind === value
+                    ? 'bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900'
+                    : 'text-muted hover:bg-line')
+                }
+              >
+                {label}
               </button>
             ))}
           </div>
@@ -1032,8 +1213,10 @@ export function ReportsScreen(props: {
         permitId={editingPermit}
         onDone={(_permit, message) => {
           void queryClient.invalidateQueries({ queryKey: ['report-permits'] });
+          void queryClient.invalidateQueries({ queryKey: ['report-storage'] });
           void queryClient.invalidateQueries({ queryKey: ['permit'] });
           void queryClient.invalidateQueries({ queryKey: ['permits-for'] });
+          void queryClient.invalidateQueries({ queryKey: ['container'] });
           setToast(message);
           setEditingPermit(null);
         }}
@@ -1057,6 +1240,9 @@ export function ReportsScreen(props: {
             .removePermit(removingPermit.id)
             .then(() => {
               void queryClient.invalidateQueries({ queryKey: ['report-permits'] });
+              void queryClient.invalidateQueries({ queryKey: ['report-storage'] });
+              void queryClient.invalidateQueries({ queryKey: ['permits-for'] });
+              void queryClient.invalidateQueries({ queryKey: ['container'] });
               setToast(AR.permitDeleted);
               setBusy(false);
               setRemovingPermit(null);

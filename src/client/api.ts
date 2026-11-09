@@ -24,11 +24,14 @@ import type {
   OrphanWageRow,
   Permission,
   PermitDto,
+  PermitKind,
   PermitReportRow,
   PhotoDto,
   Position,
   RetiredZoneDto,
   StandingReportRow,
+  StorageMark,
+  StorageReportRow,
   TaskDto,
   TaskStatus,
   TruckDto,
@@ -98,11 +101,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
           ? AR.errorWith(body.code, other)
           : body.code === 'GROUP_BURIED' && typeof other === 'string'
             ? AR.groupBuried(other)
-            : body.code === 'GROUP_NO_ROOM' && typeof fit === 'number' && typeof total === 'number'
-              ? AR.groupNoRoom(fit, total)
-              : body.code === 'VALIDATION' && named !== undefined
-                ? AR.validationField(named)
-                : (AR.errors[body.code] ?? AR.networkError);
+            : body.code === 'STORAGE_NOT_STANDING' && typeof other === 'string'
+              ? AR.storageNotStanding(other)
+              : body.code === 'GROUP_NO_ROOM' && typeof fit === 'number' && typeof total === 'number'
+                ? AR.groupNoRoom(fit, total)
+                : body.code === 'VALIDATION' && named !== undefined
+                  ? AR.validationField(named)
+                  : (AR.errors[body.code] ?? AR.networkError);
       throw new ApiFailure(body.code, arabic, body.details);
     }
     throw new ApiFailure('NETWORK', AR.networkError);
@@ -318,6 +323,12 @@ export const api = {
   /** A snapshot of what is standing right now — no range, it is «الآن». */
   reportStanding: (): Promise<{ rows: StandingReportRow[] }> => request('/api/reports/standing'),
 
+  /** كشف المنقولة للتخزين: the containers on storage papers of the period. */
+  reportStorage: (fromIso: string, toIso: string): Promise<{ rows: StorageReportRow[] }> =>
+    request(
+      `/api/reports/storage?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+    ),
+
   reportLog: (fromIso: string, toIso: string): Promise<{ rows: LogReportRow[] }> =>
     request(
       `/api/reports/log?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
@@ -506,26 +517,37 @@ export const api = {
   reportBillAll: (): Promise<{ rows: ContainerDto[] }> => request('/api/reports/bill'),
 
   /**
-   * تصريح تحميل وخروج داخلي: issue the paper for one bill's containers. The
-   * server mints the yearly serial and hands the whole permit back, so the
-   * paper can go straight to the printer.
+   * Issue a numbered permit. EXIT — تصريح تحميل وخروج داخلي for one bill's
+   * containers; STORAGE — تصريح نقل حاويات إلى مديرية التخزين, many bills,
+   * no bill named. The server mints the yearly serial of that kind's own book
+   * and hands the whole permit back, so the paper can go straight to the
+   * printer.
    */
   createPermit: (input: {
-    bill: string;
+    kind?: PermitKind;
+    bill?: string;
     items: ReadonlyArray<{ containerId: number; weight: string }>;
   }): Promise<PermitDto> =>
     request('/api/permits', { method: 'POST', body: JSON.stringify(input) }),
 
-  /** كشف خروج وتحميل داخلي: the permits issued in a period. */
-  /** أي من هذه الحاويات له تصريح حيّ بالفعل — the second-paper warning. */
+  /**
+   * أي من هذه الحاويات له تصريح حيّ بالفعل في هذا الدفتر — the second-paper
+   * warning. Each book warns about its own papers only.
+   */
   permitsFor: (
     ids: readonly number[],
+    kind: PermitKind = 'EXIT',
   ): Promise<{ rows: Array<{ containerId: number; serial: number; serialYear: number; at: string }> }> =>
-    request(`/api/permits/for?ids=${ids.join(',')}`),
+    request(`/api/permits/for?ids=${ids.join(',')}&kind=${kind}`),
 
-  reportPermits: (fromIso: string, toIso: string): Promise<{ rows: PermitReportRow[] }> =>
+  /** One permit book — exit or storage — for a period. */
+  reportPermits: (
+    kind: PermitKind,
+    fromIso: string,
+    toIso: string,
+  ): Promise<{ rows: PermitReportRow[] }> =>
     request(
-      `/api/permits?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`,
+      `/api/permits?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}&kind=${kind}`,
     ),
 
   /** One permit exactly as issued — the register row's reprint. */
@@ -755,7 +777,9 @@ export const api = {
   search: (q: string): Promise<{ results: ContainerDto[] }> =>
     request(`/api/containers?q=${encodeURIComponent(q)}`),
 
-  detail: (id: number): Promise<{ container: ContainerDto; movements: MovementDto[] }> =>
+  detail: (
+    id: number,
+  ): Promise<{ container: ContainerDto; movements: MovementDto[]; storage: StorageMark | null }> =>
     request(`/api/containers/${String(id)}`),
 };
 
@@ -789,6 +813,7 @@ const YARD_QUERY_KEYS = [
   'report-bill',
   'report-log',
   'report-permits',
+  'report-storage',
 ] as const;
 
 export function invalidateYard(queryClient: QueryClient): void {

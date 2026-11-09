@@ -9,7 +9,7 @@ import type {
   TaskStatus,
   Tier,
 } from '../shared/types';
-import { TIERS } from '../shared/types';
+import { STORAGE_DWELL_DAYS, TIERS } from '../shared/types';
 import type { SheetWarning } from '../shared/customsSheet';
 import { ltrCode } from '../shared/bidi';
 
@@ -116,6 +116,67 @@ export const AR = {
     `هل تريد حذف التصريح رقم ${serial}؟ يبقى رقمه محجوزاً له فلا يأخذه تصريح آخر.`,
   permitDeleted: 'تم حذف التصريح.',
   permitsCount: (count: number): string => `عدد التصاريح: ${String(count)}`,
+
+  // ---- تصريح نقل حاويات إلى مديرية التخزين ----
+  /**
+   * «اذا قعدت اكثر من تسعين يوم بننقلهم ل مكان داخل الساحة … تصريح نقل
+   * حاويات … وهي نقل وليست اخراج». The heading and the sentence are the
+   * owner's own pick among the two offered.
+   */
+  storagePermitTitle: (yard: number): string =>
+    `تصريح نقل حاويات إلى مديرية التخزين — ساحة (${String(yard)})`,
+  storagePermitSentence: (yard: number): string =>
+    // The owner's own words, as he picked them — the number spelled out.
+    'يسمح بنقل الحاويات المبينة أدناه، والتي تجاوزت مدة بقائها تسعين يوماً، ' +
+    `إلى موقع مديرية التخزين داخل ساحة رقم (${String(yard)})، وهو نقل داخلي لا إخراج.`,
+  storagePermitCreate: 'إصدار تصريح نقل للتخزين',
+  storagePermitCreateHint:
+    'لا تُعلَّم أي حاوية عند الفتح: علّم الحاويات التي يشملها التصريح، أو اضغط «تحديد الكل». ' +
+    'التصريح ورقة لا تحرّك شيئاً على الخريطة: انقل الحاويات بعد إصداره بزر «نقل» أو بالنقل الجماعي.',
+  storageFilter: 'تصفية برقم الحاوية أو البوليصة',
+  storageNoContainers: 'لا توجد حاويات واقفة في هذا الكشف.',
+  storageNoMatch: 'لا توجد حاوية تطابق التصفية.',
+  /**
+   * The amber chip — a warning, never a bar: the owner's call. The days
+   * themselves stand in their own chip beside it.
+   */
+  storageUnder: `لم تكمل ${String(STORAGE_DWELL_DAYS)} يوماً`,
+  storageUnderHint:
+    `الحاويات المعلّمة «لم تكمل ${String(STORAGE_DWELL_DAYS)} يوماً» يجوز نقلها، والمدة ` +
+    'الحقيقية لكل حاوية تُطبع على التصريح في عمود «المدة عند النقل».',
+  storageAlready: (serials: string): string => `منقولة للتخزين: ${serials}`,
+  storageAlreadyHint:
+    'الحاويات المعلّمة «منقولة للتخزين» صدر لها تصريح نقل من قبل. لإعادة طباعة الورقة نفسها ' +
+    'بلا رقم جديد استعمل زر «التصريح» في كشف المنقولة للتخزين.',
+  storagePermitMax: (max: number): string =>
+    `التصريح الواحد يحمل ${String(max)} حاوية على الأكثر. قسّم الحاويات على أكثر من تصريح.`,
+  storagePermitDone: (serial: string): string =>
+    `تم إصدار تصريح النقل إلى التخزين رقم ${serial}.`,
+  storagePermitEdit: 'تعديل تصريح النقل',
+  storagePermitEditHint:
+    'أزل العلامة عن الحاويات التي لم تُنقل فتُشطب من التصريح وتزول عنها علامة «منقولة ' +
+    'للتخزين». يبقى التصريح برقمه وتاريخه، ويُطبع من جديد بالحاويات الباقية وحدها. ولا يجوز شطبها كلها.',
+  storagePermitVoidTitle: 'تصريح نقل ملغى',
+  storagePermitVoidNote:
+    'هذا التصريح صدر برقمه ثم أُلغي، ولا يُسمح بموجبه بنقل أي حاوية. يُحفظ في الملف ' +
+    'ليبقى الترقيم متصلاً، ولا يُعطى رقمه لتصريح آخر.',
+  reportStorage: 'كشف المنقولة للتخزين',
+  reportStoragePermits: 'كشف تصاريح النقل إلى التخزين',
+  storageReportEmpty: 'لم تُنقل حاويات إلى التخزين في هذه الفترة.',
+  /** The permit register's switch between its two books. */
+  permitKindExit: 'تصاريح الخروج',
+  permitKindStorage: 'تصاريح التخزين',
+  colStoragePermit: 'رقم تصريح النقل',
+  colTransferDate: 'تاريخ النقل',
+  colDwellAtTransfer: 'المدة عند النقل',
+  /** From the entry to today — or to the exit card, once it has left. */
+  colDwellNow: 'مدة الركود',
+  /** The container card's status line. */
+  storageMark: (serial: string, date: string): string =>
+    `منقولة إلى مديرية التخزين — تصريح ${serial} بتاريخ ${date}`,
+  storageNotStanding: (number: string): string =>
+    `الحاوية ${ltrCode(number)} ليست واقفة في الساحة: خرجت أو كُتبت بطاقة خروجها. ` +
+    'أزلها من التصريح ثم أعد الإصدار.',
 
   // ---- الزونات والساحات ----
   zonesButton: 'الساحات',
@@ -1300,7 +1361,7 @@ export const AR = {
     `تم الاسترجاع كاملاً: ${String(counts.containers)} حاوية، ` +
     `${String(counts.movements)} حركة في السجل، ${String(counts.users)} موظف، ` +
     `${String(counts.carriers)} ناقل و${String(counts.trucks)} سيارة ` +
-    `و${String(counts.permits)} تصريح تحميل وخروج و${String(counts.zones)} زون معرّف.`,
+    `و${String(counts.permits)} تصريح و${String(counts.zones)} زون معرّف.`,
   /** تغيير كلمة سر المالك — من الشاشة، بيده هو، بلا وسيط يراها. */
   toolsPasswordTitle: 'كلمة سر المالك',
   toolsPasswordBody:
@@ -1391,6 +1452,9 @@ export const AR = {
     PERMIT_EMPTY:
       'لا يمكن شطب كل حاويات التصريح: تصريح لا يحمل حاوية واحدة لا معنى له. ' +
       'أبقِ حاوية واحدة على الأقل، أو احذف التصريح كاملاً من الكشف.',
+    STORAGE_NOT_STANDING:
+      'إحدى الحاويات ليست واقفة في الساحة: خرجت أو كُتبت بطاقة خروجها. ' +
+      'أزلها من التصريح ثم أعد الإصدار.',
     NAME_TAKEN:
       'هذا الحرف مستخدم لزون قائم أو محجوز لسجلات زون سابق. اختر حرفاً آخر.',
     NOT_DELETED: 'هذا السجل غير محذوف أصلاً.',

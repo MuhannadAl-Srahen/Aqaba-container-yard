@@ -234,6 +234,8 @@ describe('permissions', () => {
       `/api/reports/log?${window}`,
       `/api/reports/truck?truck=522&${window}`,
       '/api/reports/bill?number=3210',
+      `/api/reports/storage?${window}`,
+      `/api/permits?kind=STORAGE&${window}`,
     ]) {
       const allowed = await call({ method: 'GET', url, cookie: rana.cookie });
       expect(allowed.status, url).toBe(200);
