@@ -126,9 +126,8 @@ export const AR = {
   storagePermitTitle: (yard: number): string =>
     `تصريح نقل حاويات إلى مديرية التخزين — ساحة (${String(yard)})`,
   storagePermitSentence: (yard: number): string =>
-    // The owner's own words, as he picked them — the number spelled out.
-    'يسمح بنقل الحاويات المبينة أدناه، والتي تجاوزت مدة بقائها تسعين يوماً، ' +
-    `إلى موقع مديرية التخزين داخل ساحة رقم (${String(yard)})، وهو نقل داخلي لا إخراج.`,
+    // The owner's own words, dictated before the first release.
+    `يسمح بنقل الحاويات المبينة أدناه إلى الموقع التابع لمديرية التخزين في ساحة رقم ${String(yard)}.`,
   storagePermitCreate: 'إصدار تصريح نقل للتخزين',
   storagePermitCreateHint:
     'لا تُعلَّم أي حاوية عند الفتح: علّم الحاويات التي يشملها التصريح، أو اضغط «تحديد الكل». ' +
